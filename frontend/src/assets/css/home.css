@@ -1,0 +1,251 @@
+/* Base container styling */
+.home-container {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+  background: #fbfffe;
+}
+
+.image-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  align-items: center;
+  justify-content: start;
+  transition: all .5s;
+}
+.image-container.left{
+  background: #f9faff url(../images/client.png) no-repeat center center;
+  background-size: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 4% 0;
+
+}
+.image-container h2{
+  color: #000932;
+  display: block;
+  font-size: 2.5em;
+  font-weight: 600;
+  line-height: 32px;
+  text-align: center;
+  text-transform: uppercase;
+  background: #D9D9D9;
+  padding: 27px 10px;
+  width: 310px;
+  border-radius: 8px;
+  position: relative;
+}
+.image-container h2 small{
+color: #000;
+display: block;
+font-size: 18px;
+font-weight: 400;
+text-transform: capitalize;
+}
+.image-container h2::before{
+    content: "";
+    height: 100%;
+    left: 0;
+    position: absolute;
+    top: 103px;
+    width: 100%;
+    background: url(../images/stand.png) no-repeat center center;
+    background-size: 175px !important;
+    
+}
+.image-container.right{
+  background: #fff url(../images/employee.png) no-repeat center center;
+  background-size: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 4% 0;
+
+}
+/* .image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.5s ease, object-fit 0.5s ease;
+}
+
+.image-container:hover {
+  flex: 8;
+  z-index: 10;
+}
+*/
+.image-container:hover {
+  object-fit: contain;
+  transform: scale(1.1);
+}
+
+/*.image-container:not(:hover) {
+  flex: 1;
+} */
+
+/* Left container specifics 
+.image-container.left {
+  transform-origin: left center;
+  background-color: #fdfdfd;
+}*/
+
+/* Right container specifics 
+.image-container.right {
+  transform-origin: right center;
+  background-color: #fff;
+}*/
+
+/* Page transition overlay */
+.transition-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #924a97; /* Black overlay */
+  z-index: 100;
+  opacity: 0;
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.8s ease-in-out, opacity 0.8s ease-in-out;
+}
+
+/* Animation for left-to-right transition */
+.transition-overlay.slide-left {
+  opacity: 1;
+  transform: scaleX(1); /* Expand overlay */
+  transform-origin: right; /* Start from the right edge */
+}
+
+/* Animation for right-to-left transition */
+.transition-overlay.slide-right {
+  opacity: 1;
+  transform: scaleX(1); /* Expand overlay */
+  transform-origin: left; /* Start from the left edge */
+}
+
+
+.brandLogo_home{
+  align-items: center;
+  background: #fff;
+  border-radius: 50%;
+  /* box-shadow: 0 10px 50px #0000001a; */
+  display: flex;
+  height: 130px;
+  justify-content: center;
+  left: 46.5%;
+  overflow: hidden;
+  position: absolute;
+  top: 18%;
+  width: 130px;
+  padding-top: 29px;
+}
+.brandLogo_home img{
+  width: 85%;
+  height: 85%;
+  object-fit: contain;
+  position: relative;
+  top: -20px;
+}
+
+.tubimg{
+  position: absolute;
+  bottom: 8px;
+  left: 43%;
+}
+.custombutton{
+  border-radius: 0 !important;
+  left: 1px;
+  position: relative !important;
+  top: 5.7%;
+  width: 182px !important;
+}
+@media screen and (max-width: 1560px) {
+  .brandLogo_home {
+    height: 130px;
+    left: 45%;
+    top: 11%;
+    width: 130px;
+  }
+  .image-container h2 {
+      font-size: 2.5em;
+      line-height: 32px;
+  }
+  /* .image-container.left, .image-container.right{
+    background-size: 74%;
+  } */
+   .tubimg {
+    bottom: 47px;
+  }
+   .tubimg img{
+    width: 199px;
+   }
+}
+
+.fadeInDown {
+  -webkit-animation-name: fadeInDown;
+  animation-name: fadeInDown;
+  -webkit-animation-duration: 1s;
+  animation-duration: 1s;
+  -webkit-animation-fill-mode: both;
+  animation-fill-mode: both;
+  }
+  @-webkit-keyframes fadeInDown {
+    0% {
+    opacity: 0;
+    -webkit-transform: translate3d(0, -100%, 0);
+    transform: translate3d(0, -100%, 0);
+    }
+    100% {
+    opacity: 1;
+    -webkit-transform: none;
+    transform: none;
+    }
+  }
+  @keyframes fadeInDown {
+    0% {
+    opacity: 0;
+    -webkit-transform: translate3d(0, -100%, 0);
+    transform: translate3d(0, -100%, 0);
+    }
+    100% {
+    opacity: 1;
+    -webkit-transform: none;
+    transform: none;
+    }
+  }
+
+  .fadeInUp {
+    -webkit-animation-name: fadeInUp;
+    animation-name: fadeInUp;
+    -webkit-animation-duration: 1s;
+    animation-duration: 1s;
+    -webkit-animation-fill-mode: both;
+    animation-fill-mode: both;
+    }
+    @-webkit-keyframes fadeInUp {
+      0% {
+      opacity: 0;
+      -webkit-transform: translate3d(0, 100%, 0);
+      transform: translate3d(0, 100%, 0);
+      }
+      100% {
+      opacity: 1;
+      -webkit-transform: none;
+      transform: none;
+      }
+    }
+      @keyframes fadeInUp {
+      0% {
+      opacity: 0;
+      -webkit-transform: translate3d(0, 100%, 0);
+      transform: translate3d(0, 100%, 0);
+      }
+      100% {
+      opacity: 1;
+      -webkit-transform: none;
+      transform: none;
+      }
+    } 

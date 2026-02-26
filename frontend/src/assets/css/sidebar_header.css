@@ -1,0 +1,132 @@
+.upperheader{
+    transition: all 0.5s;
+    z-index: 9999;
+    height: 60px;
+    box-shadow: 0px 2px 20px rgba(1, 41, 112, 0.1);
+    background-color: #fff;
+    padding: 10px 20px;
+}
+.sidebar{
+    width: 240px;
+    top: 0;
+    transition: all 0.3s;
+    scrollbar-width: thin;
+    box-shadow: -1px 20px 20px rgba(1, 41, 112, 0.1);
+    background-color: #fff;
+    height: 93.8vh;
+}
+.css-dip3t8 {
+    background-color: rgb(255 255 255) !important;
+}
+.closemenu{
+    position: absolute;
+    right: 0px;
+    top: 0;
+    cursor: pointer;
+    background: #ff983347;
+    padding: 5px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #e37100;
+    font-size: 24px;
+    border-radius: 10px 0 0 10px;
+} 
+
+.brandLogo{
+    width: 60px;
+    height: auto;
+    object-fit: contain;
+}
+.custom_dropdown{
+    width: 338px;
+    padding: 0;
+    height: 35px;
+    background: #ffead5;
+    border-color: #ebc9a7;
+}
+.custom_dropdown .p-dropdown-label, .p-dropdown-items li .p-dropdown-item-label{
+    font-size: 14px !important;
+    font-family:'Roboto', sans-serif !important;
+    padding: 7px;
+    color: #000;
+    text-align: center;
+   
+}
+.p-dropdown-panel .p-dropdown-items{
+    padding: 0 !important;
+}
+.p-dropdown-panel .p-dropdown-items .p-dropdown-item {
+    padding: 2px 10px;
+    color: #000;
+    font-family:'Roboto', sans-serif !important;
+    border-bottom: 1px dashed #e3e3e3;
+}
+.p-dropdown .p-dropdown-trigger {
+    width: 2rem
+}
+.dropPart{
+    position: relative;
+}
+.dropPart::before{
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -20px;
+    width: 1px;
+    height: 100%;
+    background: #c7c7c7;
+}
+
+.ps-menu-button{
+    font-family:'Roboto', sans-serif !important;
+    list-style: none;
+    text-decoration: inherit !important;
+    font-size: 15px;
+    
+}
+.ps-menu-button span a{
+    color: #161c2d !important;
+    font-weight: 500;
+    font-size: 14px;
+    transition: all 0.3s;
+}
+.ps-menu-icon{
+    background-color: #f5f6f8;
+    border-radius: 8px !important;
+    transition: all 0.3s;
+    font-size: 18px;
+}
+.ps-menu-icon svg{
+    width: 17px;
+    color: #818181;
+}
+.ps-menu-button:hover, .ps-menu-button:hover span a {
+    background-color: transparent !important;
+    color: #843889 !important;
+}
+.ps-active{
+    background-color: #9e52a30f !important;
+    color: #843889 !important;
+}
+.ps-active svg{
+    color: #843889 !important;
+}
+.ps-active span a {
+    color: #843889 !important;
+    background-color: transparent !important;
+}
+.ps-menu-label.ps-active{
+    background-color: transparent !important;
+}
+/* .p-button-label{
+    color: #fff;
+} */
+.ps-submenu-expand-icon span{
+    border-right: 1px solid #843889;
+    border-bottom: 1px solid #843889;
+    width: 8px;
+    height: 8px;
+}

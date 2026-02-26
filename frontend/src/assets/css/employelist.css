@@ -1,0 +1,356 @@
+.hierachy_chart--main {
+    padding: 0;
+    /* bootstrap approach */
+    margin: 0 -1em;
+    word-break: break-word;
+  }
+  
+  .hierachy_chart--mainentry,
+  .hierachy_chart--department,
+  .hierachy_chart--section {
+    list-style: none;
+  }
+  
+  .hierachy_chart--departments {
+    display: flex;
+    flex-flow: row wrap;
+    padding: 0;
+  }
+  
+  .hierachy_chart--departments li {
+    flex: 1 0 25%;
+  }
+  @media (max-width: 768px) {
+    .hierachy_chart--departments li {
+      flex: 1 0 100%;
+    }
+  }
+  
+  .hierachy_chart--main--title {
+    display: flex;
+    border: 0;
+    padding: 1em;
+    margin: 2em auto;
+    justify-content: center;
+    text-align: center;
+    position: relative;
+    font-weight: bold;
+    max-width: calc(50% - 2em);
+    background-color: transparent;
+  }
+  @media (max-width: 768px) {
+    .hierachy_chart--main--title {
+      max-width: calc(100% - 4em);
+    }
+  }
+  .hierachy_chart--main--title:before {
+    content: "";
+    width: 1px;
+    height: calc(2em + 1px);
+    position: absolute;
+    background: #2894d5;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin: 0 auto;
+  }
+  @media (max-width: 768px) {
+    .hierachy_chart--main--title:before {
+      display: none;
+    }
+  }
+  .hierachy_chart--main--title:after {
+    content: "";
+    width: 100%;
+    height: 1px;
+    position: absolute;
+    background: #2894d5;
+    top: calc(100% + 2em + 1px);
+    left: 0;
+    right: 0;
+    margin: 0 auto;
+  }
+  @media (max-width: 768px) {
+    .hierachy_chart--main--title:after {
+      display: none;
+    }
+  }
+  .has-three .hierachy_chart--main--title:after {
+    width: calc(157.333%);
+    left: -28.666%;
+  }
+  
+  .hierachy_chart--departments--title {
+    display: flex;
+    border: 1px dashed #3a444f;
+    padding: 1em;
+    margin: 2em auto;
+    justify-content: center;
+    position: relative;
+    background-color: #262d34;
+    font-style: italic;
+    width: fit-content;
+    color: #999;
+  }
+  .hierachy_chart--departments--title:before {
+    content: "";
+    width: 1px;
+    height: 2em;
+    position: absolute;
+    background: #2894d5;
+    top: calc(-2em - 1px);
+    left: 0;
+    right: 0;
+    margin: 0 auto;
+  }
+  .hierachy_chart--departments--title i{
+    vertical-align: middle;
+    line-height: 0;
+    font-size: 20px;
+  }
+  @media (max-width: 768px) {
+    .hierachy_chart--departments--title:before {
+      display: none;
+    }
+  }
+  .hierachy_chart--departments--title:after {
+    content: "";
+    width: 1px;
+    height: 2em;
+    position: absolute;
+    background: #2894d5;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin: 0 auto;
+  }
+  
+  .hierachy_chart--sections {
+    padding: 0;
+  }
+  
+  .hierachy_chart--section {
+    margin: 0 1em;
+    border: 1px dashed #3a444f;
+    background-color: #262d34;
+    margin-bottom: 10px;
+  }
+  /* .hierachy_chart--section:last-child {
+    border-bottom: 1px dashed #efefef;
+  } */
+  
+  .hierachy_chart--sections .section .richtext ul {
+    counter-reset: item 0;
+  }
+  
+  .hierachy_chart--sections .section .richtext ul li {
+    list-style-type: circle;
+  }
+  
+  .hierachy_chart--hiddeninput {
+    visibility: hidden;
+    height: 0;
+    position: absolute;
+  }
+  
+  .hierachy_chart--section--link {
+    position: relative;
+    padding: 0.5em 1em 0 1em;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .hierachy_chart--section--link img{
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    margin-right: 10px;
+    vertical-align: middle;
+    line-height: 0;
+    background-size: cover;
+  }
+  .hierachy_chart--section--link small{
+    display: block;
+    color: #999;
+  }
+  .hierachy_chart--section--link small i{
+    color: #858585;
+  }
+  .empliststatus.badge{
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: fit-content;
+    border: 0 !important;
+    border-radius: 0 0 4px 4px !important;
+    color: #0e704c !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    vertical-align: middle;
+    background-color: #92ffd3b3 !important;
+    padding: 4px 12px;
+  }
+  .hierachy_chart--section--toggler {
+    display: block;
+    position: absolute;
+    top: 50%;
+    right: 1em;
+    transform: translateY(-50%);
+    text-transform: none;
+  }
+  .hierachy_chart--section--link .hierachy_chart--section--toggler:after {
+    display: inline-block;
+    vertical-align: middle;
+    content: "";
+    background: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNSIgaGVpZ2h0PSI5IiB2aWV3Qm94PSIwIDAgMTUgOSI+Cgk8cGF0aCBmaWxsPSIjOTk5OTk5IiBkPSJNNy44NjcgOC41NzRsLTcuMjItNy4yMi43MDctLjcwOEw3Ljg2NyA3LjE2IDE0LjA1Ljk4bC43MDYuNzA3Ii8+Cjwvc3ZnPgo=") no-repeat;
+    background-size: contain;
+    width: 18px;
+    height: 12px;
+    transition: transform 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  
+  .hierachy_chart--accordion {
+    height: 0;
+    overflow: hidden;
+    background: #262d34;
+    transition: padding 0.5s ease-in-out;
+    padding: 0;
+  }
+  
+  /* :checked */
+  .hierachy_chart--hiddeninput:checked ~ .hierachy_chart--accordion {
+    height: auto;
+    padding: 0 0 1em 0;
+  }
+  
+  /* :checked */
+  .hierachy_chart--hiddeninput:checked ~ label .hierachy_chart--section--toggler:after {
+    transform: rotate(180deg);
+    transition: transform 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .hierachy_chart--hiddeninput:checked ~ label .hierachy_chart--section--toggler .hierachy_chart--accordion {
+    height: auto;
+    padding: 1em 0;
+  }
+  
+  .hierachy_chart--accordion--content {
+    margin: 1em;
+  }
+
+  .ierachy_chart--sections label, .hierachy_chart--sections label {
+    width: 100% !important;
+  }
+
+  .userPro{
+    position: absolute;
+    bottom: 7px;
+    right: 9px;
+    width: 25px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #2894d547;
+    border-radius: 50%;
+    color: #FFEB3B;
+    margin: 0;
+    line-height: 1;
+    padding: 0;
+    font-size: 14px;
+  }
+  .userPro:hover{
+    color: #FF9800;
+  }
+
+  .userImg{
+    background-color: #c9c9c9;
+    border: 8px solid #ededed;
+    border-radius: 50%;
+    height: 100px;
+    margin: 0 auto 20px;
+    overflow: hidden;
+    padding: 0;
+    width: 100px;
+  }
+  .userImg img{
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+  }
+  .userfinfo h5{
+    color: #FF9800;
+    text-align: center;
+  }
+  .userfinfo p{
+    color: #858585;
+    text-align: center;
+  }
+  .userfinfo_foot{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 0;
+  }
+  .userfinfo_foot p{
+    font-size: 13px;
+    text-align: center;
+    color: #c7c7c7;
+  }
+  .userfinfo_foot p small{
+    font-size: 13px;
+    color: #858585;
+    display: block;
+  }
+  .userfinfo_contact{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .allempList{
+    border-top: 1px solid #3d3d3d;
+    padding-top: 40px;
+    margin-bottom: 30px;
+    position: relative;
+  }
+  .rol-title{
+    position: absolute;
+    width: fit-content;
+    background: #262d34;
+    font-size: 14px;
+    padding: 4px 15px;
+    border-radius: 21px;
+    color: #FF9800;
+    line-height: 1;
+    font-weight: 400;
+    top: -11px;
+    left: 16px;
+    border: 1px solid #3d3d3d;
+    letter-spacing: 0.56px;
+  }
+
+  .allempList ul{
+    display: flex;
+    margin: 0;
+    padding: 0;
+    flex-wrap: wrap;
+  }
+  /* .allempList ul li{
+    list-style: none;
+    width: calc((100% - 30px) / 3);
+    margin: 0 5px 10px;
+    padding: 10px;
+    background: #f6f4f9;
+    border-radius: 10px;
+    transition: 0.;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    border:0px solid #171c21;
+  }
+  .allempList h5{
+    font-size: 18px;
+  }
+
+  .allempList ul li:hover{
+    background: #171c21;
+  } */

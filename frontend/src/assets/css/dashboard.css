@@ -1,0 +1,121 @@
+.digi, .emp_list_card .card-title .text-success {
+    border: 0 solid #1ea97c;
+    border-radius: 6px;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 500;
+    margin: 0 0 0 2px;
+    vertical-align: middle;
+    background: #ff9800;
+    padding: 5px 15px;
+}
+.dashboard_card 
+.dashboard_card .p-inputtext {
+    padding: 5px 15px !important;
+    font-size: 13px !important;
+    color: #999 !important;
+    height: 42px !important;
+    border-radius: 5px !important;
+}
+
+.adminDashboard .p-tabview-nav-link{
+    /* display: flex;
+    flex-direction: column; */
+    border-bottom: 1px solid transparent;
+    color: #ff9800;
+    background: #191f24 !important;
+    color: #6b7280;
+    margin-right: 10px;
+}
+
+.adminDashboard .p-tabview-nav-link span.pi{
+    font-size: 30px;
+    /* margin-bottom: 23px; */
+}
+.adminDashboard .p-highlight .p-tabview-nav-link{
+    border-bottom: 1px solid #ff9800 !important;
+    color: #ff9800 !important;
+    background: #2f2c26 !important;
+}
+
+.adminDashboard .p-tabview-panels{
+    padding-left: 0;
+    padding-right: 0;
+}
+
+.adminDashboard .p-metergroup-label-list{
+    color: #9f650e;
+    padding-left: 0;
+    font-size: 13px;
+}
+.adminDashboard .p-metergroup .p-metergroup-meter-container {
+    background: #282f37;
+    border-radius: 6px;
+}
+.adminDashboard .p-metergroup .p-metergroup-meter {
+    border: 0 none;
+    background: #ff9800;
+}
+.p-metergroup .p-metergroup-label-list .p-metergroup-label-type {
+    background: #9f650e;
+}
+
+.border-top{
+    border-width: 1px !important;
+    border-color: #191f24 !important;
+}
+
+.cd_footer{
+    background: #14181c;
+    margin-top: 15px;
+}
+.cd_footer p{
+    font-size: 12px;
+}
+.cd_footer p i{
+    font-size: 12px;
+    margin-right: 5px;
+}
+.dcard_batch{
+    position: absolute;
+    top: 0;
+    right: 0;
+    padding: 2px 6px !important;
+    border-radius: 0 10px 0 10px;
+    font-size: 11px !important;
+    line-height: 1.5 !important;
+}
+
+.sealsb_card{
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    padding: 10px;
+}
+
+.sealsb_card p{
+    text-align: center;
+    color: #ff9800;
+    font-size: 28px;
+    font-weight: 500;
+    margin: 0;
+}
+.sealsb_card p span{
+   display: block;
+    color: #9f9f9f;
+    font-size: 14px;
+    font-weight: 300;
+    letter-spacing: 0.5px;
+
+}
+.sealsb_card ul{
+    margin: 0;
+     padding: 0;
+     list-style: none;
+     width: 100%;
+ }
+ .sealsb_card ul li{
+     margin-bottom: 10px;
+     padding-bottom: 10px;
+     border-bottom: 1px solid #3a444f;
+ }

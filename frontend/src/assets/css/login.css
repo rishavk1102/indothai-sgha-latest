@@ -1,0 +1,303 @@
+.login-page{
+    background: url('../images/eed.jpg') no-repeat center center;
+    background-size: cover;
+    padding: 0 10%;
+}
+
+.brand-logo{
+    position: absolute;
+    top: 5%;
+    left: 5%;
+}
+
+.login-page .row{
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+}
+.loginCard{
+    width: 400px !important;
+    height: auto;
+        background-color: rgb(36 19 74 / 81%);
+    border-radius: 10px;
+    padding: 40px !important;
+    box-shadow: rgba(0, 0, 0, 0.2) 0px 60px 40px -7px;
+
+}
+.login-form label{
+    color: #fff;
+}
+.login-form .p-inputtext, .login-form .p-password-input{
+    border: 0;
+    border-bottom: 1px solid #e3e3e3;
+    border-radius: 0;
+    color: #fdb354 !important;
+    font-size: 16px !important;
+    font-weight: 600;
+    height: 54px;
+    padding: 0 0 !important;
+    width: 100% !important;
+    background-color: transparent;
+    font-family:'Roboto', sans-serif;
+}
+.p-inputtext:enabled:focus, .p-password-input:focus{
+    outline: inherit !important;
+    border-color: #fdb354 !important;
+    box-shadow: inherit !important;
+}
+.p-float-label label{
+    margin-top: -.2rem !important;
+    left: 0 !important;
+    font-family:'Roboto', sans-serif;
+    font-size: 18px !important;
+}
+.login-form .p-password{
+    width: 100% !important;
+    display: block;
+    margin: 30px 0 20px 0 !important;
+}
+.login-form .p-icon-field-right > .p-input-icon:last-of-type {
+    right: 0.75rem;
+    color: #c9c9c9;
+}
+.login-form a{
+    color: #ffc107;
+    font-family:'Roboto', sans-serif;
+}
+.login-form p{
+    margin-bottom: 0;
+    color: #fff;
+    font-family:'Roboto', sans-serif;
+}
+.loginbtn {
+    background: #ff8104;
+    border: 1px solid #ff8104;
+    border-radius: 10px;
+    display: block;
+    height: 50px !important;
+    font-family:'Roboto', sans-serif;
+    font-size: 18px;
+}
+.loginbtn:hover{
+    background: #000;
+    border: 1px solid #000;
+}
+.custom-otp-input-sample {
+    width: 48px;
+    height: 48px;
+    font-size: 24px;
+    appearance: none;
+    text-align: center;
+    transition: all 0.2s;
+    border-radius: 0;
+    border: 1px solid #fff;
+    background: transparent;
+    outline-offset: -2px;
+    outline-color: transparent;
+    border-right: 0 none;
+    transition: outline-color 0.3s;
+    color: #fdb354;
+    font-family:'Roboto', sans-serif;
+}
+
+.custom-otp-input-sample:focus {
+    outline: none;
+}
+
+.custom-otp-input-sample:first-child,
+.custom-otp-input-sample:nth-child(5) {
+    border-top-left-radius: 12px;
+    border-bottom-left-radius: 12px;
+}
+
+.custom-otp-input-sample:nth-child(3),
+.custom-otp-input-sample:last-child {
+    border-top-right-radius: 12px;
+    border-bottom-right-radius: 12px;
+    border-right-width: 1px;
+    border-right-style: solid;
+    border-color: #fff;
+}
+
+.OtpDiv h5, .OtpDiv p{
+    color: #fff;
+    font-family:'Roboto', sans-serif;
+}
+.p-button-label{
+    font-family:'Roboto', sans-serif !important;
+}
+.p-button:enabled:focus {
+    box-shadow: inherit !important;
+}
+
+/*-------------------Signup-----------------*/
+.signup-page{
+    background: url('../images/eed.jpg') no-repeat center center;
+    background-size: cover;
+    padding: 0 10%;
+    height: 100vh;
+}
+
+.left-col{
+    
+    background: #fff;
+}
+.right-col{
+    background-color: rgb(36 19 74 / 88%);
+    height: 100vh;
+    overflow: hidden;
+    overflow-y: auto;
+}
+
+.left-col video{
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.left-col img{
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.right-col .p-inputtext{
+    width: 100% !important;
+}
+.p-stepper .p-stepper-panels{
+    background: transparent !important;
+    padding: 0 !important;
+}
+.right-col label{
+    color: #fff !important;
+    margin-bottom: 8px;
+    font-size: 14px;
+    display: block;
+}
+.right-col label i{
+    font-size: 14px;
+}
+.p-stepper-header button{
+    background: transparent;
+    color: #fff;
+    font-size: 14px;
+    
+}
+.p-stepper-header button span{
+    font-weight: 400 !important;
+    font-family:'Roboto', sans-serif !important;
+}
+.p-stepper .p-stepper-header .p-stepper-action .p-stepper-title {
+    margin-left: 0.5rem;
+    color: #ffffff40;
+    font-weight: 700;
+    transition: background-color 0.2s, 
+    color 0.2s, box-shadow 0.2s;
+}
+.p-stepper .p-stepper-header.p-highlight .p-stepper-title {
+    color: #ff8104;
+}
+.p-stepper .p-stepper-header .p-stepper-action .p-stepper-number {
+    color: #ffffff85;
+    border: 1px solid #ffffff2e;
+    border-width:1px;
+    background: #ffffff40;
+    min-width: 1.5rem;
+    height: 1.5rem;
+    font-size: 13px;
+}
+.p-stepper .p-stepper-header.p-highlight .p-stepper-number {
+    background: #ff8104;
+    color: #ffffff;
+}
+.p-stepper .p-stepper-separator {
+    background-color: #ffffff29;
+}
+.p-stepper .p-stepper-header:has(~ .p-highlight) .p-stepper-separator {
+    background-color: #ff8104;
+}
+
+.right-col .p-inputtext, .right-col .p-multiselect{
+    border: 0;
+    border: 1px dotted #e3e3e3;
+    border-radius: 0;
+    color: #fdb354 !important;
+    font-size: 16px !important;
+    font-weight: 600;
+    height: 46px;
+    padding: 0 10px !important;
+    width: 100% !important;
+    background-color: transparent !important;
+    font-family:'Roboto', sans-serif;
+    margin-bottom: 10px;
+}
+
+.right-col  .p-icon-field-right > .p-input-icon:last-of-type {
+    right: 0.75rem;
+    color: #dfdfdf;
+}
+.right-col  .p-icon-field > .p-input-icon {
+    position: absolute;
+    top: 18%;
+    margin-top: 0;
+}
+.right-col .p-stepper .p-stepper-panels {
+    background: #ffffff00;
+    padding: 1.25rem;
+    color: #ffffff6b;
+}
+.custom-browse-button2 .p-button {
+    background-color: transparent; /* Change to your desired color */
+    color: #e4a11b;              /* Text color */
+    border: 0;          /* Remove border if desired */
+}
+.FlUpload .p-button{
+  width: 35px;
+  border-radius: 50% !important;
+  height: 35px !important;
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  padding: 0 10px !important;
+  background: #ff9800;
+  border: 0;
+}
+.FlUpload svg{
+  margin-right: 0 !important;
+}
+.FlUpload .p-button-label{
+  display: none !important;
+}
+.newRegphoto .p-button {
+    width: 35px !important;
+    border-radius: 50% !important;
+    height: 35px !important;
+    bottom: 18px;
+}
+
+.up-document-table li{
+    width: 46px;
+    height: 46px;
+    margin: 0 2px;
+    display: inline-block;
+    overflow: hidden;
+}
+.up-document-table li img{
+    width: 46px;
+    height: 46px;
+    object-fit: cover;
+}
+.custom-browse-button2 .p-button {
+    background-color: transparent; /* Change to your desired color */
+    color: #e4a11b;              /* Text color */
+    border: 0;          /* Remove border if desired */
+}
+.up-document-table{
+    border: 1px dashed #595959  !important;
+    padding: 8px !important;
+    border-radius: 10px;
+    margin-top: 10px;
+}

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Row, Col, Breadcrumb, Form, Card, Table } from 'react-bootstrap';
 import { IoChevronBackOutline } from "react-icons/io5";
 import { Button } from 'primereact/button';
@@ -41,6 +41,8 @@ const CompanyAircraft = () => {
     const [debouncedSearch] = useDebounce(searchTerm, 500);
     const [selectedAircraft, setSelectedAircraft] = useState('');
     const [visibleRight2, setVisibleRight2] = useState(false);
+    const location = useLocation();
+    const highlightNewAircraftIds = location.state?.highlightNewAircraftIds ?? [];
     const goBack = () => {
         navigate(-1); // This will take the user back to the previous page in history
     };
@@ -347,10 +349,13 @@ const CompanyAircraft = () => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {aircrafts.map((aircraft, index) => (
-                                            <tr key={index}>
+                                        {aircrafts.map((aircraft, index) => {
+                                            const isNew = highlightNewAircraftIds.includes(aircraft.aircraft_id);
+                                            return (
+                                            <tr key={index} style={isNew ? { backgroundColor: 'rgba(255, 193, 7, 0.25)' } : undefined}>
                                                 <td data-label="Airline Name">
                                                     <div className="d-flex align-items-center gap-2">
+                                                        {isNew && <span className="badge bg-warning text-dark me-1">New</span>}
                                                         <Avatar
                                                             className="me-2"
                                                             style={{ backgroundColor: 'rgb(197 197 197 / 27%)', color: 'rgb(146 74 151)' }}
@@ -404,7 +409,7 @@ const CompanyAircraft = () => {
 
                                                 </td>
                                             </tr>
-                                        ))}
+                                        ); })}
                                     </tbody>
                                 </Table>
 

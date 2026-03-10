@@ -7,7 +7,7 @@ import { Checkbox } from "primereact/checkbox";
 import api from '../api/axios';
 import DOMPurify from 'dompurify';
 
-const Sgha_mainagreemment = ({ templateYear = 2025 }) => {
+const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null }) => {
     const [visibleRight, setVisibleRight] = useState(false);
     const [templateData, setTemplateData] = useState(null);
     const [loadingTemplate, setLoadingTemplate] = useState(false);
@@ -34,11 +34,12 @@ const Sgha_mainagreemment = ({ templateYear = 2025 }) => {
             if (field.type === 'heading_no') {
                 const sectionNum = String(field.value);
                 
-                // Check if it's a main article number (1, 2, 3, etc.)
+                // Check if it's a main article number (1, 2, 3, etc.) — accept 'heading' or 'subheading' (PDF/editor use subheading)
                 if (!sectionNum.includes('.') && ['1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(sectionNum)) {
-                    if (index + 1 < templateData.length && templateData[index + 1].type === 'heading') {
+                    const nextField = templateData[index + 1];
+                    if (index + 1 < templateData.length && nextField && (nextField.type === 'heading' || nextField.type === 'subheading')) {
                         currentMainSection = sectionNum;
-                        mainSectionHeading = templateData[index + 1].value;
+                        mainSectionHeading = nextField.value ?? '';
                         
                         // Create new article section
                         currentArticle = {
@@ -117,9 +118,13 @@ const Sgha_mainagreemment = ({ templateYear = 2025 }) => {
         const fetchMainAgreementData = async () => {
             try {
                 setLoadingTemplate(true);
-                const response = await api.get(
-                    `/sgha_template_content/get/${templateYear}/Main Agreement/Section Template`
-                );
+                const url = `/sgha_template_content/get/${templateYear}/Main Agreement/Section Template`;
+                const params = (templateName != null && String(templateName).trim() !== '')
+                  ? { template_name: String(templateName).trim() }
+                  : {};
+                console.log('[Main Agreement] fetch:', url, 'params:', params);
+                const response = await api.get(url, { params });
+                console.log('[Main Agreement] response:', response.status, '| has content:', !!response.data?.data?.content);
 
                 if (response.data?.data?.content) {
                     const content = response.data.data.content;
@@ -146,7 +151,7 @@ const Sgha_mainagreemment = ({ templateYear = 2025 }) => {
         };
 
         fetchMainAgreementData();
-    }, [parseMainAgreementData, templateYear]);
+    }, [parseMainAgreementData, templateYear, templateName]);
 
     // Render HTML content safely
     const renderHTMLContent = (htmlString) => {

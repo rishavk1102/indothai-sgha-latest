@@ -5,15 +5,18 @@ import { Sidebar } from "primereact/sidebar";
 import { Accordion, AccordionTab } from "primereact/accordion";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Breadcrumb, Card, Col, Row, Spinner, Table } from "react-bootstrap";
+import { Breadcrumb, Card, Col, Row, Spinner, Table, Form } from "react-bootstrap";
 import DOMPurify from "dompurify";
 import axios from "axios";
 import api from "../../api/axios";
 import CustomToast from "../../components/CustomToast";
+import { getSocket } from "../../context/socket";
+import { useAuth } from "../../context/AuthContext";
 import logoImage from "../../assets/images/logo.png";
 import "../../assets/css/dashboard.css";
 
 const UPLOADS_API_URL = "https://indothai-ai.72.61.173.50.sslip.io/uploads";
+const INDO_THAI_AI_BASE_URL = UPLOADS_API_URL.replace(/\/uploads\/?$/, "");
 const PAGE_NAME = "Section Template";
 const SAVE_PAGE_NAME = "Section Template";
 
@@ -40,6 +43,21 @@ const SEGREGATED_ANNEX_B_HINTS = [
   "annex_b",
 ];
 
+const SEGREGATED_ADDITIONAL_CHARGES_HINTS = [
+  "segregated_additional_charges_path",
+  "segregated_additional_charges",
+  "additional_charges_path",
+  "additional_charges",
+  "additionalCharges",
+];
+
+const SEGREGATED_AIRCRAFT_HINTS = [
+  "segregated_aircraft_path",
+  "segregated_aircraft",
+  "aircraft_path",
+  "aircraft_options",
+];
+
 const getPathFromRow = (row, hints) => {
   const keys = Object.keys(row || {});
   const lower = (s) => (s || "").toLowerCase();
@@ -55,6 +73,37 @@ const getPathFromRow = (row, hints) => {
     }
   }
   return null;
+};
+
+/** Fetch segregated JSON (charges or aircraft) by MinIO path. Tries main backend first, then Indo Thai AI. */
+const fetchSegregatedJson = async (path) => {
+  if (!path || typeof path !== "string") {
+    console.log("[SaveToCharges] fetchSegregatedJson: no path");
+    return null;
+  }
+  const trimmed = path.trim();
+  try {
+    const res = await api.get("/api/pdf-uploads/file-content", { params: { path: trimmed } });
+    const data = res?.data;
+    console.log("[SaveToCharges] fetchSegregatedJson (main backend): path length=" + trimmed.length, "isArray=" + Array.isArray(data), "length=" + (Array.isArray(data) ? data.length : "n/a"));
+    if (Array.isArray(data)) return data;
+    return null;
+  } catch (e) {
+    console.log("[SaveToCharges] fetchSegregatedJson main backend failed:", e?.message || e);
+    try {
+      const url = `${INDO_THAI_AI_BASE_URL}/segregated-file?path=${encodeURIComponent(trimmed)}`;
+      const response = await fetch(url);
+      console.log("[SaveToCharges] fetchSegregatedJson (Indo Thai AI): status=" + response.status, "url=" + url.substring(0, 80) + "...");
+      if (!response.ok) return null;
+      const data = await response.json();
+      const out = Array.isArray(data) ? data : null;
+      console.log("[SaveToCharges] fetchSegregatedJson (Indo Thai AI): isArray=" + Array.isArray(data), "length=" + (out ? out.length : "n/a"));
+      return out;
+    } catch (e2) {
+      console.log("[SaveToCharges] fetchSegregatedJson Indo Thai AI failed:", e2?.message || e2);
+      return null;
+    }
+  }
 };
 
 const STATUS_COLUMNS = [
@@ -274,11 +323,11 @@ function parsePlainTextToSections(text) {
     );
   };
   const isSectionHeader = (line) => {
-    const t = line.trim();
+    const t = line.replace(/^[△☐⚬⚠⊗\s]*/, "").trim();
     if (!t) return false;
     if (/^(ARTICLE|SECTION|PARAGRAPH)\s+\d+/i.test(t)) return true;
-    // Subheading: only X.X (e.g. 1.1, 1.2). X.X.X stays in content for table display.
-    if (/^\d+\.\d+\.?(?=\s|$)/.test(t)) return true;
+    // Subheading: X.Y only (e.g. 1.1, 1.2). X.Y.Z (1.1.1) stays in content.
+    if (/^\d+\.\d+(?![.\d])\.?\s*/.test(t)) return true;
     // Definition-style: short line, all caps (e.g. "HOLD BAGGAGE", "ICAO", "IATA")
     if (t.length > 2 && t.length < 120 && /^[A-Z][A-Z0-9\s\-().'/&]+$/.test(t) && (t.length < 50 || /\s/.test(t))) return true;
     return false;
@@ -294,10 +343,84 @@ function parsePlainTextToSections(text) {
     current.content.push(line);
   }
   flush();
+  // If we got one huge section (headers may not be at line start), try splitting by SECTION/ARTICLE and N.N
+  if (sections.length === 1 && sections[0].content && sections[0].content.length > 500) {
+    const fallback = splitBySectionPatterns(text);
+    if (fallback.length > 1) return fallback;
+  }
   return sections;
 }
 
-// Format content so bullet pointers (•) become proper HTML lists with indentation.
+// Fallback: split text by SECTION n., ARTICLE n., and line-start N.N (subsections)
+const SECTION_MARKER = "\n<<<SGHA_SECTION>>>";
+const SUBSECTION_MARKER = "\n<<<SGHA_SUBSECTION>>>";
+function splitBySectionPatterns(text) {
+  if (!text || typeof text !== "string") return [];
+  const sections = [];
+  const mainRe = /\n\s*[△☐⚬⚠⊗\s]*(SECTION|ARTICLE|PARAGRAPH)\s+(\d+)[.\s]/gi;
+  const subRe = /\n\s*[△☐⚬⚠⊗\s]*(\d+\.\d+)(?![.\d])\s*\.?\s*/g;
+  let combined = text.replace(mainRe, (_, kind, num) => SECTION_MARKER + kind + " " + num + ". ");
+  combined = combined.replace(subRe, (_, num) => SUBSECTION_MARKER + num + " ");
+  const parts = combined.split(/<<<SGHA_(?:SECTION|SUBSECTION)>>>/).filter(Boolean);
+  let title = "";
+  for (const part of parts) {
+    const firstLineEnd = part.indexOf("\n");
+    const firstLine = firstLineEnd >= 0 ? part.slice(0, firstLineEnd) : part;
+    const rest = firstLineEnd >= 0 ? part.slice(firstLineEnd + 1) : "";
+    const t = firstLine.trim();
+    if (/^(SECTION|ARTICLE|PARAGRAPH)\s+\d+/i.test(t) || /^\d+\.\d+(?![.\d])/.test(t)) {
+      if (title || rest.trim()) sections.push({ title: title || t, content: rest.trim() });
+      title = t;
+    } else {
+      sections.push({ title: title, content: part.trim() });
+      title = "";
+    }
+  }
+  if (title) sections.push({ title, content: "" });
+  return sections.filter((s) => s.title || s.content);
+}
+
+// Convert 1.1.1 (a)/(b), 1.1.2, ... to two-level: "1.\n  1. ...\n  2. ...\n2.\n..." so (a)/(b) show as nested.
+function normalizeContentToNumberedList(text) {
+  if (!text || typeof text !== "string") return text || "";
+  const t = text.trim();
+  if (!t) return t;
+  const topRe = /(?:^|\n)\s*(\d+\.\d+\.\d+)\s*/g;
+  const tops = [];
+  let m;
+  while ((m = topRe.exec(t)) !== null) tops.push({ start: m.index, end: m[0].length + m.index });
+  if (tops.length === 0) return text;
+  const out = [];
+  const childRe = /(?:^|\n)\s*(?:\d+\.\d+\.\d+\s*)?\(\s*[a-z]\s*\)\s*|\s+\(\s*[a-z]\s*\)\s*/gim;
+  for (let i = 0; i < tops.length; i++) {
+    const from = tops[i].end;
+    const to = i + 1 < tops.length ? tops[i + 1].start : t.length;
+    let block = t.slice(from, to).trim();
+    const childStarts = [];
+    let cm;
+    childRe.lastIndex = 0;
+    while ((cm = childRe.exec(block)) !== null) childStarts.push({ start: cm.index, end: cm.index + cm[0].length });
+    if (childStarts.length > 0) {
+      const children = [];
+      for (let j = 0; j < childStarts.length; j++) {
+        const cFrom = childStarts[j].end;
+        const cTo = j + 1 < childStarts.length ? childStarts[j + 1].start : block.length;
+        let seg = block.slice(cFrom, cTo).trim().replace(/\s+/g, " ");
+        if (seg) children.push(seg);
+      }
+      const parentText = children.join(" ").trim();
+      out.push(parentText ? `${i + 1}. ${parentText}` : `${i + 1}.`);
+      children.forEach((child, k) => out.push(`  ${k + 1}. ${child}`));
+    } else {
+      const single = block.replace(/\s+/g, " ").trim();
+      if (single) out.push(`${i + 1}. ${single}`);
+      else out.push(`${i + 1}.`);
+    }
+  }
+  return out.join("\n");
+}
+
+// Format content: bullet (•) -> <ul><li>; two-level "1.\n  1. 2." -> <ol><li><ol><li>...</li></ol></li></ol>.
 function formatContentWithBulletLists(text) {
   if (!text || typeof text !== "string") return text || "";
   const escape = (s) =>
@@ -305,8 +428,8 @@ function formatContentWithBulletLists(text) {
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
-  // Put each bullet on its own line: " • " or " • " in middle of text
-  let s = text.replace(/\s+•\s+/g, "\n• ");
+  let s = normalizeContentToNumberedList(text);
+  s = s.replace(/\s+•\s+/g, "\n• ");
   const lines = s.split(/\r?\n/);
   const out = [];
   let listItems = [];
@@ -314,34 +437,96 @@ function formatContentWithBulletLists(text) {
   const flushList = () => {
     if (listItems.length > 0) {
       out.push('<ul style="margin-left: 1.5em; margin-top: 0.25em; margin-bottom: 0.5em;">');
-      listItems.forEach((item) => {
-        out.push("<li>" + escape(item) + "</li>");
-      });
+      listItems.forEach((item) => out.push("<li>" + escape(item) + "</li>"));
       out.push("</ul>");
       listItems = [];
     }
   };
   const flushPara = (raw) => {
-    const t = raw.trim();
-    if (!t) return;
-    out.push('<p style="margin: 0.25em 0;">' + escape(t).replace(/\n/g, "<br>") + "</p>");
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    out.push('<p style="margin: 0.25em 0;">' + escape(trimmed).replace(/\n/g, "<br>") + "</p>");
   };
-  for (const line of lines) {
+  const topOnlyRe = /^(\d+)\.\s*$/;
+  const topWithContentRe = /^(\d+)\.\s+(.+)$/;
+  const nestedRe = /^\s+(\d+)\.\s+(.*)$/;
+  const entries = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
     const trimmed = line.trim();
     if (/^•\s*/.test(trimmed)) {
-      if (para.length > 0) {
+      if (entries.length > 0) {
         flushPara(para.join("\n"));
         para = [];
+        const ol = '<ol style="margin-left: 1.5em; margin-top: 0.25em; margin-bottom: 0.5em;">' +
+          entries.map((e) => {
+            if (e.children && e.children.length > 0) {
+              const inner = '<ol style="margin-left: 1.5em;">' +
+                e.children.map((c) => "<li>" + escape(c) + "</li>").join("") + "</ol>";
+              return "<li>" + (e.content ? escape(e.content) + " " : "") + inner + "</li>";
+            }
+            return "<li>" + (e.content ? escape(e.content) : "") + "</li>";
+          }).join("") + "</ol>";
+        out.push(ol);
+        entries.length = 0;
       }
       listItems.push(trimmed.replace(/^•\s*/, "").trim());
-    } else {
-      flushList();
-      if (trimmed) para.push(line);
-      else if (para.length) para.push("");
+      i++;
+      continue;
     }
+    if (topOnlyRe.test(trimmed)) {
+      i++;
+      const children = [];
+      while (i < lines.length && nestedRe.test(lines[i])) {
+        const nm = lines[i].match(nestedRe);
+        if (nm && nm[2]) children.push(nm[2].trim());
+        i++;
+      }
+      entries.push({ content: null, children });
+      continue;
+    }
+    if (topWithContentRe.test(trimmed)) {
+      const tm = trimmed.match(topWithContentRe);
+      if (tm) {
+        const content = tm[2].trim();
+        i++;
+        const children = [];
+        while (i < lines.length && nestedRe.test(lines[i])) {
+          const nm = lines[i].match(nestedRe);
+          if (nm && nm[2]) children.push(nm[2].trim());
+          i++;
+        }
+        entries.push(children.length > 0 ? { content, children } : { content, children: null });
+      } else {
+        i++;
+      }
+      continue;
+    }
+    if (trimmed) para.push(line);
+    else if (para.length) para.push("");
+    i++;
+  }
+  if (entries.length > 0) {
+    flushPara(para.join("\n"));
+    para = [];
+    out.push('<ol style="margin-left: 1.5em; margin-top: 0.25em; margin-bottom: 0.5em;">');
+    entries.forEach((e) => {
+      if (e.children && e.children.length > 0) {
+        if (e.content) out.push("<li>" + escape(e.content));
+        else out.push("<li>");
+        out.push('<ol style="margin-left: 1.5em;">');
+        e.children.forEach((c) => out.push("<li>" + escape(c) + "</li>"));
+        out.push("</ol>");
+        out.push("</li>");
+      } else {
+        out.push("<li>" + (e.content ? escape(e.content) : "") + "</li>");
+      }
+    });
+    out.push("</ol>");
   }
   flushList();
-  if (para.length > 0) flushPara(para.join("\n"));
+  flushPara(para.join("\n"));
   return out.length > 0 ? out.join("") : escape(text).replace(/\n/g, "<br>");
 }
 
@@ -495,8 +680,12 @@ function parseSectionTemplateContent(templateData) {
   return sections;
 }
 
+const ADDITIONAL_CHARGES_PAGE_NAME = "Additional Charges";
+
 const PdfUploads = () => {
   const navigate = useNavigate();
+  const socket = getSocket();
+  const { roleId, userId } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -525,6 +714,19 @@ const PdfUploads = () => {
   const [selectedPdfFile, setSelectedPdfFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
+
+  // Save to Additional Charges: two-step dialog
+  const [saveToChargesVisible, setSaveToChargesVisible] = useState(false);
+  const [saveToChargesStep, setSaveToChargesStep] = useState(1);
+  const [extractedCharges, setExtractedCharges] = useState([]);
+  const [chargesBusinesses, setChargesBusinesses] = useState([]);
+  const [chargesAirports, setChargesAirports] = useState([]);
+  const [selectedChargesBusiness, setSelectedChargesBusiness] = useState("");
+  const [selectedChargesAirport, setSelectedChargesAirport] = useState("");
+  const [loadingChargesExtract, setLoadingChargesExtract] = useState(false);
+  const [savingToCharges, setSavingToCharges] = useState(false);
+  const [extractedAircraft, setExtractedAircraft] = useState([]);
+  const AIRCRAFT_OPTIONS_PAGE_NAME = "Aircraft Options";
 
   const showMessage = useCallback((severity, detail) => {
     const summary = severity.charAt(0).toUpperCase() + severity.slice(1);
@@ -663,10 +865,26 @@ const PdfUploads = () => {
         return normalizeTemplateContent(data);
       };
 
+      // Try structured JSON first (Claude/regex from backend), then fall back to plain text
+      const fetchSectionWithStructure = async (path) => {
+        if (!path) return null;
+        const structuredPath = path.replace(/\.txt$/i, "_structured.json");
+        try {
+          const res = await api.get("/api/pdf-uploads/file-content", {
+            params: { path: structuredPath },
+          });
+          const data = res?.data;
+          if (Array.isArray(data) && data.length > 0) return data;
+        } catch (_) {
+          // 404 or error: fall back to plain text
+        }
+        return fetchFromMinIO(path);
+      };
+
       const [main, annexA, annexB] = await Promise.all([
-        fetchFromMinIO(pathMain),
-        fetchFromMinIO(pathAnnexA),
-        fetchFromMinIO(pathAnnexB),
+        fetchSectionWithStructure(pathMain),
+        fetchSectionWithStructure(pathAnnexA),
+        fetchSectionWithStructure(pathAnnexB),
       ]);
 
       setTemplateDetails({ main, annexA, annexB });
@@ -726,11 +944,15 @@ const PdfUploads = () => {
       const id = item.id != null ? item.id : baseId + index + 1;
       const type = item.type || item.fieldType || "editor";
       const label = item.label || (type === "heading_no" ? "Heading No." : type === "heading" ? "Heading" : type === "subheading" ? "Sub-heading" : "Content");
+      let value = item.value ?? "";
+      if (type === "editor" && value && typeof value === "string") {
+        value = formatContentWithBulletLists(value);
+      }
       return {
         id,
         type,
         label,
-        value: item.value ?? "",
+        value,
         checkboxValue: item.checkboxValue ?? [],
         checkboxConfig: item.checkboxConfig ?? {},
         commentConfig: item.commentConfig ?? {},
@@ -762,6 +984,7 @@ const PdfUploads = () => {
       date: `Year-${year}`,
       year,
       templateKey: `${name}-Main Agreement`,
+      templateName: name,
     };
     setTemplateDetailsVisible(false);
     navigate("/dashboard/createSGHATemplate", {
@@ -827,6 +1050,309 @@ const PdfUploads = () => {
     showMessage,
     navigate,
   ]);
+
+  const emptyChargeRow = () => ({
+    Service_name: "",
+    Remarks: "",
+    unit_or_measure: "",
+    rate_inr: "",
+    rate_usd: "",
+    Charge_type: "Domestic",
+  });
+
+  const emptyAircraftRow = () => ({
+    Aircraft_name: "",
+    Aircraft_model: "",
+    Company_name: "",
+    MTOW: "",
+    Limit_per_incident: "",
+    Price_per_Limit_inr: "",
+    Price_per_Limit_usd: "",
+    Flight_type: "Domestic",
+  });
+
+  const openSaveToChargesDialog = useCallback(async () => {
+    setSaveToChargesVisible(true);
+    setSaveToChargesStep(1);
+    setLoadingChargesExtract(true);
+    setExtractedCharges([emptyChargeRow()]);
+    setExtractedAircraft([]);
+    try {
+      // Re-fetch uploads so we have latest segregation paths (selectedRow may be stale from before segregation completed)
+      let row = selectedRow;
+      const sid = selectedRow?.id ?? selectedRow?.upload_id ?? selectedRow?.uploadId;
+      console.log("[SaveToCharges] selectedRow id=" + sid, "keys=" + (selectedRow ? Object.keys(selectedRow).filter((k) => /charge|aircraft|segregat|path/i.test(k)).join(",") : "none"));
+      try {
+        const res = await fetch(UPLOADS_API_URL);
+        if (res.ok) {
+          const raw = await res.json();
+          const rows = getUploadRows(raw);
+          const match = rows.find((r) => (r?.id ?? r?.upload_id ?? r?.uploadId) === sid);
+          if (match) {
+            row = match;
+            console.log("[SaveToCharges] re-fetched uploads, found match. charge path=" + (match.segregated_additional_charges_path || getPathFromRow(match, SEGREGATED_ADDITIONAL_CHARGES_HINTS) || "null"), "aircraft path=" + (match.segregated_aircraft_path || getPathFromRow(match, SEGREGATED_AIRCRAFT_HINTS) || "null"));
+          } else {
+            console.log("[SaveToCharges] re-fetched uploads, no match for id=" + sid, "rows count=" + rows.length);
+          }
+        } else {
+          console.log("[SaveToCharges] re-fetch uploads failed status=" + res.status);
+        }
+      } catch (e) {
+        console.log("[SaveToCharges] re-fetch uploads error:", e?.message || e);
+      }
+      let pathCharges = row ? getPathFromRow(row, SEGREGATED_ADDITIONAL_CHARGES_HINTS) : null;
+      let pathAircraft = row ? getPathFromRow(row, SEGREGATED_AIRCRAFT_HINTS) : null;
+      // Fallback: if /uploads response doesn't include path keys (e.g. old backend), fetch by upload id
+      if ((!pathCharges || !pathAircraft) && sid != null) {
+        try {
+          const pathRes = await fetch(`${INDO_THAI_AI_BASE_URL}/uploads/${sid}/segregation-paths`);
+          if (pathRes.ok) {
+            const pathPayload = await pathRes.json();
+            if (pathPayload?.additional_charges_path && !pathCharges) pathCharges = pathPayload.additional_charges_path;
+            if (pathPayload?.aircraft_path && !pathAircraft) pathAircraft = pathPayload.aircraft_path;
+            if (pathCharges || pathAircraft) console.log("[SaveToCharges] got paths from segregation-paths endpoint");
+          }
+        } catch (e) {
+          console.log("[SaveToCharges] segregation-paths fallback error:", e?.message || e);
+        }
+      }
+      console.log("[SaveToCharges] pathCharges=" + (pathCharges ? pathCharges.substring(0, 60) + "..." : "null"), "pathAircraft=" + (pathAircraft ? pathAircraft.substring(0, 60) + "..." : "null"));
+      if (pathCharges) {
+        const data = await fetchSegregatedJson(pathCharges);
+        console.log("[SaveToCharges] charges fetch result: isArray=" + Array.isArray(data), "length=" + (Array.isArray(data) ? data.length : "n/a"));
+        if (Array.isArray(data) && data.length > 0) {
+          const rows = data.map((item) => ({
+            Service_name: item.Service_name ?? item.service_name ?? item.name ?? "",
+            Remarks: item.Remarks ?? item.remarks ?? "",
+            unit_or_measure: item.unit_or_measure ?? item.unit ?? "",
+            rate_inr: item.rate_inr ?? item.rate ?? "",
+            rate_usd: item.rate_usd ?? "",
+            Charge_type: item.Charge_type ?? item.charge_type ?? "Domestic",
+          }));
+          setExtractedCharges(rows);
+        } else {
+          const annexB = templateDetails.annexB;
+          if (Array.isArray(annexB) && annexB.length > 0) {
+            const chargeLike = annexB.filter(
+              (x) => x && typeof x === "object" && (x.Service_name != null || x.service_name != null || x.rate != null || x.rate_inr != null)
+            );
+            if (chargeLike.length > 0) {
+              setExtractedCharges(
+                chargeLike.map((item) => ({
+                  Service_name: item.Service_name ?? item.service_name ?? item.name ?? "",
+                  Remarks: item.Remarks ?? item.remarks ?? "",
+                  unit_or_measure: item.unit_or_measure ?? item.unit ?? "",
+                  rate_inr: item.rate_inr ?? item.rate ?? "",
+                  rate_usd: item.rate_usd ?? "",
+                  Charge_type: item.Charge_type ?? item.charge_type ?? "Domestic",
+                }))
+              );
+            }
+          }
+        }
+      } else {
+        const annexB = templateDetails.annexB;
+        if (Array.isArray(annexB) && annexB.length > 0) {
+          const chargeLike = annexB.filter(
+            (x) => x && typeof x === "object" && (x.Service_name != null || x.service_name != null || x.rate != null || x.rate_inr != null)
+          );
+          if (chargeLike.length > 0) {
+            setExtractedCharges(
+              chargeLike.map((item) => ({
+                Service_name: item.Service_name ?? item.service_name ?? item.name ?? "",
+                Remarks: item.Remarks ?? item.remarks ?? "",
+                unit_or_measure: item.unit_or_measure ?? item.unit ?? "",
+                rate_inr: item.rate_inr ?? item.rate ?? "",
+                rate_usd: item.rate_usd ?? "",
+                Charge_type: item.Charge_type ?? item.charge_type ?? "Domestic",
+              }))
+            );
+          }
+        }
+      }
+      if (pathAircraft) {
+        const dataA = await fetchSegregatedJson(pathAircraft);
+        console.log("[SaveToCharges] aircraft fetch result: isArray=" + Array.isArray(dataA), "length=" + (Array.isArray(dataA) ? dataA.length : "n/a"));
+        if (Array.isArray(dataA) && dataA.length > 0) {
+          setExtractedAircraft(
+            dataA.map((item) => ({
+              Aircraft_name: item.Aircraft_name ?? item.aircraft_name ?? "",
+              Aircraft_model: item.Aircraft_model ?? item.aircraft_model ?? item.model ?? "",
+              Company_name: item.Company_name ?? item.company_name ?? "",
+              MTOW: item.MTOW ?? item.mtow ?? "",
+              Limit_per_incident: item.Limit_per_incident ?? item.limit ?? "",
+              Price_per_Limit_inr: item.Price_per_Limit_inr ?? item.price_inr ?? "",
+              Price_per_Limit_usd: item.Price_per_Limit_usd ?? item.price_usd ?? "",
+              Flight_type: item.Flight_type ?? item.flight_type ?? "Domestic",
+            }))
+          );
+        } else {
+          const annexA = templateDetails.annexA;
+          if (Array.isArray(annexA) && annexA.length > 0) {
+            const aircraftLike = annexA.filter(
+              (x) => x && typeof x === "object" && (x.Aircraft_name != null || x.aircraft_name != null || x.Aircraft_model != null || x.Price_per_Limit_inr != null)
+            );
+            if (aircraftLike.length > 0) {
+              setExtractedAircraft(
+                aircraftLike.map((item) => ({
+                  Aircraft_name: item.Aircraft_name ?? item.aircraft_name ?? "",
+                  Aircraft_model: item.Aircraft_model ?? item.aircraft_model ?? item.model ?? "",
+                  Company_name: item.Company_name ?? item.company_name ?? "",
+                  MTOW: item.MTOW ?? item.mtow ?? "",
+                  Limit_per_incident: item.Limit_per_incident ?? item.limit ?? "",
+                  Price_per_Limit_inr: item.Price_per_Limit_inr ?? item.price_inr ?? "",
+                  Price_per_Limit_usd: item.Price_per_Limit_usd ?? item.price_usd ?? "",
+                  Flight_type: item.Flight_type ?? item.flight_type ?? "Domestic",
+                }))
+              );
+            }
+          }
+        }
+      } else {
+        const annexA = templateDetails.annexA;
+        if (Array.isArray(annexA) && annexA.length > 0) {
+          const aircraftLike = annexA.filter(
+            (x) => x && typeof x === "object" && (x.Aircraft_name != null || x.aircraft_name != null || x.Aircraft_model != null || x.Price_per_Limit_inr != null)
+          );
+          if (aircraftLike.length > 0) {
+            setExtractedAircraft(
+              aircraftLike.map((item) => ({
+                Aircraft_name: item.Aircraft_name ?? item.aircraft_name ?? "",
+                Aircraft_model: item.Aircraft_model ?? item.aircraft_model ?? item.model ?? "",
+                Company_name: item.Company_name ?? item.company_name ?? "",
+                MTOW: item.MTOW ?? item.mtow ?? "",
+                Limit_per_incident: item.Limit_per_incident ?? item.limit ?? "",
+                Price_per_Limit_inr: item.Price_per_Limit_inr ?? item.price_inr ?? "",
+                Price_per_Limit_usd: item.Price_per_Limit_usd ?? item.price_usd ?? "",
+                Flight_type: item.Flight_type ?? item.flight_type ?? "Domestic",
+              }))
+            );
+          }
+        }
+      }
+    } finally {
+      setLoadingChargesExtract(false);
+    }
+  }, [selectedRow, templateDetails.annexB, templateDetails.annexA]);
+
+  useEffect(() => {
+    if (!saveToChargesVisible || saveToChargesStep !== 2 || !socket) return;
+    socket.emit("fetch-businesses", { role_id: roleId, page_name: ADDITIONAL_CHARGES_PAGE_NAME, user_id: userId });
+    socket.on("fetch-businesses-success", (data) => {
+      setChargesBusinesses(data || []);
+      setSelectedChargesBusiness(data?.[0]?.business_id ?? "");
+    });
+    socket.on("fetch-businesses-error", () => setChargesBusinesses([]));
+    return () => {
+      socket.off("fetch-businesses-success");
+      socket.off("fetch-businesses-error");
+    };
+  }, [saveToChargesVisible, saveToChargesStep, socket, roleId, userId]);
+
+  useEffect(() => {
+    if (!socket || !selectedChargesBusiness) return;
+    socket.emit("fetch-airports-by-business", {
+      role_id: roleId,
+      page_name: ADDITIONAL_CHARGES_PAGE_NAME,
+      business_id: selectedChargesBusiness,
+    });
+    socket.on("fetch-airports-by-business-success", (data) => {
+      const formatted = (data || []).map((a) => ({ name: `${a.name} (${a.iata})`, code: a.airport_id }));
+      setChargesAirports(formatted);
+      setSelectedChargesAirport(formatted[0]?.code ?? "");
+    });
+    socket.on("fetch-airports-by-business-error", () => setChargesAirports([]));
+    return () => {
+      socket.off("fetch-airports-by-business-success");
+      socket.off("fetch-airports-by-business-error");
+    };
+  }, [socket, roleId, selectedChargesBusiness]);
+
+  const updateExtractedCharge = (index, field, value) => {
+    setExtractedCharges((prev) => {
+      const next = [...prev];
+      if (!next[index]) return next;
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+  };
+
+  const addChargeRow = () => setExtractedCharges((prev) => [...prev, emptyChargeRow()]);
+  const removeChargeRow = (index) => setExtractedCharges((prev) => prev.filter((_, i) => i !== index));
+
+  const updateExtractedAircraft = (index, field, value) => {
+    setExtractedAircraft((prev) => {
+      const next = [...prev];
+      if (!next[index]) return next;
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+  };
+  const addAircraftRow = () => setExtractedAircraft((prev) => [...prev, emptyAircraftRow()]);
+  const removeAircraftRow = (index) => setExtractedAircraft((prev) => prev.filter((_, i) => i !== index));
+
+  const handleSaveToCharges = useCallback(async () => {
+    if (!selectedChargesBusiness || !selectedChargesAirport) {
+      showMessage("warn", "Please select Business and Airport.");
+      return;
+    }
+    const validCharges = extractedCharges.filter(
+      (r) => (r.Service_name || "").toString().trim() !== "" && ((r.rate_inr != null && r.rate_inr !== "") || (r.rate_usd != null && r.rate_usd !== ""))
+    );
+    const validAircraft = extractedAircraft.filter(
+      (r) => (r.Aircraft_name || "").toString().trim() !== "" && (r.Company_name || "").toString().trim() !== ""
+    );
+    if (validCharges.length === 0 && validAircraft.length === 0) {
+      showMessage("warn", "Add at least one charge (Service name + Rate) or one aircraft (Aircraft name + Company name).");
+      return;
+    }
+    setSavingToCharges(true);
+    const highlightNewChargeIds = [];
+    const highlightNewAircraftIds = [];
+    try {
+      for (const row of validCharges) {
+        const res = await api.post(`/additional_charge/add_additional_charge/${ADDITIONAL_CHARGES_PAGE_NAME}`, {
+          Business_id: selectedChargesBusiness,
+          Airport_id: selectedChargesAirport,
+          Service_name: (row.Service_name || "").toString().trim(),
+          Remarks: (row.Remarks || "").toString().trim() || undefined,
+          unit_or_measure: (row.unit_or_measure || "").toString().trim() || undefined,
+          rate_inr: row.rate_inr != null && row.rate_inr !== "" ? Number(row.rate_inr) : undefined,
+          rate_usd: row.rate_usd != null && row.rate_usd !== "" ? Number(row.rate_usd) : undefined,
+          Charge_type: row.Charge_type || "Domestic",
+        });
+        const id = res?.data?.charge?.Additional_charges_id ?? res?.data?.additionalCharge?.Additional_charges_id;
+        if (id != null) highlightNewChargeIds.push(id);
+      }
+      for (const row of validAircraft) {
+        const res = await api.post(`/company_aircraft_routes/add_company_aircraft/${AIRCRAFT_OPTIONS_PAGE_NAME}`, {
+          business_id: selectedChargesBusiness,
+          airport_id: selectedChargesAirport,
+          Aircraft_name: (row.Aircraft_name || "").toString().trim(),
+          Aircraft_model: (row.Aircraft_model || "").toString().trim() || "",
+          Company_name: (row.Company_name || "").toString().trim(),
+          MTOW: (row.MTOW || "").toString().trim() || undefined,
+          Limit_per_incident: row.Limit_per_incident != null && row.Limit_per_incident !== "" ? Number(row.Limit_per_incident) : 0,
+          Price_per_Limit_inr: row.Price_per_Limit_inr != null && row.Price_per_Limit_inr !== "" ? Number(row.Price_per_Limit_inr) : 0,
+          Price_per_Limit_usd: row.Price_per_Limit_usd != null && row.Price_per_Limit_usd !== "" ? Number(row.Price_per_Limit_usd) : 0,
+          Flight_type: row.Flight_type || "Domestic",
+        });
+        const id = res?.data?.aircraft?.aircraft_id;
+        if (id != null) highlightNewAircraftIds.push(id);
+      }
+      const parts = [];
+      if (validCharges.length) parts.push(`${validCharges.length} additional charge(s)`);
+      if (validAircraft.length) parts.push(`${validAircraft.length} aircraft option(s)`);
+      showMessage("success", `Saved: ${parts.join(", ")}. You can edit them from Additional Charges and Aircraft Options when needed.`);
+      setSaveToChargesVisible(false);
+      setSaveToChargesStep(1);
+    } catch (err) {
+      const msg = err.response?.data?.message || err.response?.data?.error || err.message || "Failed to save.";
+      showMessage("error", msg);
+    } finally {
+      setSavingToCharges(false);
+    }
+  }, [extractedCharges, extractedAircraft, selectedChargesBusiness, selectedChargesAirport, showMessage]);
 
   const renderHTMLContent = useCallback((htmlString) => {
     if (!htmlString) return null;
@@ -1249,6 +1775,16 @@ const PdfUploads = () => {
                         tooltip={inProgress ? "Process in progress – wait for completion" : null}
                         onClick={handleSaveAsTemplate}
                       />
+                      <Button
+                        label="Save to Additional Charges"
+                        icon="pi pi-list"
+                        severity="info"
+                        outlined
+                        className={disabledBtnClass}
+                        disabled={savingTemplate || inProgress}
+                        tooltip={inProgress ? "Process in progress – wait for completion" : "Extract and save charges to Additional Charges page"}
+                        onClick={openSaveToChargesDialog}
+                      />
                     </>
                   );
                 })()}
@@ -1265,6 +1801,214 @@ const PdfUploads = () => {
                 {renderSectionContent(templateDetails.annexB)}
               </AccordionTab>
             </Accordion>
+          </div>
+        )}
+      </Dialog>
+
+      {/* Save to Additional Charges – two-step dialog */}
+      <Dialog
+        visible={saveToChargesVisible}
+        onHide={() => {
+          setSaveToChargesVisible(false);
+          setSaveToChargesStep(1);
+        }}
+        header={saveToChargesStep === 1 ? "Step 1: Review extracted charges & aircraft from PDF" : "Step 2: Select Business & Airport and Save"}
+        style={{
+          width: saveToChargesStep === 1 ? "90vw" : "440px",
+          maxWidth: saveToChargesStep === 1 ? "900px" : "100%",
+          minWidth: saveToChargesStep === 2 ? "380px" : undefined,
+        }}
+        contentStyle={{ minHeight: saveToChargesStep === 2 ? "200px" : undefined }}
+        footer={
+          <div className="d-flex justify-content-between align-items-center w-100 flex-wrap gap-2">
+            <div style={{ minWidth: saveToChargesStep === 2 ? "80px" : 0 }}>
+              {saveToChargesStep === 2 && (
+                <Button label="Back" icon="pi pi-arrow-left" severity="secondary" onClick={() => setSaveToChargesStep(1)} />
+              )}
+            </div>
+            <div className="d-flex gap-2 ms-auto">
+              {saveToChargesStep === 1 ? (
+                <Button label="Next" icon="pi pi-arrow-right" onClick={() => setSaveToChargesStep(2)} disabled={loadingChargesExtract} />
+              ) : (
+                <Button
+                  label={extractedAircraft.length > 0 ? "Save" : "Save"}
+                  icon="pi pi-save"
+                  severity="success"
+                  loading={savingToCharges}
+                  disabled={savingToCharges || !selectedChargesBusiness || !selectedChargesAirport}
+                  onClick={handleSaveToCharges}
+                />
+              )}
+              <Button label="Cancel" icon="pi pi-times" severity="secondary" onClick={() => { setSaveToChargesVisible(false); setSaveToChargesStep(1); }} />
+            </div>
+          </div>
+        }
+      >
+        {saveToChargesStep === 1 && (
+          <div>
+            {loadingChargesExtract ? (
+              <div className="d-flex align-items-center gap-2 py-4">
+                <Spinner animation="border" size="sm" />
+                <span>Loading extracted charges and aircraft...</span>
+              </div>
+            ) : (
+              <>
+                <p className="text-muted small mb-3">Values below are extracted from the segregated PDF (charges from Annex B, aircraft from Annex A or B). Review and edit as needed, then click Next. After you save in Step 2, you’ll stay here; new rows will be available under <strong>Additional Charges</strong> and <strong>Aircraft Options</strong> for editing when you need them.</p>
+                {(extractedCharges.length <= 1 && extractedCharges[0] && !extractedCharges[0].Service_name && extractedAircraft.length === 0) && (
+                  <p className="text-warning small mb-3">No extracted data was loaded. Ensure segregation has completed for this upload and that the upload row has charge/aircraft paths. You can still add rows manually below.</p>
+                )}
+                <div style={{ overflowX: "auto", maxHeight: "50vh", overflowY: "auto" }}>
+                  <Table bordered size="sm">
+                    <thead>
+                      <tr>
+                        <th>Service name</th>
+                        <th>Remarks</th>
+                        <th>Unit</th>
+                        <th>Rate INR</th>
+                        <th>Rate USD</th>
+                        <th>Charge type</th>
+                        <th style={{ width: "60px" }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {extractedCharges.map((row, idx) => (
+                        <tr key={idx}>
+                          <td>
+                            <InputText
+                              value={row.Service_name}
+                              onChange={(e) => updateExtractedCharge(idx, "Service_name", e.target.value)}
+                              className="w-100"
+                              placeholder="Service name"
+                            />
+                          </td>
+                          <td>
+                            <InputText
+                              value={row.Remarks}
+                              onChange={(e) => updateExtractedCharge(idx, "Remarks", e.target.value)}
+                              className="w-100"
+                              placeholder="Remarks"
+                            />
+                          </td>
+                          <td>
+                            <InputText
+                              value={row.unit_or_measure}
+                              onChange={(e) => updateExtractedCharge(idx, "unit_or_measure", e.target.value)}
+                              className="w-100"
+                              placeholder="Unit"
+                            />
+                          </td>
+                          <td>
+                            <InputText
+                              type="number"
+                              value={row.rate_inr}
+                              onChange={(e) => updateExtractedCharge(idx, "rate_inr", e.target.value)}
+                              className="w-100"
+                              placeholder="INR"
+                            />
+                          </td>
+                          <td>
+                            <InputText
+                              type="number"
+                              value={row.rate_usd}
+                              onChange={(e) => updateExtractedCharge(idx, "rate_usd", e.target.value)}
+                              className="w-100"
+                              placeholder="USD"
+                            />
+                          </td>
+                          <td>
+                            <Form.Select
+                              size="sm"
+                              value={row.Charge_type}
+                              onChange={(e) => updateExtractedCharge(idx, "Charge_type", e.target.value)}
+                            >
+                              <option value="Domestic">Domestic</option>
+                              <option value="International">International</option>
+                            </Form.Select>
+                          </td>
+                          <td>
+                            <Button icon="pi pi-trash" className="p-button-danger p-button-text p-button-sm" onClick={() => removeChargeRow(idx)} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </div>
+                <Button label="Add charge row" icon="pi pi-plus" className="mt-2" onClick={addChargeRow} />
+                {extractedAircraft.length > 0 && (
+                  <>
+                    <h6 className="mt-4 mb-2">Extracted aircraft options</h6>
+                    <p className="text-muted small mb-2">From Annex A. These will be saved to Aircraft Options.</p>
+                    <div style={{ overflowX: "auto", maxHeight: "40vh", overflowY: "auto" }}>
+                      <Table bordered size="sm">
+                        <thead>
+                          <tr>
+                            <th>Aircraft name</th>
+                            <th>Model</th>
+                            <th>Company</th>
+                            <th>MTOW</th>
+                            <th>Limit</th>
+                            <th>Price INR</th>
+                            <th>Price USD</th>
+                            <th>Flight type</th>
+                            <th style={{ width: "50px" }}></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {extractedAircraft.map((row, idx) => (
+                            <tr key={idx}>
+                              <td><InputText value={row.Aircraft_name} onChange={(e) => updateExtractedAircraft(idx, "Aircraft_name", e.target.value)} className="w-100" placeholder="Aircraft" /></td>
+                              <td><InputText value={row.Aircraft_model} onChange={(e) => updateExtractedAircraft(idx, "Aircraft_model", e.target.value)} className="w-100" placeholder="Model" /></td>
+                              <td><InputText value={row.Company_name} onChange={(e) => updateExtractedAircraft(idx, "Company_name", e.target.value)} className="w-100" placeholder="Company" /></td>
+                              <td><InputText value={row.MTOW} onChange={(e) => updateExtractedAircraft(idx, "MTOW", e.target.value)} className="w-100" placeholder="MTOW" /></td>
+                              <td><InputText type="number" value={row.Limit_per_incident} onChange={(e) => updateExtractedAircraft(idx, "Limit_per_incident", e.target.value)} className="w-100" placeholder="Limit" /></td>
+                              <td><InputText type="number" value={row.Price_per_Limit_inr} onChange={(e) => updateExtractedAircraft(idx, "Price_per_Limit_inr", e.target.value)} className="w-100" placeholder="INR" /></td>
+                              <td><InputText type="number" value={row.Price_per_Limit_usd} onChange={(e) => updateExtractedAircraft(idx, "Price_per_Limit_usd", e.target.value)} className="w-100" placeholder="USD" /></td>
+                              <td>
+                                <Form.Select size="sm" value={row.Flight_type} onChange={(e) => updateExtractedAircraft(idx, "Flight_type", e.target.value)}>
+                                  <option value="Domestic">Domestic</option>
+                                  <option value="International">International</option>
+                                </Form.Select>
+                              </td>
+                              <td><Button icon="pi pi-trash" className="p-button-danger p-button-text p-button-sm" onClick={() => removeAircraftRow(idx)} /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </Table>
+                    </div>
+                    <Button label="Add aircraft row" icon="pi pi-plus" className="mt-2" onClick={addAircraftRow} />
+                  </>
+                )}
+                {extractedAircraft.length === 0 && (
+                  <div className="mt-3">
+                    <Button label="Add aircraft from PDF" icon="pi pi-plus" severity="secondary" outlined onClick={addAircraftRow} />
+                    <span className="ms-2 text-muted small">No aircraft extracted; you can add rows manually.</span>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+        {saveToChargesStep === 2 && (
+          <div className="d-flex flex-column gap-3">
+            <p className="text-muted small mb-0">Select business and airport. {extractedCharges.length} charge row(s) and {extractedAircraft.length} aircraft row(s) will be saved. After saving, you’ll stay on this page; you can open Additional Charges or Aircraft Options from the menu to edit when needed.</p>
+            <div>
+              <label className="form-label fw-semibold">Business</label>
+              <Form.Select value={selectedChargesBusiness} onChange={(e) => setSelectedChargesBusiness(e.target.value)}>
+                <option value="">Select business</option>
+                {chargesBusinesses.map((b) => (
+                  <option key={b.business_id} value={b.business_id}>{b.name}</option>
+                ))}
+              </Form.Select>
+            </div>
+            <div>
+              <label className="form-label fw-semibold">Airport</label>
+              <Form.Select value={selectedChargesAirport} onChange={(e) => setSelectedChargesAirport(e.target.value)}>
+                <option value="">Select airport</option>
+                {chargesAirports.map((a) => (
+                  <option key={a.code} value={a.code}>{a.name}</option>
+                ))}
+              </Form.Select>
+            </div>
           </div>
         )}
       </Dialog>

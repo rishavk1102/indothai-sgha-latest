@@ -18,7 +18,8 @@ const Agreement = () => {
   const location = useLocation();
   const [selectedCities, setSelectedCities] = useState(location.state?.selectedCities || []);
   const [formData, setFormData] = useState(location.state?.formData || {});
-  // Use template year from Add New SGHA flow; fallback to sessionStorage (e.g. after refresh) then 2025
+
+  // Template year: from navigation state (Add New SGHA) then sessionStorage then default
   const templateYear = (() => {
     const fromState = location.state?.templateYear;
     if (fromState != null && fromState !== '') {
@@ -37,6 +38,34 @@ const Agreement = () => {
     return 2025;
   })();
 
+  // Template name for named templates (e.g. "Rishav Test 3") — required so Annex B/Main/Annex A load the same template as employee
+  const templateName = (() => {
+    const fromState = location.state?.templateName;
+    if (fromState != null && typeof fromState === 'string') {
+      const t = fromState.trim();
+      if (t !== '') {
+        console.log('[Agreement] templateName from state:', t);
+        return t;
+      }
+    }
+    try {
+      const stored = sessionStorage.getItem('sgha_agreement_template_name');
+      if (stored != null && typeof stored === 'string') {
+        const t = stored.trim();
+        if (t !== '') {
+          console.log('[Agreement] templateName from sessionStorage:', t);
+          return t;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+    console.log('[Agreement] templateName: (none – using default template for year)');
+    return null;
+  })();
+
+  console.log('[Agreement] templateYear:', templateYear, '| templateName:', templateName ?? '(null)');
+
    const goBack = () => {
         navigate(-1); // This will take the user back to the previous page in history
     };
@@ -50,16 +79,18 @@ const Agreement = () => {
     const sections = ["main", "annex-a", "annex-b"];
     const [activeIndex, setActiveIndex] = useState(0);
 
-    // Persist template year so refresh or re-mount keeps the selected year
+    // Main, Annex A, and Annex B content are loaded only from the selected template (templateYear + templateName).
+    // Persist template year and name so refresh or re-mount keeps the selection
     useEffect(() => {
         if (templateYear >= 2000 && templateYear <= 2100) {
             try {
                 sessionStorage.setItem('sgha_agreement_template_year', String(templateYear));
+                sessionStorage.setItem('sgha_agreement_template_name', templateName != null ? templateName : '');
             } catch (e) {
                 // ignore
             }
         }
-    }, [templateYear]);
+    }, [templateYear, templateName]);
 
     // Fetch template data when dialog is shown (use selected template year)
     useEffect(() => {
@@ -68,9 +99,11 @@ const Agreement = () => {
             
             try {
                 setLoadingTemplate(true);
-                const response = await api.get(
-                    `/sgha_template_content/get/${templateYear}/Annex A/Section Template`
-                );
+                const url = `/sgha_template_content/get/${templateYear}/Annex A/Section Template`;
+                const params = (templateName != null && String(templateName).trim() !== '')
+                  ? { template_name: String(templateName).trim() }
+                  : {};
+                const response = await api.get(url, { params });
 
                 if (response.data?.data?.content) {
                     const content = response.data.data.content;
@@ -88,7 +121,7 @@ const Agreement = () => {
         };
 
         fetchTemplateData();
-    }, [showAnnexASummary, templateYear]);
+    }, [showAnnexASummary, templateYear, templateName]);
 
     // Helper function to parse HTML exactly like Annex A does - extract items with their text and IDs
     // Parse HTML content and generate item IDs with section prefix
@@ -893,7 +926,7 @@ const Agreement = () => {
                                     transition={{ duration: 0.4 }}
                                     className="content-box"
                                     >
-                                    <Sgha_mainagreemment templateYear={templateYear}/>
+                                    <Sgha_mainagreemment templateYear={templateYear} templateName={templateName}/>
 
                                     </motion.div>
                                 )}
@@ -908,7 +941,7 @@ const Agreement = () => {
                                     transition={{ duration: 0.4 }}
                                     className="content-box"
                                     >
-                                    <Sgha_annexA templateYear={templateYear}/>
+                                    <Sgha_annexA templateYear={templateYear} templateName={templateName}/>
 
                                     </motion.div>
                                 )}
@@ -924,7 +957,7 @@ const Agreement = () => {
                                     transition={{ duration: 0.4 }}
                                     className="content-box"
                                     >
-                                    <Sgha_annexB templateYear={templateYear} formData={formData} selectedCities={selectedCities}/>
+                                    <Sgha_annexB templateYear={templateYear} templateName={templateName} formData={formData} selectedCities={selectedCities}/>
 
                                     </motion.div>
                                 )}

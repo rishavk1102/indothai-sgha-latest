@@ -26,26 +26,43 @@ const Home = () => {
   const [ingredient, setIngredient] = useState('');
   const [step, setStep] = useState(1); // 1 = airport selection, 2 = add business
   const [airports, setAirports] = useState([]);
-  const [templateYears, setTemplateYears] = useState([]);
+  const [yearsWithStatus, setYearsWithStatus] = useState([]); // Same as employee side: years with templates[] per year
 
-
-  // ✅ Fetch Template Years (only years that have Main Agreement, Annex A, and Annex B)
+  // ✅ Fetch template years with individual templates per year (same as employee side)
   useEffect(() => {
-    const fetchTemplateYears = async () => {
+    const fetchTemplates = async () => {
       try {
-        const response = await api.get('/template_years/years-complete');
+        const response = await api.get('/template_years/years-with-status');
         if (response.data && response.data.data) {
-          setTemplateYears(response.data.data);
+          setYearsWithStatus(response.data.data);
         }
       } catch (error) {
         console.error('Error fetching template years:', error);
-        // Don't block the UI if template years fail to load
-        setTemplateYears([]);
+        setYearsWithStatus([]);
       }
     };
 
-    fetchTemplateYears();
+    fetchTemplates();
   }, []);
+
+  // Flatten to dropdown options: each option = (year, templateName). Value: "year" or "year|templateName"
+  const templateOptions = (() => {
+    const opts = [];
+    (yearsWithStatus || []).forEach((yearRecord) => {
+      const year = yearRecord.year;
+      const templates = yearRecord.templates && yearRecord.templates.length > 0
+        ? yearRecord.templates.filter((t) => t.hasData)
+        : yearRecord.hasData ? [{ templateName: null }] : [];
+      templates.forEach((t) => {
+        const name = t.templateName != null && String(t.templateName).trim() !== '' ? t.templateName : null;
+        opts.push({
+          value: name == null ? String(year) : `${year}|${name}`,
+          label: name == null ? `${year} (Default)` : `${year} - ${name}`,
+        });
+      });
+    });
+    return opts;
+  })();
 
   // ✅ Fetch Airports with Business included
   useEffect(() => {
@@ -99,18 +116,21 @@ const Home = () => {
     setStep(1);
   };
 
-  // Step 2 -> Agreement Page (pass template year and form data from Add New SGHA so Agreement can save and show in list)
+  // Step 2 -> Agreement Page (pass template year, template name, and form data from Add New SGHA)
   const handleNextStep2 = () => {
-    const raw = selectedCities.length > 0
-      ? selectedCities.map((c) => formData[c.airport_id]?.template_year).find((v) => v != null && v !== '')
-      : null;
-    const templateYear = (raw != null && raw !== '') ? (parseInt(String(raw), 10) || 2025) : 2025;
+    const first = selectedCities.length > 0 ? formData[selectedCities[0].airport_id] : null;
+    const rawYear = first?.template_year;
+    const rawName = first?.template_name;
+    const templateYear = (rawYear != null && rawYear !== '') ? (parseInt(String(rawYear), 10) || 2025) : 2025;
+    const templateName = (rawName != null && String(rawName).trim() !== '') ? String(rawName).trim() : null;
+    console.log('[Home] Next → Agreement | templateYear:', templateYear, '| templateName:', templateName ?? '(null)', '| raw formData:', { template_year: rawYear, template_name: rawName });
     try {
       sessionStorage.setItem('sgha_agreement_template_year', String(templateYear));
+      sessionStorage.setItem('sgha_agreement_template_name', templateName != null ? templateName : '');
     } catch (e) {
       // ignore
     }
-    navigate(`/dashboard/agreement`, { state: { selectedCities, templateYear, formData } });
+    navigate(`/dashboard/agreement`, { state: { selectedCities, templateYear, templateName, formData } });
   };
 
   /*----------------------formsubmit------------------------*/
@@ -262,7 +282,7 @@ const Home = () => {
       data.gstn?.trim() &&
       data.contact_person?.trim() &&
       data.rate?.trim() &&
-      data.template_year?.trim()
+      data.template_year != null && String(data.template_year).trim() !== ''
     );
   };
 
@@ -617,16 +637,38 @@ const Home = () => {
                                       </Form.Select>
                                   </Col>
                                   <Col md={6} lg={6} className="d-flex flex-column gap-1">
-                                      <Form.Label>Agreement Template Year <sup className="text-danger">*</sup></Form.Label>
-                                      <Form.Select 
+                                      <Form.Label>Agreement Template <sup className="text-danger">*</sup></Form.Label>
+                                      <Form.Select
                                         style={{height: "50px"}}
-                                        value={data.template_year || ""}
-                                        onChange={(e) => updateAirportData(airport.airport_id, "template_year", e.target.value)}
+                                        value={
+                                          data.template_year != null && data.template_year !== ''
+                                            ? (data.template_name != null && String(data.template_name).trim() !== ''
+                                                ? `${data.template_year}|${data.template_name}`
+                                                : String(data.template_year))
+                                            : ""
+                                        }
+                                        onChange={(e) => {
+                                          const v = e.target.value;
+                                          if (!v) {
+                                            setFormData((prev) => ({
+                                              ...prev,
+                                              [airport.airport_id]: { ...prev[airport.airport_id], template_year: "", template_name: null },
+                                            }));
+                                            return;
+                                          }
+                                          const pipe = v.indexOf("|");
+                                          const year = pipe === -1 ? v : v.slice(0, pipe);
+                                          const name = pipe === -1 ? null : v.slice(pipe + 1);
+                                          setFormData((prev) => ({
+                                            ...prev,
+                                            [airport.airport_id]: { ...prev[airport.airport_id], template_year: year, template_name: name },
+                                          }));
+                                        }}
                                       >
                                         <option value="" disabled>Please select</option>
-                                        {templateYears.map((year) => (
-                                          <option key={year} value={year}>
-                                            {year}
+                                        {templateOptions.map((opt) => (
+                                          <option key={opt.value} value={opt.value}>
+                                            {opt.label}
                                           </option>
                                         ))}
                                       </Form.Select>

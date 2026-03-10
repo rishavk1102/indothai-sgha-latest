@@ -16,7 +16,7 @@ import { getSocket } from "../context/socket";
 import { useAuth } from "../context/AuthContext";
 import CustomToast from "./CustomToast";
 
-const Sgha_annexB = ({ templateYear = 2025, formData = {}, selectedCities = [] }) => {
+const Sgha_annexB = ({ templateYear = 2025, templateName = null, formData = {}, selectedCities = [] }) => {
     const { roleId, role, userId } = useAuth();
     const agreementYear = templateYear >= 2000 && templateYear <= 2100 ? Number(templateYear) : 2025;
     const navigate = useNavigate();
@@ -400,23 +400,7 @@ const Sgha_annexB = ({ templateYear = 2025, formData = {}, selectedCities = [] }
     /*---------------For Last Step---------------*/
         const stepsRef = useRef(null);
           
-          // Default items (fallback if no template data)
-          const defaultItems = [
-            { label: "Handling Services & Charges", command: () => setActiveIndex(0) },
-            { label: "Additional Services & Charges", command: () => setActiveIndex(1) },
-            { label: "Disbursements", command: () => setActiveIndex(2) },
-            { label: "Training", command: () => setActiveIndex(3) },
-            { label: "Limit of Liability", command: () => setActiveIndex(4) },
-            { label: "Transfer of Services", command: () => setActiveIndex(5) },
-            { label: "Payment", command: () => setActiveIndex(6) },
-            { label: "Supervision & Administration", command: () => setActiveIndex(7) },
-            { label: "Use of Yllow Pages", command: () => setActiveIndex(8) },
-            { label: "Duration, Modification & Termination", command: () => setActiveIndex(9) },
-            { label: "Notification", command: () => setActiveIndex(10) },
-            { label: "Governing Law", command: () => setActiveIndex(11) },
-          ];
-          
-          // Dynamic items from template data
+          // Steps/charges sections come only from template data — no fallback list
           const items = useMemo(() => {
             if (parsedSections.length > 0) {
               return parsedSections.map((section, index) => ({
@@ -424,7 +408,7 @@ const Sgha_annexB = ({ templateYear = 2025, formData = {}, selectedCities = [] }
                 command: () => setActiveIndex(index)
               }));
             }
-            return defaultItems;
+            return [];
           }, [parsedSections]);
         
           // Auto scroll active step into view
@@ -758,14 +742,23 @@ const Sgha_annexB = ({ templateYear = 2025, formData = {}, selectedCities = [] }
             setShowInput(false);
         };
 
-        // Fetch template data for Annex B (use selected agreement year)
+        // Fetch template data for Annex B (use selected agreement year + template_name for named templates)
         useEffect(() => {
             const fetchTemplateData = async () => {
                 try {
                     setLoadingTemplate(true);
-                    const response = await api.get(
-                        `/sgha_template_content/get/${agreementYear}/Annex B/Section Template`
-                    );
+                    const urlB = `/sgha_template_content/get/${agreementYear}/Annex B/Section Template`;
+                    const params = (templateName != null && String(templateName).trim() !== '')
+                        ? { template_name: String(templateName).trim() }
+                        : {};
+                    console.log('[Annex B] fetch:', urlB, 'params:', params);
+                    const response = await api.get(urlB, { params });
+
+                    const hasContent = !!response.data?.data?.content;
+                    console.log('[Annex B] response:', response.status, '| data.data:', response.data?.data ? 'present' : 'null', '| has content:', hasContent);
+                    if (!hasContent && response.data?.data !== undefined) {
+                        console.log('[Annex B] template row found but content empty/null. Full data:', response.data?.data);
+                    }
 
                     if (response.data?.data?.content) {
                         const content = response.data.data.content;
@@ -774,17 +767,31 @@ const Sgha_annexB = ({ templateYear = 2025, formData = {}, selectedCities = [] }
                             : content;
                         
                         setTemplateData(parsedContent);
+                        const types = Array.isArray(parsedContent) ? parsedContent.slice(0, 10).map((i) => i?.type) : (typeof parsedContent === 'object' ? Object.keys(parsedContent) : []);
+                        console.log('[Annex B] content structure (first 10 types):', types);
                         
                         // Parse the content to extract sections with headings and editor content
-                        const sections = parseTemplateContent(parsedContent);
+                        let sections = parseTemplateContent(parsedContent);
+                        if (sections.length === 0 && Array.isArray(parsedContent)) {
+                            const editors = parsedContent.filter((i) => i && (i.type === 'editor' || i.type === 'text'));
+                            if (editors.length > 0) {
+                                sections = editors.map((item, i) => ({
+                                    headingNo: String(i + 1),
+                                    heading: item.type === 'editor' ? 'Section ' + (i + 1) : (item.value?.slice(0, 50) || 'Content'),
+                                    editor: { value: item.value || '', checkboxConfig: {}, commentConfig: {} },
+                                    index: i
+                                }));
+                                console.log('[Annex B] fallback: created', sections.length, 'sections from editor/text items');
+                            }
+                        }
                         setParsedSections(sections);
+                        console.log('[Annex B] parsed sections count:', sections?.length ?? 0);
                     } else {
                         // No template data, use default items
                         setParsedSections([]);
                     }
                 } catch (error) {
-                    console.error("Error fetching Annex B template data:", error);
-                    // If no template exists, we'll fall back to static content
+                    console.error("[Annex B] Error fetching template:", error?.response?.status, error?.response?.data ?? error.message);
                     setParsedSections([]);
                 } finally {
                     setLoadingTemplate(false);
@@ -792,7 +799,7 @@ const Sgha_annexB = ({ templateYear = 2025, formData = {}, selectedCities = [] }
             };
 
             fetchTemplateData();
-        }, [agreementYear]);
+        }, [agreementYear, templateName]);
 
         // Whether the current year's template includes aircraft selection ({{ aircraft_options }})
         const templateHasAircraftSection = useMemo(() => {
@@ -838,18 +845,14 @@ const Sgha_annexB = ({ templateYear = 2025, formData = {}, selectedCities = [] }
                     // Handle heading_no + heading pairs (main sections/stepper items)
                     if (item.type === 'heading_no') {
                         const nextItem = content[index + 1];
-                        if (nextItem && nextItem.type === 'heading') {
-                            // If we have a previous section, finalize it
-                            if (currentSection && !currentSection.editor) {
-                                // Try to find editor content after this heading
-                                // This will be handled in the next iteration
-                            }
-                            
+                        // heading_no can be followed by 'heading' (PARAGRAPH 1 style) or 'subheading' (1.1, 1.2 style from PDF/editor)
+                        const titleItem = nextItem && (nextItem.type === 'heading' || nextItem.type === 'subheading') ? nextItem : null;
+                        if (titleItem) {
                             currentSection = {
                                 headingNo: String(item.value),
-                                heading: nextItem.value,
+                                heading: titleItem.value ?? '',
                                 editor: null,
-                                id: item.id || nextItem.id,
+                                id: item.id || titleItem.id,
                                 index: sections.length
                             };
                             sections.push(currentSection);
@@ -878,35 +881,52 @@ const Sgha_annexB = ({ templateYear = 2025, formData = {}, selectedCities = [] }
                         }
                     }
                     
-                    // Handle editor content - attach to current section
-                    if (item.type === 'editor' && currentSection) {
-                        // If section already has editor, append or replace based on content
-                        if (!currentSection.editor) {
+                    // Handle editor content - attach to current section, or create section if none (editor-only content)
+                    if (item.type === 'editor') {
+                        if (!currentSection) {
+                            currentSection = {
+                                headingNo: String(sections.length + 1),
+                                heading: 'Section ' + (sections.length + 1),
+                                editor: { value: item.value || '', checkboxConfig: item.checkboxConfig || {}, commentConfig: item.commentConfig || {} },
+                                id: item.id,
+                                index: sections.length
+                            };
+                            sections.push(currentSection);
+                        } else if (!currentSection.editor) {
                             currentSection.editor = {
                                 value: item.value || '',
                                 checkboxConfig: item.checkboxConfig || {},
                                 commentConfig: item.commentConfig || {}
                             };
                         } else if (item.value) {
-                            // Append if there's existing content
                             const existingValue = currentSection.editor.value || '';
                             currentSection.editor.value = existingValue + (existingValue ? '<br/>' : '') + item.value;
                         }
                         processedIndices.add(index);
                     }
                     
-                    // Handle text content - attach to current section
-                    if (item.type === 'text' && currentSection) {
-                        if (!currentSection.editor) {
-                            currentSection.editor = {
-                                value: item.value || '',
-                                checkboxConfig: {},
-                                commentConfig: {}
+                    // Handle text content - attach to current section, or create section if none
+                    if (item.type === 'text') {
+                        if (!currentSection) {
+                            currentSection = {
+                                headingNo: String(sections.length + 1),
+                                heading: 'Section ' + (sections.length + 1),
+                                editor: { value: item.value || '', checkboxConfig: {}, commentConfig: {} },
+                                id: item.id,
+                                index: sections.length
                             };
-                        } else if (item.value) {
-                            // Append text content
-                            const existingValue = currentSection.editor.value || '';
-                            currentSection.editor.value = existingValue + (existingValue ? '<br/>' : '') + item.value;
+                            sections.push(currentSection);
+                        } else {
+                            if (!currentSection.editor) {
+                                currentSection.editor = {
+                                    value: item.value || '',
+                                    checkboxConfig: {},
+                                    commentConfig: {}
+                                };
+                            } else if (item.value) {
+                                const existingValue = currentSection.editor.value || '';
+                                currentSection.editor.value = existingValue + (existingValue ? '<br/>' : '') + item.value;
+                            }
                         }
                         processedIndices.add(index);
                     }
@@ -1217,9 +1237,13 @@ const Sgha_annexB = ({ templateYear = 2025, formData = {}, selectedCities = [] }
             const fetchAnnexAContent = async () => {
                 try {
                     setLoadingAnnexAContent(true);
-                    const response = await api.get(
-                        `/sgha_template_content/get/${agreementYear}/Annex A/Section Template`
-                    );
+                    const urlA = `/sgha_template_content/get/${agreementYear}/Annex A/Section Template`;
+                    const paramsA = (templateName != null && String(templateName).trim() !== '')
+                        ? { template_name: String(templateName).trim() }
+                        : {};
+                    console.log('[Annex B → Annex A] fetch:', urlA, 'params:', paramsA);
+                    const response = await api.get(urlA, { params: paramsA });
+                    console.log('[Annex B → Annex A] response:', response.status, '| has content:', !!response.data?.data?.content);
                     
                     if (response.data?.data?.content) {
                         const content = response.data.data.content;
@@ -1236,7 +1260,7 @@ const Sgha_annexB = ({ templateYear = 2025, formData = {}, selectedCities = [] }
             };
             
             fetchAnnexAContent();
-        }, [agreementYear]);
+        }, [agreementYear, templateName]);
         
         // Parse Annex A content into sections with all items
         const annexAAllSections = useMemo(() => {
@@ -1803,10 +1827,12 @@ const Sgha_annexB = ({ templateYear = 2025, formData = {}, selectedCities = [] }
                     </AccordionTab>
                     <AccordionTab header="Charges">
                         <div>
-                            {/* Steps header with horizontal scroll on small screens */}
-                            <div className="steps-scroll overflow-x-auto" ref={stepsRef}>
-                                <Steps model={items} activeIndex={activeIndex} readOnly={true} />
-                            </div>
+                            {/* Steps header only when we have template data — no fallback sections */}
+                            {items.length > 0 && (
+                                <div className="steps-scroll overflow-x-auto" ref={stepsRef}>
+                                    <Steps model={items} activeIndex={activeIndex} readOnly={true} />
+                                </div>
+                            )}
 
                             {/* Step Content */}
                             <div className="p-4 mt-4 rounded">
@@ -1885,440 +1911,11 @@ const Sgha_annexB = ({ templateYear = 2025, formData = {}, selectedCities = [] }
                                     )
                                 ))
                             ) : (
-                                // Fallback to static content if no template data
-                                <>
-                            {activeIndex === 0 && (
-                                <div>
-                                <h6>Paragraph 1 - <b>Handling Services & Charges</b></h6>
-                                <hr/>
-                                <p className="mt-4"><b>1.1</b> The Handling Company shall provide the following services of the Annex A at the following rates:</p>
-                                <Table bordered className="mb-0">
-                                    <tbody>
-                                    <tr>
-                                        <th style={{ width: '180px' }}>Section 1</th>
-                                        <td>
-                                        <div className="d-flex flex-wrap gap-2">
-                                            {checkedItemsFromAnnexA.length === 0 ? (
-                                              <span className="text-muted">No items selected in Annex A</span>
-                                            ) : (
-                                              checkedItemsFromAnnexA.map((item, index) => (
-                                                <Chip key={index} label={item} />
-                                              ))
-                                            )}
-                                        </div>
-                                        </td>
-                                        <td style={{ width: '200px' }}>
-                                        <p className="d-flex align-items-center gap-2 mb-0">
-                                            Charges - 
-                                            <span><b>1500</b></span>
-                                        </p>
-                                        
-                                        </td>
-                                    </tr>
-                                    </tbody>
-                                </Table>
-                                <p><small className="text-secondary">The number of these sections/items to be listed as far as necessary depending of services contracted in this Annex B.</small></p>
-                                <div>
-                                    <h6>1.2</h6>
-                                    <Table bordered className="mb-0">
-                                    <thead>
-                                        <tr>
-                                        <th>Aircraft type</th>
-                                        <th>Rate per turnaround (currency)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td>Boeing 737</td>
-                                            <td>INR 1500</td>
-                                        </tr>
-                                        <tr>
-                                            <td>Dassault Falcon 8X</td>
-                                            <td>USD 1500</td>
-                                        </tr>
-                                    </tbody>
-                                    </Table>
-                                    <p className="mt-4 mb-0"><b>1.3</b> Handling in case of Return To Ramp will not be charged extra, provided that a physical change of Load is not involved.</p>
-                                    <p className="mt-2 mb-0"><b>1.4</b> Handling in case of Return To Ramp involving a physical change of Load will be charged at ................% of the above rates.</p>
-                                    <p className="mt-2 mb-0">
-                                    <b>1.5</b> Handling in case of Technical Landing for other than commercial purposes will be charged at% of the above rates, provided that a physical change of Load is not involved.
-
-                                    </p>
+                                // Content comes only from the selected template; no static fallback
+                                <div className="p-4 text-center text-muted">
+                                    <p className="mb-0">No template content available for the selected template (Year {agreementYear}{templateName ? ` – ${templateName}` : ''}).</p>
+                                    <p className="small mt-2 mb-0">Annex B data is loaded only from the template you selected on the previous step.</p>
                                 </div>
-                                </div>
-                            )}
-                            {activeIndex === 1 && (
-                                <div>
-                                <h6>Paragraph 1 - <b>Additional Services & Charges</b></h6>
-                                <hr/>
-                                <p className="mt-4"><b>2.1</b> All services not included in Paragraph 1 of this Annex will be charged for as follows:</p>
-                                <Table bordered className="mb-0">
-                                    <thead>
-                                    <tr>
-                                        <th>Services</th>
-                                        <th className="text-center">Rate in INR
-                                            <small className="d-block" style={{color:"#a7a7a7", fontWeight:'400'}}>( Effective from August 1, {agreementYear} to July 31, {agreementYear + 1} )</small>
-                                        </th>
-                                        <th>Remarks</th>
-                                        <th style={{ width: "60px" }}>Action</th>
-                                    </tr>
-                                    </thead>
-                                    <tbody>
-                                    {rows.map((row, rowIndex) => (
-                                        <tr key={rowIndex}>
-                                        <td>
-                                            <Form.Select
-                                                value={row.description}
-                                                onChange={(e) => handleChange(rowIndex, "description", e.target.value)}
-                                                >
-                                                <option value="">-- Select Service --</option>
-                                                <option value="GPU">GPU</option>
-                                                <option value="Air start">Air start</option>
-                                                <option value="Push Back">Push back (one included)</option>
-                                                <option value="Wheelchair">Wheelchair</option>
-                                                <option value="Ambulift">Ambulift</option>
-                                                <option value="Blue Collar Manpower">Blue Collar Manpower (Monthly)</option>
-                                                <option value="Ramp Vehicle">Ramp Vehicle, per trip (to & fro with a time limit of 45 mins, including driver, parking, fuel and maintenance)</option>
-                                                <option value="Air Cooling Unit">Air Cooling Unit (ACU) Services</option>
-                                                <option value="Diesel tug">Diesel tug</option>
-                                                <option value="Dedicated ramp vehicle">Dedicated ramp vehicle per month 24x7 (with Driver)</option>
-                                                <option value="Driver cost">Driver cost per month</option>
-                                            </Form.Select>
-                                        </td>
-                                        <td>
-                                            <Form.Control
-                                            type="text"
-                                            value={row.subSection}
-                                            onChange={(e) => handleChange(rowIndex, "subSection", e.target.value)}
-                                            disabled
-                                            className="border-0 bg-light"
-                                            />
-                                        </td>
-                                        
-                                        <td>
-                                            <Form.Control
-                                            type="text"
-                                            value={row.perUnit}
-                                            onChange={(e) => handleChange(rowIndex, "perUnit", e.target.value)}
-                                            disabled
-                                            className="border-0 bg-light"
-                                            
-                                            />
-                                        </td>
-                                        
-                                        <td>
-                                            <Button
-                                            tooltip="Delete"
-                                            icon="pi pi-times"
-                                            text
-                                            className="p-0"
-                                            severity="danger"
-                                            variant="danger"
-                                            size="sm"
-                                            onClick={() => removeRow(rowIndex)}
-                                            />
-                                        </td>
-                                        </tr>
-                                    ))}
-                                    </tbody>
-                                </Table>
-                                <div className="mt-2 d-flex justify-content-between align-items-center">
-                                    <p><small className="text-secondary">The number of these rows in the table can be extended as far as necessary.</small></p>
-                                    <Button
-                                    variant="success"
-                                    icon="pi pi-plus"
-                                    label="Service"
-                                    className="py-1 px-2" 
-                                    severity="help"
-                                    onClick={addRow}
-                                    />
-                                </div>
-                                </div>
-                            )}
-                            {activeIndex === 2 && (
-                                <div>
-                                <h6>Paragraph 3 - <b>Disbursements</b></h6>
-                                <hr/>
-                                <p className="mt-4">
-                                    <b>3.1</b> Any disbursements made by the Handling Company on behalf of the Carrier will be reimbursed by the Carrier at cost price plus an accounting surcharge of................%. In order to claim such disbursements, the Handling Company shall provide 
-                                    receipts, invoices or any reasonable evidence substantiating such disbursements.
-
-                                </p>
-                                </div>
-                            )}
-                            {activeIndex === 3 && (
-                                <div>
-                                <h6>Paragraph 4 - <b>Training</b></h6>
-                                <hr/>
-                                <p className="mt-4">
-                                    <b>4.1</b> The provision of training will be covered as follows :
-                                    <span className="border-bottom w-50 mx-auto ms-1"></span>
-                                </p>
-                                </div>
-                            )}
-                            {activeIndex === 4 && (
-                                <div>
-                                <h6>Paragraph 5 - <b>Limit of Liability</b></h6>
-                                <hr/>
-                                <p className="mt-4">
-                                    <b>5.1</b> The limit of liability referred to in Sub-Article 8.5 of the Main Agreement shall be as follows :
-                                </p>
-                                <Table className="mb-0 custom-table">
-                                    <thead>
-                                    <tr>
-                                        <th className="text-center">Aircraft Type</th>
-                                        <th className="text-center">Limit (per incident)</th>
-                                    </tr>
-                                    <tr>
-                                        <td className="text-center">Boeing 737</td>
-                                        <td className="text-center"></td>
-                                    </tr>
-                                    <tr>
-                                        <td className="text-center">Dassault Falcon 8X</td> 
-                                        <td className="text-center"></td>
-                                    </tr>
-                                    </thead>
-                                </Table>
-                                </div>
-                            )}
-                            {activeIndex === 5 && (
-                                <div>
-                                <h6>Paragraph 6 - <b>Transfer of Services</b></h6>
-                                <hr/>
-                                <p className="mt-4 mb-0">
-                                    <b>6.1</b>  In accordance with Sub-Article 3.1 of the Main Agreement, the Handling Company subcontracts the services of Annex A Section(s) 
-
-                                </p>
-                                <div className="d-flex align-items-end gap-2 mt-1">
-                                    <span className="border-bottom me-1 pb-1 w-50">fghbth</span>
-                                    <span>to</span>
-                                    <span className="border-bottom ms-1 w-50 pb-1"></span>
-                                </div>
-                                <p className="mt-1 mb-0 text-secondary"><small>The number of these clauses can be extended as far as necessary.</small></p>
-                                </div>
-                            )}
-                            {activeIndex === 6 && (
-                                <div>
-                                <h6>Paragraph 7 - <b>Payment</b></h6>
-                                <hr/>
-                                <p className="mt-4 mb-2">
-                                    <b>7.1</b>  Notwithstanding Sub-Article
-                                </p>
-                                <p className="mb-2">
-                                    <b>7.2</b>  of the Main Agreement, payment of account shall be effected 
-                                    <span className="border-bottom ms-1 pb-1" style={{width:'280px', display:'inline-block'}}></span>
-                                    With reference to Sub-Article
-                                </p>
-                                <p className="mb-2">
-                                    <b>7.3</b>  the Parties establish the following payment terms:
-                                </p>
-                                <p className="mb-2">
-                                    Handling Company will send invoices to (insert email/physical address).<br/>
-                                    Notwithstanding Sub-Article 7.1 of the Main Agreement, the Handling Company shall submit invoices to the Carrier and the Carrier shall pay the Handling Company within (<span className="border-bottom text-center" style={{width:'100px', display:'inline-block'}}><b></b></span>) days of receipt of the invoice.
-                                </p>
-                                <p>
-                                    In the event the Carrier disputes any charge or fee set forth in any invoice, Carrier shall pay the undisputed portion and notify the Handling Company of the discrepancy in billing. Both Parties shall then seek in good faith to resolve the disputed amount(s). Upon the resolution of any disputed amount the Carrier shall promptly pay the balance due to the Handling Company.
-                                </p>
-                                
-                                </div>
-                            )}
-                            {activeIndex === 7 && (
-                                <div>
-                                <h6>Paragraph 8 - <b>Supervision & Administration</b></h6>
-                                <hr/>
-                                <p className="mt-4">
-                                    <b>8.1</b> 0.1	The services of Annex A, Section 1, Sub-Section 1.3 covered by Sub-Paragraph 1.1 of this Annex B, refer only to the following services of Annex A which are performed for the Carrier by other organization(s) under cover of separate agreement(s):
-                                    <br/>
-                                    Section(s) <span className="border-bottom ms-1" style={{display:'inline-block', width:'90%'}}></span> 
-                                    <br/>
-                                    Section(s) <span className="border-bottom ms-1" style={{display:'inline-block', width:'90%'}}></span> 
-                                </p>
-                                </div>
-                            )}
-                            {activeIndex === 8 && (
-                                <div>
-                                <h6>Paragraph 9 - <b>Use of Yllow Pages</b></h6>
-                                <hr/>
-                                <p><small className="text-secondary">In the event that both Parties wish to incorporate AHM 811 "Yellow Pages”</small></p>
-                                <p className="mt-4 mb-0">
-                                    <b>9.1</b> 
-                                    The following amendments to the "Definitions and Terminology", Main Agreement and Annex A reflected in "Yellow Pages" of AHM 811 edition
-                                </p>
-                                <p className="d-flex align-items-end gap-2 mt-1">
-                                    <span className="border-bottom me-1 pb-1 w-50">fghbth</span>
-                                    (Year <span className="border-bottom ms-1 w-25 pb-1"></span>) shall apply:
-                                </p>
-                                <p className="mb-2 text-secondary">For example:</p>
-                                <ol>
-                                    <li>Definitions and Terminology: e.g., nil or all</li>
-                                    <li>Main Agreement: e.g., nil or all except Article x</li>
-                                    <li>Annex A: e.g., nil or 3.6.x, 3.8.x, 6.6.x</li>
-                                </ol>
-                                </div>
-                            )}
-                            {activeIndex === 9 && (
-                                <div>
-                                <h6>Paragraph 10 - <b>Duration, Modification & Termination</b></h6>
-                                <hr/>
-                                <p>
-                                    <small className="text-secondary">Any change to Article 11 of the Main Agreement, in particular to the duration of the Main Agreement, validity of rates or rights of termination shall be recorded below, notwithstanding the corresponding Sub-Articles of the Main Agreement.</small>
-                                </p>
-                                <p>
-                                    <small className="mb-2">For example:</small>
-                                </p>
-                                <p className="mt-2 mb-0">
-                                    <b>10.1</b> Duration
-                                </p>
-                                <p className="mt-1 mb-0">
-                                    <b>10.1.1</b> Notwithstanding Sub-Article 11.4 and 11.5 of the Main Agreement 
-                                    <span className="border-bottom ms-1" style={{display:'inline-block', width:'37%'}}></span>
-                                </p>
-                                <p className="mt-1 mb-0">
-                                    <b>10.1.2</b> Notwithstanding Sub-Article 11.11 of the Main Agreement the rates contained in Paragraph 1 shall be 
-                                    <span className="border-bottom ms-1" style={{display:'inline-block', width:'100%'}}></span>
-                                </p>
-
-                                <p className="mt-1 mb-0">
-                                    <b>10.2</b> Modification
-                                </p>
-                                <p className="mt-1 mb-0">
-                                    <b>10.2.1</b> 0.0.1	Any modification to this Annex B shall be made by a written amendment signed by both Parties.
-                                </p>
-                                <p className="mt-1 mb-0">
-                                    <b>10.3</b> Termination
-                                </p>
-                                <p className="mt-1 mb-0">
-                                    <b>10.3.1</b> Notwithstanding Sub-Paragraph 10.1.1 of this Annex B, this Annex B may be terminated on the following terms 
-                                    <span className="border-bottom ms-1" style={{display:'inline-block', width:'100%'}}></span>
-                                </p>
-                                <p className="mt-1 mb-0">
-                                    <b className="me-1">10.3.2</b>  
-                                    The Carrier may terminate this Annex B, if the Handling Company fails to provide a consistently satisfactory level of service, the Carrier reserves the right to provide the Handling Company with written notice to the effect that correction is required within (.........) days. If the Handling Company fails to correct the situation within(.........) days, the Carrier may terminate the Agreement upon an additional (.........) days prior written notice. In accordance with Sub-Article 5.7 of the Main Agreement a consistent satisfactory level of service is defined in a separate “Service Level Agreement" (SLA) as an attachment to this Annex B.
-                                </p>
-                                <p className="mt-1 mb-0">
-                                    <b className="me-1">10.3.3</b>  
-                                    In the event of the Handling Company's material and sustained failure to perform the services as outlined in Sub-Article 5.7 of the Main Agreement, Carrier reserves the right to provide the Handling Company with written notice to the effect that correction is required within (.........) days. If the Handling Company fails to reasonably correct the situation within (.........) days, the Carrier may terminate the Agreement upon an additional (.........) days prior written notice.
-                                </p>
-                                <p>
-                                    <small className="mt-1 text-secondary">The number of these clauses can be extended as far as necessary.</small>
-                                </p>
-                                </div>
-                            )}
-                            {activeIndex === 10 && (
-                                <div>
-                                <h6>Paragraph 11 - <b>Notification</b></h6>
-                                <hr/>
-                                <p className="mt-4 mb-2">
-                                    <b>11.1</b> In accordance Sub-Article 11.3 of the Main Agreement, any notice or communication to be given hereunder shall be addressed to the respective Parties as follows:
-                                </p>
-
-                                <Table className="custom-table" >
-                                    <tbody>
-                                    <tr>
-                                        <th className="label-col" style={{width:'210px'}}>To Carrier:</th>
-                                        <td>
-                                        <p>
-                                            Carrier :  <span className="dots"></span><br />
-                                            Street :  <span className="dots"></span><br />
-                                            City, Country :  <span className="dots"></span><br />
-                                            Telephone :  <span className="dots"></span><br />
-                                            Fax : <span className="dots"></span><br />
-                                            E-mail : <span className="dots"></span><br />
-                                            Attn : <span className="dots"></span>
-                                        </p>
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <th className="label-col">To Handling Company:</th>
-                                        <td>
-                                        <p>
-                                            The Handling Company : <span className="dots"></span><br />
-                                            Street :  <span className="dots"></span><br />
-                                            City, Country :  <span className="dots"></span><br />
-                                            Telephone :  <span className="dots"></span><br />
-                                            Fax : <span className="dots"></span><br />
-                                            E-mail : <span className="dots"></span><br />
-                                            Attn : <span className="dots"></span>
-                                        </p>
-                                        </td>
-                                    </tr>
-                                    </tbody>
-                                </Table>
-                                
-                                </div>
-                            )}
-                            {activeIndex === 11 && (
-                                <div>
-                                <h6>Paragraph 12 - <b>Governing Law</b></h6>
-                                <hr/>
-                                <p className="mt-4 mb-2">
-                                    <b>12.1</b> In accordance with Article 9 of the Main Agreement, this Annex B shall be governed by and interpreted in accordance with the laws of
-                                    <span className="border-bottom ms-1" style={{display:'inline-block', width:'100%'}}></span>
-                                </p>
-                                <p className="mt-1 mb-2">
-                                    <b>12.2</b> In accordance with Article 9 of the Main Agreement, courts for the resolution of disputes shall be the courts of
-                                    <span className="border-bottom ms-1" style={{display:'inline-block', width:'100%'}}></span>
-                                </p>
-
-                                <Table bordered={false} className="mt-3 signTable">
-                                    <tbody>
-                                    <tr>
-                                        <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>Signed the</span> <span style={{borderBottom: "1px solid #ccc", width: "calc(100% - 80px)"}}></span>
-                                        </div>
-                                        </td>
-                                        <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>Signed the</span> <span style={{borderBottom: "1px solid #ccc", width: "calc(100% - 80px)"}}></span>
-                                        </div>
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>at</span> <span style={{borderBottom: "1px solid #ccc", width: "calc(100% - 20px)"}}></span>
-                                        </div>
-                                        </td>
-                                        <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>at</span> <span style={{borderBottom: "1px solid #ccc", width: "calc(100% - 20px)"}}></span>
-                                        </div>
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>for and on behalf of</span> <span style={{borderBottom: "1px solid #ccc", width: "calc(100% - 140px)"}}></span>
-                                        </div>
-                                        
-                                        </td>
-                                        <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>for and on behalf of</span> <span style={{borderBottom: "1px solid #ccc", width: "calc(100% - 140px)"}}></span>
-                                        </div>
-                                        </td>
-                                    </tr>
-                                    <tr>
-                                        <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>by</span> <span style={{borderBottom: "1px solid #ccc", width: "calc(100% - 20px)"}}></span>
-                                        </div>
-                                        
-                                        </td>
-                                        <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>by</span> <span style={{borderBottom: "1px solid #ccc", width: "calc(100% - 20px)"}}></span>
-                                        </div>
-                                        
-                                        </td>
-                                    </tr>
-                                    </tbody>
-                                </Table>
-
-                                </div>
-                            )}
-                                </>
                             )}
                             </div>
 
@@ -2339,8 +1936,8 @@ const Sgha_annexB = ({ templateYear = 2025, formData = {}, selectedCities = [] }
 
                                 {/* Next/Finish button */}
                                 <Button
-                                label={activeIndex === items.length - 1 ? (isSubmitting ? "Submitting..." : "Submit") : ""}
-                                icon={activeIndex === items.length - 1 ? (isSubmitting ? "pi pi-spin pi-spinner" : "pi pi-send") : "pi pi-arrow-right"}
+                                label={items.length === 0 || activeIndex === items.length - 1 ? (isSubmitting ? "Submitting..." : "Submit") : ""}
+                                icon={items.length === 0 || activeIndex === items.length - 1 ? (isSubmitting ? "pi pi-spin pi-spinner" : "pi pi-send") : "pi pi-arrow-right"}
                                 iconPos="right"
                                 onClick={handleNext}
                                 className="py-2"

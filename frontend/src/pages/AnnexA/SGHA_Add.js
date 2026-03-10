@@ -7,7 +7,7 @@ import { Dialog } from "primereact/dialog";
 import { ConfirmDialog, confirmDialog } from "primereact/confirmdialog";
 import { FileUpload } from "primereact/fileupload";
 import React, { useState, useRef, useEffect } from "react";
-import { Breadcrumb, Card, Col, Row } from "react-bootstrap";
+import { Breadcrumb, Card, Col, Row, Form, Table } from "react-bootstrap";
 import { AiOutlineEdit, AiOutlineForm } from "react-icons/ai";
 import { BiText } from "react-icons/bi";
 import { FaHeading } from "react-icons/fa";
@@ -16,6 +16,7 @@ import { IoChevronBackOutline } from "react-icons/io5";
 import { LuTable } from "react-icons/lu";
 import {
     MdCheckBox,
+    MdFlight,
     MdFormatListNumbered,
     MdOutlineSubdirectoryArrowRight,
     MdSubtitles,
@@ -26,6 +27,14 @@ import api from "../../api/axios";
 import axios from "axios";
 import CustomToast from "../../components/CustomToast";
 import { useAuth } from "../../context/AuthContext";
+import { getSocket } from "../../context/socket";
+import { Sidebar } from "primereact/sidebar";
+import { TabView, TabPanel } from "primereact/tabview";
+import { Avatar } from "primereact/avatar";
+import Add_Aircraft_Charge from "../../components/Add_Aircraft_Charge.js";
+import Edit_Aircraft_Charge from "../../components/Edit_Aircraft_Charge.js";
+import AddCompanyAircraft from "../../components/AddCompanyAircraft.js";
+import EditCompanyAircraft from "../../components/EditCompanyAircraft.js";
 
 class FieldErrorBoundary extends React.Component {
   constructor(props) {
@@ -53,7 +62,8 @@ class FieldErrorBoundary extends React.Component {
 const SGHA_Add = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { roleId, role } = useAuth();
+  const { roleId, role, userId } = useAuth();
+  const socket = getSocket();
   const toastRef = useRef(null);
   const fromPdfUploadKeysRef = useRef(/** @type {Set<string>} */ (new Set()));
   const fromPdfUploadYearRef = useRef(/** @type {number | null} */ (null));
@@ -88,6 +98,31 @@ const SGHA_Add = () => {
   const [selectedPdfFile, setSelectedPdfFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
+
+  // After template save: show "Set additional charges" dialog before success message
+  const ADDITIONAL_CHARGES_PAGE = "Additional Charges";
+  const [additionalChargesDialogVisible, setAdditionalChargesDialogVisible] = useState(false);
+  const [chargesBusinesses, setChargesBusinesses] = useState([]);
+  const [chargesAirports, setChargesAirports] = useState([]);
+  const [selectedChargesBusiness, setSelectedChargesBusiness] = useState("");
+  const [selectedChargesAirport, setSelectedChargesAirport] = useState("");
+  const [chargesList, setChargesList] = useState([]);
+  const [chargesListLoading, setChargesListLoading] = useState(false);
+  const [addChargeSidebarVisible, setAddChargeSidebarVisible] = useState(false);
+  const [editingCharge, setEditingCharge] = useState(null);
+  const [editChargeSidebarVisible, setEditChargeSidebarVisible] = useState(false);
+
+  // Aircraft options (same as Company Aircraft page)
+  const AIRCRAFT_OPTIONS_PAGE = "Aircraft Options";
+  const [aircraftBusinesses, setAircraftBusinesses] = useState([]);
+  const [aircraftAirports, setAircraftAirports] = useState([]);
+  const [selectedAircraftBusiness, setSelectedAircraftBusiness] = useState("");
+  const [selectedAircraftAirport, setSelectedAircraftAirport] = useState("");
+  const [aircraftList, setAircraftList] = useState([]);
+  const [aircraftListLoading, setAircraftListLoading] = useState(false);
+  const [addAircraftSidebarVisible, setAddAircraftSidebarVisible] = useState(false);
+  const [editingAircraft, setEditingAircraft] = useState(null);
+  const [editAircraftSidebarVisible, setEditAircraftSidebarVisible] = useState(false);
 
   // Generate options for a specific year (default template; templateName null)
   const getOptionsForYear = (year) => [
@@ -687,7 +722,7 @@ const SGHA_Add = () => {
     loadExistingContent();
   }, [selected]);
 
-  // Handle save
+  // Handle save — for named templates (e.g. from PDF "Open in editor") save all three (Main, Annex A, Annex B) so they all persist
   const handleSave = async () => {
     if (!selected) {
       showMessage("warn", "Please select a template first");
@@ -696,27 +731,38 @@ const SGHA_Add = () => {
 
     setLoading(true);
     try {
-      const templateKey = getTemplateKey(selected);
-      const fields = templateFields[templateKey] || [];
+      const year = selected.year;
+      const templateName = selected.templateName != null && String(selected.templateName).trim() !== ''
+        ? String(selected.templateName).trim()
+        : null;
 
-      // Convert fields array to JSON string for storage
-      const content = JSON.stringify(fields);
+      const typesToSave = [
+        { type: "Main Agreement", keySuffix: "Main Agreement" },
+        { type: "Annex A", keySuffix: "Annex A" },
+        { type: "Annex B", keySuffix: "Annex B" },
+      ];
 
-      const payload = {
-        year: selected.year,
-        type: selected.title,
-        content: content,
-      };
-      if (selected.templateName != null && String(selected.templateName).trim() !== '') {
-        payload.template_name = selected.templateName;
+      if (templateName) {
+        // Named template (e.g. from PDF): save all three document types so Main Agreement, Annex A, and Annex B all persist
+        for (const { type, keySuffix } of typesToSave) {
+          const key = `${templateName}-${keySuffix}`;
+          const fields = templateFields[key];
+          if (fields == null) continue; // key not in state, skip
+          const content = JSON.stringify(fields);
+          const payload = { year, type, content, template_name: templateName };
+          await api.post(`/sgha_template_content/save/${PAGE_NAME}`, payload);
+        }
+      } else {
+        // Default (year-only) template: save only the currently selected document
+        const templateKey = getTemplateKey(selected);
+        const fields = templateFields[templateKey] || [];
+        const content = JSON.stringify(fields);
+        const payload = { year, type: selected.title, content };
+        await api.post(`/sgha_template_content/save/${PAGE_NAME}`, payload);
       }
-      const response = await api.post(`/sgha_template_content/save/${PAGE_NAME}`, payload);
 
-      if (response.status === 200) {
-        showMessage("success", "Template content saved successfully!");
-        // Refresh years list so new year (if any) appears on the page without reload
-        await fetchYears();
-      }
+      // Show "Set additional charges" dialog first; on Done we show success and refresh
+      setAdditionalChargesDialogVisible(true);
     } catch (error) {
       console.error("Error saving template:", error);
       console.error("Error response:", error.response?.data);
@@ -740,6 +786,197 @@ const SGHA_Add = () => {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleCloseAdditionalChargesDialog = () => {
+    setAdditionalChargesDialogVisible(false);
+  };
+
+  const handleDoneAdditionalCharges = async () => {
+    setAdditionalChargesDialogVisible(false);
+    showMessage("success", "Template content saved successfully!");
+    await fetchYears();
+  };
+
+  // When "Set additional charges" dialog is open: fetch businesses
+  useEffect(() => {
+    if (!additionalChargesDialogVisible || !socket) return;
+    socket.emit("fetch-businesses", { role_id: roleId, page_name: ADDITIONAL_CHARGES_PAGE, user_id: userId });
+    socket.on("fetch-businesses-success", (data) => {
+      setChargesBusinesses(data || []);
+      setSelectedChargesBusiness(data?.[0]?.business_id ?? "");
+    });
+    socket.on("fetch-businesses-error", () => setChargesBusinesses([]));
+    return () => {
+      socket.off("fetch-businesses-success");
+      socket.off("fetch-businesses-error");
+    };
+  }, [additionalChargesDialogVisible, socket, roleId, userId]);
+
+  // When business selected: fetch airports
+  useEffect(() => {
+    if (!socket || !selectedChargesBusiness) return;
+    socket.emit("fetch-airports-by-business", {
+      role_id: roleId,
+      page_name: ADDITIONAL_CHARGES_PAGE,
+      business_id: selectedChargesBusiness,
+    });
+    socket.on("fetch-airports-by-business-success", (data) => {
+      const formatted = (data || []).map((a) => ({ name: `${a.name} (${a.iata})`, code: a.airport_id }));
+      setChargesAirports(formatted);
+      setSelectedChargesAirport(formatted[0]?.code ?? "");
+    });
+    socket.on("fetch-airports-by-business-error", () => setChargesAirports([]));
+    return () => {
+      socket.off("fetch-airports-by-business-success");
+      socket.off("fetch-airports-by-business-error");
+    };
+  }, [socket, roleId, selectedChargesBusiness]);
+
+  // When business + airport selected: fetch charges list
+  useEffect(() => {
+    if (!socket || !selectedChargesBusiness || !selectedChargesAirport) return;
+    setChargesListLoading(true);
+    socket.emit("view-new-additional-charges", {
+      role_id: roleId,
+      page_name: ADDITIONAL_CHARGES_PAGE,
+      Business_id: selectedChargesBusiness,
+      Airport_id: selectedChargesAirport,
+      sortOrder: "ASC",
+      limit: 100,
+    });
+    const onSuccess = (data) => { setChargesList(data || []); setChargesListLoading(false); };
+    const onNoContent = () => { setChargesList([]); setChargesListLoading(false); };
+    const onError = () => { setChargesList([]); setChargesListLoading(false); };
+    socket.on("view-new-additional-charges-success", onSuccess);
+    socket.on("view-new-additional-charges-no-content", onNoContent);
+    socket.on("view-new-additional-charges-error", onError);
+    socket.on("additional-charges-updated", () => {
+      socket.emit("view-new-additional-charges", {
+        role_id: roleId,
+        page_name: ADDITIONAL_CHARGES_PAGE,
+        Business_id: selectedChargesBusiness,
+        Airport_id: selectedChargesAirport,
+        sortOrder: "ASC",
+        limit: 100,
+      });
+    });
+    return () => {
+      socket.off("view-new-additional-charges-success", onSuccess);
+      socket.off("view-new-additional-charges-no-content", onNoContent);
+      socket.off("view-new-additional-charges-error", onError);
+      socket.off("additional-charges-updated");
+    };
+  }, [socket, roleId, selectedChargesBusiness, selectedChargesAirport]);
+
+  const handleEditCharge = (charge) => {
+    setEditingCharge(charge);
+    setEditChargeSidebarVisible(true);
+  };
+
+  const handleDeleteCharge = async (id) => {
+    try {
+      await api.delete(`/additional_charge/delete_additional_charge/${id}/${ADDITIONAL_CHARGES_PAGE}`);
+      socket?.emit("view-new-additional-charges", {
+        role_id: roleId,
+        page_name: ADDITIONAL_CHARGES_PAGE,
+        Business_id: selectedChargesBusiness,
+        Airport_id: selectedChargesAirport,
+        sortOrder: "ASC",
+        limit: 100,
+      });
+    } catch (e) {
+      console.error("Delete charge error:", e);
+    }
+  };
+
+  // Aircraft options: fetch businesses when dialog is open
+  useEffect(() => {
+    if (!additionalChargesDialogVisible || !socket) return;
+    socket.emit("fetch-businesses", { role_id: roleId, page_name: AIRCRAFT_OPTIONS_PAGE, user_id: userId });
+    socket.on("fetch-businesses-success", (data) => {
+      setAircraftBusinesses(data || []);
+      setSelectedAircraftBusiness(data?.[0]?.business_id ?? "");
+    });
+    socket.on("fetch-businesses-error", () => setAircraftBusinesses([]));
+    return () => {
+      socket.off("fetch-businesses-success");
+      socket.off("fetch-businesses-error");
+    };
+  }, [additionalChargesDialogVisible, socket, roleId, userId]);
+
+  // Aircraft: fetch airports when business selected
+  useEffect(() => {
+    if (!socket || !selectedAircraftBusiness) return;
+    socket.emit("fetch-airports-by-business", {
+      role_id: roleId,
+      page_name: AIRCRAFT_OPTIONS_PAGE,
+      business_id: selectedAircraftBusiness,
+    });
+    socket.on("fetch-airports-by-business-success", (data) => {
+      const formatted = (data || []).map((a) => ({ name: `${a.name} (${a.iata})`, code: a.airport_id }));
+      setAircraftAirports(formatted);
+      setSelectedAircraftAirport(formatted[0]?.code ?? "");
+    });
+    socket.on("fetch-airports-by-business-error", () => setAircraftAirports([]));
+    return () => {
+      socket.off("fetch-airports-by-business-success");
+      socket.off("fetch-airports-by-business-error");
+    };
+  }, [socket, roleId, selectedAircraftBusiness]);
+
+  // Aircraft: fetch list when business + airport selected
+  useEffect(() => {
+    if (!socket || !selectedAircraftBusiness || !selectedAircraftAirport) return;
+    setAircraftListLoading(true);
+    socket.emit("view-company-aircrafts", {
+      role_id: roleId,
+      page_name: AIRCRAFT_OPTIONS_PAGE,
+      business_id: selectedAircraftBusiness,
+      airport_id: selectedAircraftAirport,
+      sortOrder: "ASC",
+      limit: 100,
+    });
+    const onSuccess = (data) => { setAircraftList(data || []); setAircraftListLoading(false); };
+    const onError = () => { setAircraftList([]); setAircraftListLoading(false); };
+    socket.on("view-company-aircrafts-success", onSuccess);
+    socket.on("view-company-aircrafts-error", onError);
+    socket.on("company-aircrafts-updated", () => {
+      socket.emit("view-company-aircrafts", {
+        role_id: roleId,
+        page_name: AIRCRAFT_OPTIONS_PAGE,
+        business_id: selectedAircraftBusiness,
+        airport_id: selectedAircraftAirport,
+        sortOrder: "ASC",
+        limit: 100,
+      });
+    });
+    return () => {
+      socket.off("view-company-aircrafts-success", onSuccess);
+      socket.off("view-company-aircrafts-error", onError);
+      socket.off("company-aircrafts-updated");
+    };
+  }, [socket, roleId, selectedAircraftBusiness, selectedAircraftAirport]);
+
+  const handleEditAircraft = (aircraft) => {
+    setEditingAircraft(aircraft);
+    setEditAircraftSidebarVisible(true);
+  };
+
+  const handleDeleteAircraft = async (aircraftId) => {
+    try {
+      await api.delete(`/company_aircraft_routes/delete_company_aircraft/${aircraftId}/${AIRCRAFT_OPTIONS_PAGE}`);
+      socket?.emit("view-company-aircrafts", {
+        role_id: roleId,
+        page_name: AIRCRAFT_OPTIONS_PAGE,
+        business_id: selectedAircraftBusiness,
+        airport_id: selectedAircraftAirport,
+        sortOrder: "ASC",
+        limit: 100,
+      });
+    } catch (e) {
+      console.error("Delete aircraft error:", e);
     }
   };
 
@@ -1471,6 +1708,175 @@ const SGHA_Add = () => {
           </div>
         </div>
       </Dialog>
+
+      {/* Set additional charges & aircraft options (optional) – shown after template save; Close = just close, Done = close + success message */}
+      <Dialog
+        visible={additionalChargesDialogVisible}
+        onHide={handleCloseAdditionalChargesDialog}
+        header="Set additional charges & aircraft options (optional)"
+        style={{ width: "92vw", maxWidth: "960px" }}
+        footer={
+          <div className="d-flex justify-content-end gap-2">
+            <Button label="Done" icon="pi pi-check" severity="success" onClick={handleDoneAdditionalCharges} />
+          </div>
+        }
+      >
+        <p className="text-muted small mb-2">Template content is already saved. You can add or edit additional charges and aircraft options below, or click Done to finish.</p>
+        <TabView>
+          <TabPanel header="Additional Charges">
+            <div className="mb-3 d-flex flex-wrap gap-3 align-items-end">
+              <div style={{ minWidth: "200px" }}>
+                <label className="form-label small fw-semibold">Handling Company</label>
+                <Form.Select value={selectedChargesBusiness} onChange={(e) => setSelectedChargesBusiness(e.target.value)}>
+                  <option value="">Select business</option>
+                  {chargesBusinesses.map((b) => (
+                    <option key={b.business_id} value={b.business_id}>{b.name}</option>
+                  ))}
+                </Form.Select>
+              </div>
+              <div style={{ minWidth: "220px" }}>
+                <label className="form-label small fw-semibold">Airport</label>
+                <Form.Select value={selectedChargesAirport} onChange={(e) => setSelectedChargesAirport(e.target.value)}>
+                  <option value="">Select airport</option>
+                  {chargesAirports.map((a) => (
+                    <option key={a.code} value={a.code}>{a.name}</option>
+                  ))}
+                </Form.Select>
+              </div>
+              <Button label="Add charge" icon="pi pi-plus" onClick={() => setAddChargeSidebarVisible(true)} />
+            </div>
+            <div style={{ maxHeight: "36vh", overflow: "auto" }}>
+              {chargesListLoading ? (
+                <p className="text-muted small">Loading charges...</p>
+              ) : (
+                <Table striped bordered hover size="sm">
+                  <thead>
+                    <tr>
+                      <th style={{ width: "60px" }}>#</th>
+                      <th>Service</th>
+                      <th>Applicable for</th>
+                      <th>Unit</th>
+                      <th>Rate (INR / USD)</th>
+                      <th>Remarks</th>
+                      <th style={{ width: "120px" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {chargesList.length > 0 ? (
+                      chargesList.map((c, i) => (
+                        <tr key={c.Additional_charges_id}>
+                          <td>{i + 1}</td>
+                          <td>{c.Service_name}</td>
+                          <td>{c.Charge_type}</td>
+                          <td>{c.unit_or_measure || "—"}</td>
+                          <td>₹ {c.rate_inr ?? "—"} / $ {c.rate_usd ?? "—"}</td>
+                          <td>{c.Remarks || "—"}</td>
+                          <td>
+                            <Button icon="pi pi-pencil" className="p-button-text p-button-sm p-0 me-1" onClick={() => handleEditCharge(c)} />
+                            <Button icon="pi pi-trash" className="p-button-danger p-button-text p-button-sm p-0" onClick={() => handleDeleteCharge(c.Additional_charges_id)} />
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr><td colSpan="7" className="text-center text-muted">No charges for this business/airport. Click &quot;Add charge&quot; to add one.</td></tr>
+                    )}
+                  </tbody>
+                </Table>
+              )}
+            </div>
+          </TabPanel>
+          <TabPanel header="Aircraft Options">
+            <div className="mb-3 d-flex flex-wrap gap-3 align-items-end">
+              <div style={{ minWidth: "200px" }}>
+                <label className="form-label small fw-semibold">Handling Company</label>
+                <Form.Select value={selectedAircraftBusiness} onChange={(e) => setSelectedAircraftBusiness(e.target.value)}>
+                  <option value="">Select business</option>
+                  {aircraftBusinesses.map((b) => (
+                    <option key={b.business_id} value={b.business_id}>{b.name}</option>
+                  ))}
+                </Form.Select>
+              </div>
+              <div style={{ minWidth: "220px" }}>
+                <label className="form-label small fw-semibold">Airport</label>
+                <Form.Select value={selectedAircraftAirport} onChange={(e) => setSelectedAircraftAirport(e.target.value)} disabled={!selectedAircraftBusiness}>
+                  <option value="">Select airport</option>
+                  {aircraftAirports.map((a) => (
+                    <option key={a.code} value={a.code}>{a.name}</option>
+                  ))}
+                </Form.Select>
+              </div>
+              <Button label="Add New" icon="pi pi-plus" severity="help" onClick={() => setAddAircraftSidebarVisible(true)} />
+            </div>
+            <div style={{ maxHeight: "36vh", overflow: "auto" }}>
+              {aircraftListLoading ? (
+                <p className="text-muted small">Loading aircraft...</p>
+              ) : (
+                <Table striped bordered hover size="sm">
+                  <thead>
+                    <tr>
+                      <th>Aircraft Company</th>
+                      <th style={{ width: "100px" }}>Region</th>
+                      <th>MOTW</th>
+                      <th>Limit Per Incident</th>
+                      <th>Price (INR)</th>
+                      <th>Price (USD)</th>
+                      <th style={{ width: "100px" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {aircraftList.length > 0 ? (
+                      aircraftList.map((aircraft) => (
+                        <tr key={aircraft.aircraft_id}>
+                          <td>
+                            <div className="d-flex align-items-center gap-2">
+                              <Avatar className="me-2" style={{ backgroundColor: "rgb(197 197 197 / 27%)", color: "rgb(146 74 151)" }} shape="circle">
+                                <MdFlight />
+                              </Avatar>
+                              <span className="d-flex flex-column gap-0">
+                                <b>{aircraft.Company_name}</b>
+                                <small>Aircraft: <b>{aircraft.Aircraft_name || "—"}</b></small>
+                                <small>Model/Make: <b>{aircraft.Aircraft_model || "—"}</b></small>
+                              </span>
+                            </div>
+                          </td>
+                          <td>{aircraft.Flight_type || "—"}</td>
+                          <td>{aircraft.MTOW || "—"}</td>
+                          <td>{aircraft.Limit_per_incident || "—"}</td>
+                          <td>₹ {aircraft.Price_per_Limit_inr ?? "—"}</td>
+                          <td>$ {aircraft.Price_per_Limit_usd ?? "—"}</td>
+                          <td>
+                            <Button icon="pi pi-pencil" className="p-button-text p-button-sm p-0 me-1" onClick={() => handleEditAircraft(aircraft)} />
+                            <Button icon="pi pi-trash" className="p-button-danger p-button-text p-button-sm p-0" onClick={() => handleDeleteAircraft(aircraft.aircraft_id)} />
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr><td colSpan="7" className="text-center text-muted">No aircraft for this business/airport. Click &quot;Add New&quot; to add one.</td></tr>
+                    )}
+                  </tbody>
+                </Table>
+              )}
+            </div>
+          </TabPanel>
+        </TabView>
+      </Dialog>
+
+      <Sidebar visible={addChargeSidebarVisible} position="right" style={{ width: "500px" }} onHide={() => setAddChargeSidebarVisible(false)} dismissable={false}>
+        <Add_Aircraft_Charge onClose={() => setAddChargeSidebarVisible(false)} page_name={ADDITIONAL_CHARGES_PAGE} />
+      </Sidebar>
+      <Sidebar visible={editChargeSidebarVisible} position="right" style={{ width: "500px" }} onHide={() => { setEditChargeSidebarVisible(false); setEditingCharge(null); }} dismissable={false}>
+        {editingCharge && (
+          <Edit_Aircraft_Charge onClose={() => { setEditChargeSidebarVisible(false); setEditingCharge(null); }} page_name={ADDITIONAL_CHARGES_PAGE} initialData={editingCharge} />
+        )}
+      </Sidebar>
+      <Sidebar visible={addAircraftSidebarVisible} position="right" style={{ width: "450px" }} onHide={() => setAddAircraftSidebarVisible(false)} dismissable={false}>
+        <AddCompanyAircraft onClose={() => setAddAircraftSidebarVisible(false)} page_name={AIRCRAFT_OPTIONS_PAGE} />
+      </Sidebar>
+      <Sidebar visible={editAircraftSidebarVisible} position="right" style={{ width: "450px" }} onHide={() => { setEditAircraftSidebarVisible(false); setEditingAircraft(null); }} dismissable={false}>
+        {editingAircraft && (
+          <EditCompanyAircraft onClose={() => { setEditAircraftSidebarVisible(false); setEditingAircraft(null); }} page_name={AIRCRAFT_OPTIONS_PAGE} airlineData={editingAircraft} />
+        )}
+      </Sidebar>
 
       {/* PDF Upload Dialog */}
       <Dialog

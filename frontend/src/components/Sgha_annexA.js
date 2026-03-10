@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Card, Form, InputGroup, Table } from 'react-bootstrap';
 import api from "../api/axios";
 
-const Sgha_annexA = ({ templateYear = 2025 }) => {
+const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
     const [visibleRight, setVisibleRight] = useState(false);
         
           // State for cards
@@ -405,9 +405,13 @@ const Sgha_annexA = ({ templateYear = 2025 }) => {
             const fetchTemplateData = async () => {
               try {
                 setLoadingTemplate(true);
-                const response = await api.get(
-                  `/sgha_template_content/get/${templateYear}/Annex A/Section Template`
-                );
+                const url = `/sgha_template_content/get/${templateYear}/Annex A/Section Template`;
+                const params = (templateName != null && String(templateName).trim() !== '')
+                  ? { template_name: String(templateName).trim() }
+                  : {};
+                console.log('[Annex A] fetch:', url, 'params:', params);
+                const response = await api.get(url, { params });
+                console.log('[Annex A] response:', response.status, '| has content:', !!response.data?.data?.content);
 
                 if (response.data?.data?.content) {
                   const content = response.data.data.content;
@@ -437,7 +441,7 @@ const Sgha_annexA = ({ templateYear = 2025 }) => {
             };
 
             fetchTemplateData();
-          }, [templateYear]);
+          }, [templateYear, templateName]);
 
           // Fetch table row data with row_id 2 for Section 1
           useEffect(() => {
@@ -452,7 +456,9 @@ const Sgha_annexA = ({ templateYear = 2025 }) => {
                   setTableRowData(response.data.data);
                 }
               } catch (error) {
-                console.error("Error fetching table row data:", error);
+                if (error?.response?.status !== 404) {
+                  console.error("Error fetching table row data:", error);
+                }
                 setTableRowData(null);
               } finally {
                 setLoadingTableRow(false);
@@ -1625,7 +1631,7 @@ const Sgha_annexA = ({ templateYear = 2025 }) => {
                         </tr>
                         <tr>
                             <td>hereinafter referred to as the 'Carrier'</td>
-                            <b className="mb-0"></b>
+                            <td><b className="mb-0"></b></td>
                         </tr>
                         <tr>
                             <td className="d-flex gap-2">

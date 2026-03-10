@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Row, Col, Breadcrumb, Card, Table, Form } from 'react-bootstrap';
 import { IoChevronBackOutline } from "react-icons/io5";
 import { Button } from 'primereact/button';
@@ -31,6 +31,9 @@ const AdditionalCharges = () => {
     const [searchValue, setSearchValue] = useState('');
     const [debouncedSearch] = useDebounce(searchValue, 500); // 500ms debounce
     const navigate = useNavigate();
+    const location = useLocation();
+    const highlightNewChargeIds = location.state?.highlightNewChargeIds ?? [];
+    const highlightNewAircraftIds = location.state?.highlightNewAircraftIds ?? [];
     const goBack = () => {
         navigate(-1); // This will take the user back to the previous page in history
     };
@@ -236,6 +239,16 @@ const AdditionalCharges = () => {
 
     return (
         <>
+            {highlightNewAircraftIds.length > 0 && (
+                <Row className="mb-2">
+                    <Col>
+                        <div className="alert alert-info py-2 mb-0 d-flex align-items-center gap-2">
+                            <span>{highlightNewAircraftIds.length} aircraft option(s) were also saved from PDF.</span>
+                            <Button label="View Aircraft Options" icon="pi pi-external-link" className="p-button-sm" onClick={() => navigate("/dashboard/CompanyAircraft", { state: { highlightNewAircraftIds } })} />
+                        </div>
+                    </Col>
+                </Row>
+            )}
             <Row className="mb-4">
                 <Col md={12} lg={12} className="d-flex align-items-center justify-content-between mb-3">
                     <Breadcrumb>
@@ -329,9 +342,11 @@ const AdditionalCharges = () => {
                     </thead>
                     <tbody>
                         {charges.length > 0 ? (
-                            charges.map((c, i) => (
-                                <tr key={c.Additional_charges_id}>
-                                    <td>{i + 1}</td>
+                            charges.map((c, i) => {
+                                const isNew = highlightNewChargeIds.includes(c.Additional_charges_id);
+                                return (
+                                <tr key={c.Additional_charges_id} style={isNew ? { backgroundColor: 'rgba(255, 193, 7, 0.25)' } : undefined}>
+                                    <td>{i + 1}{isNew && <span className="badge bg-warning text-dark ms-1">New</span>}</td>
                                     <td>{c.Service_name}</td>
                                     <td>{c.Charge_type}</td>
                                     <td>{c.unit_or_measure}</td>
@@ -360,7 +375,7 @@ const AdditionalCharges = () => {
                                         />
                                     </td>
                                 </tr>
-                            ))
+                            ); })
                         ) : (
                             <tr>
                                 <td colSpan="5" className="text-center">No charges found</td>

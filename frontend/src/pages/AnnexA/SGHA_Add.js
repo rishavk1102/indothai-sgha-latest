@@ -1,13 +1,16 @@
+import axios from "axios";
 import { AnimatePresence, motion } from "framer-motion";
+import { Avatar } from "primereact/avatar";
 import { Button } from "primereact/button";
 import { Checkbox } from "primereact/checkbox";
+import { ConfirmDialog, confirmDialog } from "primereact/confirmdialog";
+import { Dialog } from "primereact/dialog";
 import { InputText } from "primereact/inputtext";
 import { InputTextarea } from "primereact/inputtextarea";
-import { Dialog } from "primereact/dialog";
-import { ConfirmDialog, confirmDialog } from "primereact/confirmdialog";
-import { FileUpload } from "primereact/fileupload";
-import React, { useState, useRef, useEffect } from "react";
-import { Breadcrumb, Card, Col, Row, Form, Table } from "react-bootstrap";
+import { Sidebar } from "primereact/sidebar";
+import { TabPanel, TabView } from "primereact/tabview";
+import React, { useEffect, useRef, useState } from "react";
+import { Breadcrumb, Card, Col, Form, Row, Table } from "react-bootstrap";
 import { AiOutlineEdit, AiOutlineForm } from "react-icons/ai";
 import { BiText } from "react-icons/bi";
 import { FaHeading } from "react-icons/fa";
@@ -15,26 +18,22 @@ import { FcOpenedFolder } from "react-icons/fc";
 import { IoChevronBackOutline } from "react-icons/io5";
 import { LuTable } from "react-icons/lu";
 import {
-    MdCheckBox,
-    MdFlight,
-    MdFormatListNumbered,
-    MdOutlineSubdirectoryArrowRight,
-    MdSubtitles,
+  MdCheckBox,
+  MdFlight,
+  MdFormatListNumbered,
+  MdOutlineSubdirectoryArrowRight,
+  MdSubtitles,
 } from "react-icons/md";
 import { useLocation, useNavigate } from "react-router-dom";
-import CustomEditor from "../../components/CustomEditor";
 import api from "../../api/axios";
-import axios from "axios";
+import Add_Aircraft_Charge from "../../components/Add_Aircraft_Charge.js";
+import AddCompanyAircraft from "../../components/AddCompanyAircraft.js";
+import CustomEditor from "../../components/CustomEditor";
 import CustomToast from "../../components/CustomToast";
+import Edit_Aircraft_Charge from "../../components/Edit_Aircraft_Charge.js";
+import EditCompanyAircraft from "../../components/EditCompanyAircraft.js";
 import { useAuth } from "../../context/AuthContext";
 import { getSocket } from "../../context/socket";
-import { Sidebar } from "primereact/sidebar";
-import { TabView, TabPanel } from "primereact/tabview";
-import { Avatar } from "primereact/avatar";
-import Add_Aircraft_Charge from "../../components/Add_Aircraft_Charge.js";
-import Edit_Aircraft_Charge from "../../components/Edit_Aircraft_Charge.js";
-import AddCompanyAircraft from "../../components/AddCompanyAircraft.js";
-import EditCompanyAircraft from "../../components/EditCompanyAircraft.js";
 
 class FieldErrorBoundary extends React.Component {
   constructor(props) {
@@ -80,19 +79,21 @@ const SGHA_Add = () => {
   const [availableYears, setAvailableYears] = useState([]);
   const [yearsWithStatus, setYearsWithStatus] = useState([]); // Years with hasData flag
   const [yearsLoading, setYearsLoading] = useState(true);
-  
+
   // Add year dialog state
   const [addYearDialogVisible, setAddYearDialogVisible] = useState(false);
-  const [newYear, setNewYear] = useState('');
+  const [newYear, setNewYear] = useState("");
   const [addingYear, setAddingYear] = useState(false);
-  
+
   // Delete year state
   const [deletingYear, setDeletingYear] = useState(false);
-  
+
   // Custom template name and year when opened from PdfUploads "Open in editor"
   const [pdfUploadTemplateName, setPdfUploadTemplateName] = useState("");
-  const [pdfUploadYear, setPdfUploadYear] = useState(/** @type {number | null} */ (null));
-  
+  const [pdfUploadYear, setPdfUploadYear] = useState(
+    /** @type {number | null} */ (null),
+  );
+
   // PDF upload dialog state
   const [pdfDialogVisible, setPdfDialogVisible] = useState(false);
   const [selectedPdfFile, setSelectedPdfFile] = useState(null);
@@ -101,7 +102,8 @@ const SGHA_Add = () => {
 
   // After template save: show "Set additional charges" dialog before success message
   const ADDITIONAL_CHARGES_PAGE = "Additional Charges";
-  const [additionalChargesDialogVisible, setAdditionalChargesDialogVisible] = useState(false);
+  const [additionalChargesDialogVisible, setAdditionalChargesDialogVisible] =
+    useState(false);
   const [chargesBusinesses, setChargesBusinesses] = useState([]);
   const [chargesAirports, setChargesAirports] = useState([]);
   const [selectedChargesBusiness, setSelectedChargesBusiness] = useState("");
@@ -110,7 +112,8 @@ const SGHA_Add = () => {
   const [chargesListLoading, setChargesListLoading] = useState(false);
   const [addChargeSidebarVisible, setAddChargeSidebarVisible] = useState(false);
   const [editingCharge, setEditingCharge] = useState(null);
-  const [editChargeSidebarVisible, setEditChargeSidebarVisible] = useState(false);
+  const [editChargeSidebarVisible, setEditChargeSidebarVisible] =
+    useState(false);
 
   // Aircraft options (same as Company Aircraft page)
   const AIRCRAFT_OPTIONS_PAGE = "Aircraft Options";
@@ -120,27 +123,71 @@ const SGHA_Add = () => {
   const [selectedAircraftAirport, setSelectedAircraftAirport] = useState("");
   const [aircraftList, setAircraftList] = useState([]);
   const [aircraftListLoading, setAircraftListLoading] = useState(false);
-  const [addAircraftSidebarVisible, setAddAircraftSidebarVisible] = useState(false);
+  const [addAircraftSidebarVisible, setAddAircraftSidebarVisible] =
+    useState(false);
   const [editingAircraft, setEditingAircraft] = useState(null);
-  const [editAircraftSidebarVisible, setEditAircraftSidebarVisible] = useState(false);
+  const [editAircraftSidebarVisible, setEditAircraftSidebarVisible] =
+    useState(false);
 
   // Generate options for a specific year (default template; templateName null)
   const getOptionsForYear = (year) => [
-    { id: `${year}-1`, title: "Main Agreement", date: `Year-${year}`, year, templateKey: `${year}-Main Agreement`, templateName: null },
-    { id: `${year}-2`, title: "Annex A", date: `Year-${year}`, year, templateKey: `${year}-Annex A`, templateName: null },
-    { id: `${year}-3`, title: "Annex B", date: `Year-${year}`, year, templateKey: `${year}-Annex B`, templateName: null },
+    {
+      id: `${year}-1`,
+      title: "Main Agreement",
+      date: `Year-${year}`,
+      year,
+      templateKey: `${year}-Main Agreement`,
+      templateName: null,
+    },
+    {
+      id: `${year}-2`,
+      title: "Annex A",
+      date: `Year-${year}`,
+      year,
+      templateKey: `${year}-Annex A`,
+      templateName: null,
+    },
+    {
+      id: `${year}-3`,
+      title: "Annex B",
+      date: `Year-${year}`,
+      year,
+      templateKey: `${year}-Annex B`,
+      templateName: null,
+    },
   ];
 
   // Generate options for a named template (same year can have multiple templates)
   const getOptionsForTemplateName = (templateName, year) => [
-    { id: `${templateName}-1`, title: "Main Agreement", date: `Year-${year}`, year, templateKey: `${templateName}-Main Agreement`, templateName },
-    { id: `${templateName}-2`, title: "Annex A", date: `Year-${year}`, year, templateKey: `${templateName}-Annex A`, templateName },
-    { id: `${templateName}-3`, title: "Annex B", date: `Year-${year}`, year, templateKey: `${templateName}-Annex B`, templateName },
+    {
+      id: `${templateName}-1`,
+      title: "Main Agreement",
+      date: `Year-${year}`,
+      year,
+      templateKey: `${templateName}-Main Agreement`,
+      templateName,
+    },
+    {
+      id: `${templateName}-2`,
+      title: "Annex A",
+      date: `Year-${year}`,
+      year,
+      templateKey: `${templateName}-Annex A`,
+      templateName,
+    },
+    {
+      id: `${templateName}-3`,
+      title: "Annex B",
+      date: `Year-${year}`,
+      year,
+      templateKey: `${templateName}-Annex B`,
+      templateName,
+    },
   ];
 
   // Options for a year + template name (for API that returns templates[] per year)
   const getOptionsForYearAndTemplate = (year, templateName) =>
-    templateName != null && String(templateName).trim() !== ''
+    templateName != null && String(templateName).trim() !== ""
       ? getOptionsForTemplateName(String(templateName).trim(), year)
       : getOptionsForYear(year);
 
@@ -152,7 +199,7 @@ const SGHA_Add = () => {
   };
 
   // Get current template's fields
-  const fields = selected ? (templateFields[getTemplateKey(selected)] || []) : [];
+  const fields = selected ? templateFields[getTemplateKey(selected)] || [] : [];
 
   // Helper function to get the next heading number
   const getNextHeadingNumber = (currentFields) => {
@@ -162,9 +209,11 @@ const SGHA_Add = () => {
     currentFields.forEach((field, index) => {
       if (field.type === "heading_no" && field.value) {
         // Only count if it's a whole number (not a decimal like 1.1) and followed by a heading
-        if (!field.value.includes('.') && 
-            index + 1 < currentFields.length && 
-            currentFields[index + 1].type === "heading") {
+        if (
+          !field.value.includes(".") &&
+          index + 1 < currentFields.length &&
+          currentFields[index + 1].type === "heading"
+        ) {
           const num = parseInt(field.value, 10);
           if (!isNaN(num) && num > maxNumber) {
             maxNumber = num;
@@ -180,14 +229,17 @@ const SGHA_Add = () => {
     // Find the last heading number (associated with a heading, not a subheading)
     let lastHeadingNumber = 0;
     let lastHeadingIndex = -1;
-    
+
     // Find the last heading_no that's followed by a heading (not subheading)
     for (let i = 0; i < currentFields.length; i++) {
       if (currentFields[i].type === "heading_no" && currentFields[i].value) {
         // Check if this heading_no is followed by a heading (not subheading)
-        if (i + 1 < currentFields.length && currentFields[i + 1].type === "heading") {
+        if (
+          i + 1 < currentFields.length &&
+          currentFields[i + 1].type === "heading"
+        ) {
           const num = parseInt(currentFields[i].value, 10);
-          if (!isNaN(num) && !currentFields[i].value.includes('.')) {
+          if (!isNaN(num) && !currentFields[i].value.includes(".")) {
             // Only count if it's a whole number (not a decimal like 1.1)
             lastHeadingNumber = num;
             lastHeadingIndex = i;
@@ -209,14 +261,20 @@ const SGHA_Add = () => {
       for (let i = lastHeadingIndex + 1; i < currentFields.length; i++) {
         if (currentFields[i].type === "heading_no") {
           // Check if this heading_no is for a heading (not subheading)
-          if (i + 1 < currentFields.length && currentFields[i + 1].type === "heading") {
+          if (
+            i + 1 < currentFields.length &&
+            currentFields[i + 1].type === "heading"
+          ) {
             // If we encounter another heading, stop counting
             break;
           }
           // If it's a subheading number (has decimal), use its number
-          if (currentFields[i].value && currentFields[i].value.includes('.')) {
-            const parts = currentFields[i].value.split('.');
-            if (parts.length === 2 && parseInt(parts[0], 10) === lastHeadingNumber) {
+          if (currentFields[i].value && currentFields[i].value.includes(".")) {
+            const parts = currentFields[i].value.split(".");
+            if (
+              parts.length === 2 &&
+              parseInt(parts[0], 10) === lastHeadingNumber
+            ) {
               const subNum = parseInt(parts[1], 10);
               if (!isNaN(subNum) && subNum > subheadingCount) {
                 subheadingCount = subNum;
@@ -228,13 +286,16 @@ const SGHA_Add = () => {
     } else {
       // If no heading found, count all existing subheading number fields (heading_no with decimals)
       const subheadingNumbers = currentFields
-        .filter((f) => f.type === "heading_no" && f.value && f.value.includes('.'))
+        .filter(
+          (f) => f.type === "heading_no" && f.value && f.value.includes("."),
+        )
         .map((f) => {
-          const parts = f.value.split('.');
+          const parts = f.value.split(".");
           return parts.length === 2 ? parseInt(parts[1], 10) : 0;
         })
         .filter((n) => !isNaN(n));
-      subheadingCount = subheadingNumbers.length > 0 ? Math.max(...subheadingNumbers) : 0;
+      subheadingCount =
+        subheadingNumbers.length > 0 ? Math.max(...subheadingNumbers) : 0;
     }
 
     return `${lastHeadingNumber}.${subheadingCount + 1}`;
@@ -245,7 +306,7 @@ const SGHA_Add = () => {
     if (!selected) return;
     const templateKey = getTemplateKey(selected);
     const currentFields = templateFields[templateKey] || [];
-    
+
     let newFields = [];
 
     // If adding a heading, automatically add heading_no first
@@ -275,32 +336,39 @@ const SGHA_Add = () => {
     }
 
     // Create the main field
-    const newField = type === "table" 
-      ? {
-          id: Date.now() + (newFields.length * 1000),
-          type,
-          label,
-          rows: [
-            {
-              id: Date.now() + (newFields.length * 1000) + 1,
-              checked: false,
-              section: "",
-              description: "",
-            },
-          ],
-        }
-      : type === "editor"
-      ? { 
-          id: Date.now() + (newFields.length * 1000), 
-          type, 
-          label, 
-          value: "", 
-          checkboxValue: [],
-          checkboxConfig: {},
-          commentConfig: {},
-          variableDefaults: {}
-        }
-      : { id: Date.now() + (newFields.length * 1000), type, label, value: "", checkboxValue: [] };
+    const newField =
+      type === "table"
+        ? {
+            id: Date.now() + newFields.length * 1000,
+            type,
+            label,
+            rows: [
+              {
+                id: Date.now() + newFields.length * 1000 + 1,
+                checked: false,
+                section: "",
+                description: "",
+              },
+            ],
+          }
+        : type === "editor"
+          ? {
+              id: Date.now() + newFields.length * 1000,
+              type,
+              label,
+              value: "",
+              checkboxValue: [],
+              checkboxConfig: {},
+              commentConfig: {},
+              variableDefaults: {},
+            }
+          : {
+              id: Date.now() + newFields.length * 1000,
+              type,
+              label,
+              value: "",
+              checkboxValue: [],
+            };
 
     newFields.push(newField);
 
@@ -314,21 +382,33 @@ const SGHA_Add = () => {
   const handleChange = (id, value) => {
     if (!selected) return;
     const templateKey = getTemplateKey(selected);
-    if (typeof value === 'object' && value !== null) {
-      console.log('[SGHA_Add handleChange] id:', id, 'htmlValue length:', value.htmlValue?.length, 'preview:', value.htmlValue?.substring(0, 200));
+    if (typeof value === "object" && value !== null) {
+      console.log(
+        "[SGHA_Add handleChange] id:",
+        id,
+        "htmlValue length:",
+        value.htmlValue?.length,
+        "preview:",
+        value.htmlValue?.substring(0, 200),
+      );
     }
     setTemplateFields((prev) => ({
       ...prev,
       [templateKey]: (prev[templateKey] || []).map((f) => {
         if (f.id === id) {
           // If value is an object (from CustomEditor), merge it properly
-          if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-            return { 
-              ...f, 
-              value: value.htmlValue || f.value || '',
+          if (
+            typeof value === "object" &&
+            value !== null &&
+            !Array.isArray(value)
+          ) {
+            return {
+              ...f,
+              value: value.htmlValue || f.value || "",
               checkboxConfig: value.checkboxConfig || f.checkboxConfig || {},
               commentConfig: value.commentConfig || f.commentConfig || {},
-              variableDefaults: value.variableDefaults || f.variableDefaults || {}
+              variableDefaults:
+                value.variableDefaults || f.variableDefaults || {},
             };
           }
           // Otherwise, just update the value
@@ -378,7 +458,7 @@ const SGHA_Add = () => {
                 },
               ],
             }
-          : f
+          : f,
       ),
     }));
   };
@@ -392,7 +472,7 @@ const SGHA_Add = () => {
       [templateKey]: (prev[templateKey] || []).map((f) =>
         f.id === fieldId
           ? { ...f, rows: f.rows.filter((r) => r.id !== rowId) }
-          : f
+          : f,
       ),
     }));
   };
@@ -408,10 +488,10 @@ const SGHA_Add = () => {
           ? {
               ...f,
               rows: f.rows.map((r) =>
-                r.id === rowId ? { ...r, [key]: value } : r
+                r.id === rowId ? { ...r, [key]: value } : r,
               ),
             }
-          : f
+          : f,
       ),
     }));
   };
@@ -437,15 +517,15 @@ const SGHA_Add = () => {
     try {
       setYearsLoading(true);
       // Fetch years with status; use cache-buster so we get fresh list after saving a new year
-      const response = await api.get('/template_years/years-with-status', {
+      const response = await api.get("/template_years/years-with-status", {
         params: { _t: Date.now() },
       });
-      
+
       if (response.data?.data) {
         const yearsData = response.data.data;
         setYearsWithStatus(yearsData);
         // Extract just the year values for backward compatibility; merge year from PdfUpload if present
-        let yearValues = yearsData.map(item => item.year);
+        let yearValues = yearsData.map((item) => item.year);
         const extraYear = fromPdfUploadYearRef.current;
         if (extraYear != null && !yearValues.includes(extraYear)) {
           yearValues = [...yearValues, extraYear].sort((a, b) => b - a);
@@ -464,7 +544,10 @@ const SGHA_Add = () => {
       setAvailableYears(extraYear != null ? [extraYear] : []);
       setYearsWithStatus([]);
       if (error.response?.status !== 401 && error.response?.status !== 403) {
-        showMessage("error", "Failed to load template years. Please refresh the page.");
+        showMessage(
+          "error",
+          "Failed to load template years. Please refresh the page.",
+        );
       }
     } finally {
       setYearsLoading(false);
@@ -499,10 +582,14 @@ const SGHA_Add = () => {
     }
     if (year != null) setPdfUploadYear(year);
 
-    Object.keys(fields || {}).forEach((key) => fromPdfUploadKeysRef.current.add(key));
+    Object.keys(fields || {}).forEach((key) =>
+      fromPdfUploadKeysRef.current.add(key),
+    );
     if (state.templateName && typeof state.templateName === "string") {
       const tn = state.templateName.trim();
-      ["Main Agreement", "Annex A", "Annex B"].forEach((t) => fromPdfUploadKeysRef.current.add(`${tn}-${t}`));
+      ["Main Agreement", "Annex A", "Annex B"].forEach((t) =>
+        fromPdfUploadKeysRef.current.add(`${tn}-${t}`),
+      );
     }
     navigate(location.pathname, { replace: true, state: {} });
   }, []);
@@ -529,14 +616,14 @@ const SGHA_Add = () => {
   const handleDeleteYear = (yearId, year) => {
     confirmDialog({
       message: `Are you sure you want to delete year ${year}? This action cannot be undone.`,
-      header: 'Confirm Deletion',
-      icon: 'pi pi-exclamation-triangle',
-      acceptClassName: 'p-button-danger',
+      header: "Confirm Deletion",
+      icon: "pi pi-exclamation-triangle",
+      acceptClassName: "p-button-danger",
       accept: async () => {
         setDeletingYear(true);
         try {
           const response = await api.delete(`/template_years/delete/${yearId}`);
-          
+
           if (response.status === 200) {
             showMessage("success", "Year deleted successfully!");
             // Refresh the years list
@@ -545,14 +632,21 @@ const SGHA_Add = () => {
         } catch (error) {
           console.error("Error deleting year:", error);
           if (error.response?.status === 400) {
-            showMessage("error", error.response.data?.message || "Cannot delete year with existing template data");
+            showMessage(
+              "error",
+              error.response.data?.message ||
+                "Cannot delete year with existing template data",
+            );
           } else if (error.response?.status === 401) {
             showMessage("error", "Please log in again to continue");
             setTimeout(() => navigate("/login"), 2000);
           } else if (error.response?.status === 403) {
             showMessage("error", "You don't have permission to delete years");
           } else {
-            showMessage("error", error.response?.data?.message || "Failed to delete year");
+            showMessage(
+              "error",
+              error.response?.data?.message || "Failed to delete year",
+            );
           }
         } finally {
           setDeletingYear(false);
@@ -560,7 +654,7 @@ const SGHA_Add = () => {
       },
       reject: () => {
         // User cancelled, do nothing
-      }
+      },
     });
   };
 
@@ -574,16 +668,16 @@ const SGHA_Add = () => {
     setUploadingPdf(true);
     try {
       const formData = new FormData();
-      formData.append('file', selectedPdfFile);
+      formData.append("file", selectedPdfFile);
 
       const response = await axios.post(
-        'https://indothai-ai.72.61.173.50.sslip.io/upload-pdf',
+        "https://indothai-ai.72.61.173.50.sslip.io/upload-pdf",
         formData,
         {
           headers: {
-            'Content-Type': 'multipart/form-data',
+            "Content-Type": "multipart/form-data",
           },
-        }
+        },
       );
 
       // Success
@@ -593,10 +687,11 @@ const SGHA_Add = () => {
       setIsDragging(false);
     } catch (error) {
       console.error("Error uploading PDF:", error);
-      const errorMessage = error.response?.data?.message || 
-                          error.response?.data?.error || 
-                          error.message || 
-                          "Failed to upload PDF. Please try again.";
+      const errorMessage =
+        error.response?.data?.message ||
+        error.response?.data?.error ||
+        error.message ||
+        "Failed to upload PDF. Please try again.";
       showMessage("error", errorMessage);
     } finally {
       setUploadingPdf(false);
@@ -618,28 +713,34 @@ const SGHA_Add = () => {
 
     setAddingYear(true);
     try {
-      const response = await api.post('/template_years/create', {
+      const response = await api.post("/template_years/create", {
         year: yearInt,
       });
 
       if (response.status === 201) {
         showMessage("success", "Year added successfully!");
         setAddYearDialogVisible(false);
-        setNewYear('');
+        setNewYear("");
         // Refresh the years list
         await fetchYears();
       }
     } catch (error) {
       console.error("Error adding year:", error);
       if (error.response?.status === 400) {
-        showMessage("error", error.response.data?.message || "This year already exists");
+        showMessage(
+          "error",
+          error.response.data?.message || "This year already exists",
+        );
       } else if (error.response?.status === 401) {
         showMessage("error", "Please log in again to continue");
         setTimeout(() => navigate("/login"), 2000);
       } else if (error.response?.status === 403) {
         showMessage("error", "You don't have permission to add years");
       } else {
-        showMessage("error", error.response?.data?.message || "Failed to add year");
+        showMessage(
+          "error",
+          error.response?.data?.message || "Failed to add year",
+        );
       }
     } finally {
       setAddingYear(false);
@@ -650,20 +751,20 @@ const SGHA_Add = () => {
   const normalizeFields = (fields) => {
     if (!Array.isArray(fields)) return [];
     return fields.map((f) => {
-      if (!f || typeof f !== 'object') return f;
+      if (!f || typeof f !== "object") return f;
       const base = { ...f };
-      if (base.type === 'table') {
+      if (base.type === "table") {
         if (!Array.isArray(base.rows)) base.rows = [];
-      } else if (base.type === 'editor') {
-        if (base.value === undefined || base.value === null) base.value = '';
+      } else if (base.type === "editor") {
+        if (base.value === undefined || base.value === null) base.value = "";
         if (!base.checkboxConfig) base.checkboxConfig = {};
         if (!base.commentConfig) base.commentConfig = {};
         if (!base.variableDefaults) base.variableDefaults = {};
         if (!Array.isArray(base.checkboxValue)) base.checkboxValue = [];
-      } else if (base.type === 'checkbox') {
+      } else if (base.type === "checkbox") {
         if (!Array.isArray(base.checkboxValue)) base.checkboxValue = [];
       } else {
-        if (base.value === undefined || base.value === null) base.value = '';
+        if (base.value === undefined || base.value === null) base.value = "";
         if (!Array.isArray(base.checkboxValue)) base.checkboxValue = [];
       }
       return base;
@@ -678,29 +779,34 @@ const SGHA_Add = () => {
       const templateKey = getTemplateKey(selected);
       if (fromPdfUploadKeysRef.current.has(templateKey)) return;
 
-      console.log('[SGHA_Add] Loading content for:', templateKey);
+      console.log("[SGHA_Add] Loading content for:", templateKey);
       try {
         const params = {};
-        if (selected.templateName != null && String(selected.templateName).trim() !== '') {
+        if (
+          selected.templateName != null &&
+          String(selected.templateName).trim() !== ""
+        ) {
           params.template_name = selected.templateName;
         }
         const response = await api.get(
           `/sgha_template_content/get/${selected.year}/${encodeURIComponent(selected.title)}/${PAGE_NAME}`,
-          { params }
+          { params },
         );
 
-        console.log('[SGHA_Add] API response:', response.data);
+        console.log("[SGHA_Add] API response:", response.data);
         if (response.data?.data?.content) {
           try {
             const content = response.data.data.content;
-            const parsedContent = typeof content === 'string' 
-              ? JSON.parse(content) 
-              : content;
-            
+            const parsedContent =
+              typeof content === "string" ? JSON.parse(content) : content;
+
             const normalized = normalizeFields(parsedContent);
-            console.log('[SGHA_Add] Loaded fields count:', normalized.length);
-            console.log('[SGHA_Add] Field types:', normalized.map(f => `${f.type}(id:${f.id})`));
-            
+            console.log("[SGHA_Add] Loaded fields count:", normalized.length);
+            console.log(
+              "[SGHA_Add] Field types:",
+              normalized.map((f) => `${f.type}(id:${f.id})`),
+            );
+
             setTemplateFields((prev) => ({
               ...prev,
               [templateKey]: normalized,
@@ -709,10 +815,14 @@ const SGHA_Add = () => {
             console.log("Content is not in expected format, starting fresh", e);
           }
         } else {
-          console.log('[SGHA_Add] No content in response');
+          console.log("[SGHA_Add] No content in response");
         }
       } catch (error) {
-        console.error('[SGHA_Add] Error loading content:', error.response?.status, error.message);
+        console.error(
+          "[SGHA_Add] Error loading content:",
+          error.response?.status,
+          error.message,
+        );
         if (error.response?.status !== 404) {
           console.error("Error loading existing content:", error);
         }
@@ -732,9 +842,11 @@ const SGHA_Add = () => {
     setLoading(true);
     try {
       const year = selected.year;
-      const templateName = selected.templateName != null && String(selected.templateName).trim() !== ''
-        ? String(selected.templateName).trim()
-        : null;
+      const templateName =
+        selected.templateName != null &&
+        String(selected.templateName).trim() !== ""
+          ? String(selected.templateName).trim()
+          : null;
 
       const typesToSave = [
         { type: "Main Agreement", keySuffix: "Main Agreement" },
@@ -766,7 +878,7 @@ const SGHA_Add = () => {
     } catch (error) {
       console.error("Error saving template:", error);
       console.error("Error response:", error.response?.data);
-      
+
       if (error.response?.status === 401) {
         showMessage("error", "Please log in again to continue");
         // Optionally redirect to login
@@ -776,12 +888,24 @@ const SGHA_Add = () => {
           showMessage("error", "Session expired. Please log in again.");
           setTimeout(() => navigate("/login"), 2000);
         } else {
-          showMessage("error", error.response?.data?.message || "You don't have permission to save templates");
+          showMessage(
+            "error",
+            error.response?.data?.message ||
+              "You don't have permission to save templates",
+          );
         }
       } else if (error.response?.status === 404) {
-        showMessage("error", error.response?.data?.message || `Page not found. Please check if '${PAGE_NAME}' page exists in the database.`);
+        showMessage(
+          "error",
+          error.response?.data?.message ||
+            `Page not found. Please check if '${PAGE_NAME}' page exists in the database.`,
+        );
       } else {
-        const errorMsg = error.response?.data?.message || error.response?.data?.error || error.message || "Failed to save template content";
+        const errorMsg =
+          error.response?.data?.message ||
+          error.response?.data?.error ||
+          error.message ||
+          "Failed to save template content";
         showMessage("error", errorMsg);
       }
     } finally {
@@ -802,7 +926,11 @@ const SGHA_Add = () => {
   // When "Set additional charges" dialog is open: fetch businesses
   useEffect(() => {
     if (!additionalChargesDialogVisible || !socket) return;
-    socket.emit("fetch-businesses", { role_id: roleId, page_name: ADDITIONAL_CHARGES_PAGE, user_id: userId });
+    socket.emit("fetch-businesses", {
+      role_id: roleId,
+      page_name: ADDITIONAL_CHARGES_PAGE,
+      user_id: userId,
+    });
     socket.on("fetch-businesses-success", (data) => {
       setChargesBusinesses(data || []);
       setSelectedChargesBusiness(data?.[0]?.business_id ?? "");
@@ -823,7 +951,10 @@ const SGHA_Add = () => {
       business_id: selectedChargesBusiness,
     });
     socket.on("fetch-airports-by-business-success", (data) => {
-      const formatted = (data || []).map((a) => ({ name: `${a.name} (${a.iata})`, code: a.airport_id }));
+      const formatted = (data || []).map((a) => ({
+        name: `${a.name} (${a.iata})`,
+        code: a.airport_id,
+      }));
       setChargesAirports(formatted);
       setSelectedChargesAirport(formatted[0]?.code ?? "");
     });
@@ -846,9 +977,18 @@ const SGHA_Add = () => {
       sortOrder: "ASC",
       limit: 100,
     });
-    const onSuccess = (data) => { setChargesList(data || []); setChargesListLoading(false); };
-    const onNoContent = () => { setChargesList([]); setChargesListLoading(false); };
-    const onError = () => { setChargesList([]); setChargesListLoading(false); };
+    const onSuccess = (data) => {
+      setChargesList(data || []);
+      setChargesListLoading(false);
+    };
+    const onNoContent = () => {
+      setChargesList([]);
+      setChargesListLoading(false);
+    };
+    const onError = () => {
+      setChargesList([]);
+      setChargesListLoading(false);
+    };
     socket.on("view-new-additional-charges-success", onSuccess);
     socket.on("view-new-additional-charges-no-content", onNoContent);
     socket.on("view-new-additional-charges-error", onError);
@@ -877,7 +1017,9 @@ const SGHA_Add = () => {
 
   const handleDeleteCharge = async (id) => {
     try {
-      await api.delete(`/additional_charge/delete_additional_charge/${id}/${ADDITIONAL_CHARGES_PAGE}`);
+      await api.delete(
+        `/additional_charge/delete_additional_charge/${id}/${ADDITIONAL_CHARGES_PAGE}`,
+      );
       socket?.emit("view-new-additional-charges", {
         role_id: roleId,
         page_name: ADDITIONAL_CHARGES_PAGE,
@@ -894,7 +1036,11 @@ const SGHA_Add = () => {
   // Aircraft options: fetch businesses when dialog is open
   useEffect(() => {
     if (!additionalChargesDialogVisible || !socket) return;
-    socket.emit("fetch-businesses", { role_id: roleId, page_name: AIRCRAFT_OPTIONS_PAGE, user_id: userId });
+    socket.emit("fetch-businesses", {
+      role_id: roleId,
+      page_name: AIRCRAFT_OPTIONS_PAGE,
+      user_id: userId,
+    });
     socket.on("fetch-businesses-success", (data) => {
       setAircraftBusinesses(data || []);
       setSelectedAircraftBusiness(data?.[0]?.business_id ?? "");
@@ -915,11 +1061,16 @@ const SGHA_Add = () => {
       business_id: selectedAircraftBusiness,
     });
     socket.on("fetch-airports-by-business-success", (data) => {
-      const formatted = (data || []).map((a) => ({ name: `${a.name} (${a.iata})`, code: a.airport_id }));
+      const formatted = (data || []).map((a) => ({
+        name: `${a.name} (${a.iata})`,
+        code: a.airport_id,
+      }));
       setAircraftAirports(formatted);
       setSelectedAircraftAirport(formatted[0]?.code ?? "");
     });
-    socket.on("fetch-airports-by-business-error", () => setAircraftAirports([]));
+    socket.on("fetch-airports-by-business-error", () =>
+      setAircraftAirports([]),
+    );
     return () => {
       socket.off("fetch-airports-by-business-success");
       socket.off("fetch-airports-by-business-error");
@@ -928,7 +1079,8 @@ const SGHA_Add = () => {
 
   // Aircraft: fetch list when business + airport selected
   useEffect(() => {
-    if (!socket || !selectedAircraftBusiness || !selectedAircraftAirport) return;
+    if (!socket || !selectedAircraftBusiness || !selectedAircraftAirport)
+      return;
     setAircraftListLoading(true);
     socket.emit("view-company-aircrafts", {
       role_id: roleId,
@@ -938,8 +1090,14 @@ const SGHA_Add = () => {
       sortOrder: "ASC",
       limit: 100,
     });
-    const onSuccess = (data) => { setAircraftList(data || []); setAircraftListLoading(false); };
-    const onError = () => { setAircraftList([]); setAircraftListLoading(false); };
+    const onSuccess = (data) => {
+      setAircraftList(data || []);
+      setAircraftListLoading(false);
+    };
+    const onError = () => {
+      setAircraftList([]);
+      setAircraftListLoading(false);
+    };
     socket.on("view-company-aircrafts-success", onSuccess);
     socket.on("view-company-aircrafts-error", onError);
     socket.on("company-aircrafts-updated", () => {
@@ -966,7 +1124,9 @@ const SGHA_Add = () => {
 
   const handleDeleteAircraft = async (aircraftId) => {
     try {
-      await api.delete(`/company_aircraft_routes/delete_company_aircraft/${aircraftId}/${AIRCRAFT_OPTIONS_PAGE}`);
+      await api.delete(
+        `/company_aircraft_routes/delete_company_aircraft/${aircraftId}/${AIRCRAFT_OPTIONS_PAGE}`,
+      );
       socket?.emit("view-company-aircrafts", {
         role_id: roleId,
         page_name: AIRCRAFT_OPTIONS_PAGE,
@@ -982,7 +1142,14 @@ const SGHA_Add = () => {
 
   // Render field type
   const renderField = (field, isReadOnly = false) => {
-    console.log('[SGHA_Add renderField] Rendering field:', field.id, 'type:', field.type, 'label:', field.label?.substring(0, 50));
+    console.log(
+      "[SGHA_Add renderField] Rendering field:",
+      field.id,
+      "type:",
+      field.type,
+      "label:",
+      field.label?.substring(0, 50),
+    );
     let extraStyle = {};
     if (field.type === "subheading") {
       extraStyle = { paddingLeft: "15px" };
@@ -1011,12 +1178,14 @@ const SGHA_Add = () => {
               htmlValue: field.value || "",
               checkboxConfig: field.checkboxConfig || {},
               commentConfig: field.commentConfig || {},
-              variableDefaults: field.variableDefaults || {}
+              variableDefaults: field.variableDefaults || {},
             }}
             onTextChange={(e) => handleChange(field.id, e)}
             style={{ width: "100%", ...extraStyle }}
             placeholder="Start typing your content..."
-            showVariablePreview={role !== 'Client' && selected?.title === 'Annex B'}
+            showVariablePreview={
+              role !== "Client" && selected?.title === "Annex B"
+            }
           />
         );
       case "checkbox":
@@ -1065,7 +1234,7 @@ const SGHA_Add = () => {
                             field.id,
                             row.id,
                             "checked",
-                            e.checked
+                            e.checked,
                           )
                         }
                       />
@@ -1078,7 +1247,7 @@ const SGHA_Add = () => {
                             field.id,
                             row.id,
                             "section",
-                            e.target.value
+                            e.target.value,
                           )
                         }
                         className="w-100"
@@ -1092,7 +1261,7 @@ const SGHA_Add = () => {
                             field.id,
                             row.id,
                             "description",
-                            e.target.value
+                            e.target.value,
                           )
                         }
                         rows={2}
@@ -1274,64 +1443,101 @@ const SGHA_Add = () => {
                 </div>
               ) : availableYears.length === 0 ? (
                 <div className="text-center p-5">
-                  <p>No template years found. Please add years to the database.</p>
+                  <p>
+                    No template years found. Please add years to the database.
+                  </p>
                 </div>
               ) : (
                 yearsWithStatus.map((yearData) => {
-                const year = yearData.year;
-                const yearOptions = getOptionsForYear(year);
-                const hasData = yearData.hasData;
-                const yearId = yearData.id;
-                return (
-                  <div key={year} className="p-4 border-top position-relative mb-4">
-                    <div className="rol-title tempyear">{year}</div>
-                    {!hasData && (
-                      <Button
-                        icon="pi pi-trash"
-                        severity="danger"
-                        className="p-button-text p-button-rounded"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteYear(yearId, year);
-                        }}
-                        disabled={deletingYear}
-                        tooltip={`Delete template for the year ${year}`}
-                        tooltipOptions={{ position: 'top' }}
-                        style={{
-                          position: 'absolute',
-                          right: '20px',
-                          top: '20px',
-                        }}
-                      />
-                    )}
-                    <motion.ul
-                      className="list-unstyled firstlist_style text-center"
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -20 }}
-                      transition={{ duration: 0.4 }}
+                  const year = yearData.year;
+                  const hasData = yearData.hasData;
+                  const yearId = yearData.id;
+                  const templates =
+                    yearData.templates && yearData.templates.length > 0
+                      ? yearData.templates
+                      : [{ templateName: null, hasData: yearData.hasData }];
+                  return (
+                    <div
+                      key={year}
+                      className="p-4 border-top position-relative mb-4"
                     >
-                      {yearOptions.map((opt) => (
-                        <motion.li
-                          key={opt.id}
-                          onClick={() => setSelected(opt)}
-                          className="border"
-                          style={{ cursor: "pointer" }}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.95 }}
-                        >
-                          <div className="d-flex flex-column align-items-center gap-2 text-center">
-                            <FcOpenedFolder size={62} />
-                            <h5 className="fw-bold mb-0">{opt.title}</h5>
-                          </div>
-                          <div className="d-flex align-items-center text-secondary small gap-1 justify-content-center">
-                            <span>{opt.date}</span>
-                          </div>
-                        </motion.li>
-                      ))}
-                    </motion.ul>
-                  </div>
-                );
+                      <div className="rol-title tempyear">{year}</div>
+                      {!hasData && (
+                        <Button
+                          icon="pi pi-trash"
+                          severity="danger"
+                          className="p-button-text p-button-rounded"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteYear(yearId, year);
+                          }}
+                          disabled={deletingYear}
+                          tooltip={`Delete template for the year ${year}`}
+                          tooltipOptions={{ position: "top" }}
+                          style={{
+                            position: "absolute",
+                            right: "20px",
+                            top: "20px",
+                          }}
+                        />
+                      )}
+                      {/* Template groups for this year (Default + named templates) */}
+                      {templates
+                        .filter((t) => t.hasData) // show only templates that exist
+                        .map((t) => {
+                          const templateName = t.templateName;
+                          const label =
+                            templateName != null &&
+                            String(templateName).trim() !== ""
+                              ? templateName
+                              : `${year} (Default)`;
+                          const options = getOptionsForYearAndTemplate(
+                            year,
+                            templateName,
+                          );
+                          return (
+                            <div
+                              key={
+                                templateName != null
+                                  ? `${year}-${templateName}`
+                                  : `${year}-default`
+                              }
+                              className="mb-4"
+                            >
+                              <h6 className="text-muted mb-3">{label}</h6>
+                              <motion.ul
+                                className="list-unstyled firstlist_style text-center"
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                transition={{ duration: 0.4 }}
+                              >
+                                {options.map((opt) => (
+                                  <motion.li
+                                    key={opt.id}
+                                    onClick={() => setSelected(opt)}
+                                    className="border"
+                                    style={{ cursor: "pointer" }}
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.95 }}
+                                  >
+                                    <div className="d-flex flex-column align-items-center gap-2 text-center">
+                                      <FcOpenedFolder size={62} />
+                                      <h5 className="fw-bold mb-0">
+                                        {opt.title}
+                                      </h5>
+                                    </div>
+                                    <div className="d-flex align-items-center text-secondary small gap-1 justify-content-center">
+                                      <span>{opt.date}</span>
+                                    </div>
+                                  </motion.li>
+                                ))}
+                              </motion.ul>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  );
                 })
               )}
             </Col>
@@ -1339,13 +1545,13 @@ const SGHA_Add = () => {
             <>
               {/* Sidebar */}
               <Col md={3} key="sidebar">
-                <div 
-                  className="sticky-top" 
-                  style={{ 
+                <div
+                  className="sticky-top"
+                  style={{
                     top: "15px",
                     maxHeight: "calc(100vh - 100px)",
                     overflowY: "auto",
-                    overflowX: "hidden"
+                    overflowX: "hidden",
                   }}
                 >
                   <motion.ul
@@ -1362,56 +1568,92 @@ const SGHA_Add = () => {
                     ) : (
                       <>
                         {/* Custom template name as its own group with Main Agreement, Annex A, Annex B (when opened from PdfUpload) */}
-                        {pdfUploadTemplateName && pdfUploadYear != null && availableYears.includes(pdfUploadYear) && (
-                          <div key={`pdf-${pdfUploadTemplateName}`} className="mb-4">
-                            <h6 className="text-muted mb-2">{pdfUploadTemplateName}</h6>
-                            {getOptionsForTemplateName(pdfUploadTemplateName, pdfUploadYear).map((opt) => (
-                              <motion.li
-                                key={opt.id}
-                                onClick={() => setSelected(opt)}
-                                className={`p-3 border mb-2 rounded d-flex align-items-center justify-content-between list-unstyled ${
-                                  selected?.id === opt.id ? "bg-activetext" : ""
-                                }`}
-                                style={{ cursor: "pointer" }}
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.95 }}
-                              >
-                                <div className="d-flex align-items-center gap-2">
-                                  <FcOpenedFolder size={28} />
-                                  <span className="fw-bold">
-                                    {opt.title}
-                                    <span className="small fw-normal d-block">
-                                      {opt.date}
+                        {pdfUploadTemplateName &&
+                          pdfUploadYear != null &&
+                          availableYears.includes(pdfUploadYear) && (
+                            <div
+                              key={`pdf-${pdfUploadTemplateName}`}
+                              className="mb-4"
+                            >
+                              <h6 className="text-muted mb-2">
+                                {pdfUploadTemplateName}
+                              </h6>
+                              {getOptionsForTemplateName(
+                                pdfUploadTemplateName,
+                                pdfUploadYear,
+                              ).map((opt) => (
+                                <motion.li
+                                  key={opt.id}
+                                  onClick={() => setSelected(opt)}
+                                  className={`p-3 border mb-2 rounded d-flex align-items-center justify-content-between list-unstyled ${
+                                    selected?.id === opt.id
+                                      ? "bg-activetext"
+                                      : ""
+                                  }`}
+                                  style={{ cursor: "pointer" }}
+                                  whileHover={{ scale: 1.02 }}
+                                  whileTap={{ scale: 0.95 }}
+                                >
+                                  <div className="d-flex align-items-center gap-2">
+                                    <FcOpenedFolder size={28} />
+                                    <span className="fw-bold">
+                                      {opt.title}
+                                      <span className="small fw-normal d-block">
+                                        {opt.date}
+                                      </span>
                                     </span>
-                                  </span>
-                                </div>
-                              </motion.li>
-                            ))}
-                          </div>
-                        )}
-                                        {/* Each year with its template groups (multiple templates per year) – hidden when opened from PdfUpload */}
+                                  </div>
+                                </motion.li>
+                              ))}
+                            </div>
+                          )}
+                        {/* Each year with its template groups (multiple templates per year) – hidden when opened from PdfUpload */}
                         {!(pdfUploadTemplateName && pdfUploadYear != null) &&
                           (yearsWithStatus.length > 0
                             ? yearsWithStatus.map((yearRecord) => {
                                 const year = yearRecord.year;
-                                const templates = yearRecord.templates && yearRecord.templates.length > 0
-                                  ? yearRecord.templates
-                                  : [{ templateName: null, hasData: yearRecord.hasData }];
+                                const templates =
+                                  yearRecord.templates &&
+                                  yearRecord.templates.length > 0
+                                    ? yearRecord.templates
+                                    : [
+                                        {
+                                          templateName: null,
+                                          hasData: yearRecord.hasData,
+                                        },
+                                      ];
                                 return templates.map((t) => {
                                   const templateName = t.templateName;
-                                  const label = templateName != null && String(templateName).trim() !== ''
-                                    ? templateName
-                                    : year;
-                                  const yearOptions = getOptionsForYearAndTemplate(year, templateName);
+                                  const label =
+                                    templateName != null &&
+                                    String(templateName).trim() !== ""
+                                      ? templateName
+                                      : year;
+                                  const yearOptions =
+                                    getOptionsForYearAndTemplate(
+                                      year,
+                                      templateName,
+                                    );
                                   return (
-                                    <div key={templateName != null ? `${year}-${templateName}` : `${year}-default`} className="mb-3">
-                                      <h6 className="text-muted mb-2">{label}</h6>
+                                    <div
+                                      key={
+                                        templateName != null
+                                          ? `${year}-${templateName}`
+                                          : `${year}-default`
+                                      }
+                                      className="mb-3"
+                                    >
+                                      <h6 className="text-muted mb-2">
+                                        {label}
+                                      </h6>
                                       {yearOptions.map((opt) => (
                                         <motion.li
                                           key={opt.id}
                                           onClick={() => setSelected(opt)}
                                           className={`p-3 border mb-2 rounded d-flex align-items-center justify-content-between list-unstyled ${
-                                            selected?.id === opt.id ? "bg-activetext" : ""
+                                            selected?.id === opt.id
+                                              ? "bg-activetext"
+                                              : ""
                                           }`}
                                           style={{ cursor: "pointer" }}
                                           whileHover={{ scale: 1.02 }}
@@ -1442,7 +1684,9 @@ const SGHA_Add = () => {
                                         key={opt.id}
                                         onClick={() => setSelected(opt)}
                                         className={`p-3 border mb-2 rounded d-flex align-items-center justify-content-between list-unstyled ${
-                                          selected?.id === opt.id ? "bg-activetext" : ""
+                                          selected?.id === opt.id
+                                            ? "bg-activetext"
+                                            : ""
                                         }`}
                                         style={{ cursor: "pointer" }}
                                         whileHover={{ scale: 1.02 }}
@@ -1479,7 +1723,7 @@ const SGHA_Add = () => {
                   style={{
                     maxHeight: "calc(100vh - 100px)",
                     overflowY: "auto",
-                    overflowX: "hidden"
+                    overflowX: "hidden",
                   }}
                 >
                   <Row>
@@ -1494,31 +1738,47 @@ const SGHA_Add = () => {
                         </Card.Header>
                         <Card.Body>
                           {/* Render dynamic fields */}
-                          {console.log('[SGHA_Add] Rendering fields:', fields.length, fields.map(f => f?.type))}
+                          {console.log(
+                            "[SGHA_Add] Rendering fields:",
+                            fields.length,
+                            fields.map((f) => f?.type),
+                          )}
                           {fields.map((field, index) => {
                             if (!field || !field.type) {
-                              console.warn('[SGHA_Add] Skipping null/typeless field at index:', index, field);
+                              console.warn(
+                                "[SGHA_Add] Skipping null/typeless field at index:",
+                                index,
+                                field,
+                              );
                               return null;
                             }
 
                             // Check if this is a heading_no that should be paired with heading/subheading
-                            const isHeadingNo = field.type === "heading_no" && 
-                              index + 1 < fields.length && 
-                              (fields[index + 1].type === "heading" || fields[index + 1].type === "subheading");
-                            
+                            const isHeadingNo =
+                              field.type === "heading_no" &&
+                              index + 1 < fields.length &&
+                              (fields[index + 1].type === "heading" ||
+                                fields[index + 1].type === "subheading");
+
                             // If this is a heading_no that will be paired, skip rendering it here
                             if (isHeadingNo) {
                               const nextField = fields[index + 1];
-                              
+
                               return (
                                 <FieldErrorBoundary key={field.id}>
                                   <div className="mb-3">
                                     <div className="d-flex align-items-center justify-content-between mb-2">
                                       <div className="d-flex gap-3 align-items-center">
-                                        <label className="fw-bold mb-0" style={{ minWidth: "100px" }}>
+                                        <label
+                                          className="fw-bold mb-0"
+                                          style={{ minWidth: "100px" }}
+                                        >
                                           {field.label}:
                                         </label>
-                                        <label className="fw-bold mb-0" style={{ flex: 1 }}>
+                                        <label
+                                          className="fw-bold mb-0"
+                                          style={{ flex: 1 }}
+                                        >
                                           {nextField.label}:
                                         </label>
                                       </div>
@@ -1542,7 +1802,12 @@ const SGHA_Add = () => {
                                       </div>
                                     </div>
                                     <div className="d-flex gap-2 align-items-center">
-                                      <div style={{ width: "150px", flexShrink: 0 }}>
+                                      <div
+                                        style={{
+                                          width: "150px",
+                                          flexShrink: 0,
+                                        }}
+                                      >
                                         {renderField(field, true)}
                                       </div>
                                       <div style={{ flex: 1 }}>
@@ -1553,16 +1818,18 @@ const SGHA_Add = () => {
                                 </FieldErrorBoundary>
                               );
                             }
-                            
+
                             // Check if this field was already rendered as part of a pair
-                            const wasRendered = index > 0 && 
-                              fields[index - 1].type === "heading_no" && 
-                              (field.type === "heading" || field.type === "subheading");
-                            
+                            const wasRendered =
+                              index > 0 &&
+                              fields[index - 1].type === "heading_no" &&
+                              (field.type === "heading" ||
+                                field.type === "subheading");
+
                             if (wasRendered) {
                               return null;
                             }
-                            
+
                             // Render regular fields
                             return (
                               <FieldErrorBoundary key={field.id}>
@@ -1582,7 +1849,9 @@ const SGHA_Add = () => {
                                       onClick={() => deleteField(field.id)}
                                     />
                                   </label>
-                                  <div className="w-100">{renderField(field)}</div>
+                                  <div className="w-100">
+                                    {renderField(field)}
+                                  </div>
                                 </div>
                               </FieldErrorBoundary>
                             );
@@ -1663,10 +1932,10 @@ const SGHA_Add = () => {
         visible={addYearDialogVisible}
         onHide={() => {
           setAddYearDialogVisible(false);
-          setNewYear('');
+          setNewYear("");
         }}
         header="Add New Year"
-        style={{ width: '400px' }}
+        style={{ width: "400px" }}
         footer={
           <div className="d-flex justify-content-end gap-2">
             <Button
@@ -1675,7 +1944,7 @@ const SGHA_Add = () => {
               severity="secondary"
               onClick={() => {
                 setAddYearDialogVisible(false);
-                setNewYear('');
+                setNewYear("");
               }}
               disabled={addingYear}
             />
@@ -1685,14 +1954,21 @@ const SGHA_Add = () => {
               severity="success"
               onClick={handleAddYear}
               loading={addingYear}
-              disabled={addingYear || !newYear || isNaN(newYear) || parseInt(newYear) <= 0}
+              disabled={
+                addingYear ||
+                !newYear ||
+                isNaN(newYear) ||
+                parseInt(newYear) <= 0
+              }
             />
           </div>
         }
       >
         <div className="p-fluid">
           <div className="field mt-3">
-            <label htmlFor="newYear" className="mb-2">Year</label>
+            <label htmlFor="newYear" className="mb-2">
+              Year
+            </label>
             <InputText
               id="newYear"
               value={newYear}
@@ -1704,7 +1980,9 @@ const SGHA_Add = () => {
               className="w-100"
               disabled={addingYear}
             />
-            <small className="text-muted">Enter a valid year (e.g., 2026)</small>
+            <small className="text-muted">
+              Enter a valid year (e.g., 2026)
+            </small>
           </div>
         </div>
       </Dialog>
@@ -1717,33 +1995,57 @@ const SGHA_Add = () => {
         style={{ width: "92vw", maxWidth: "960px" }}
         footer={
           <div className="d-flex justify-content-end gap-2">
-            <Button label="Done" icon="pi pi-check" severity="success" onClick={handleDoneAdditionalCharges} />
+            <Button
+              label="Done"
+              icon="pi pi-check"
+              severity="success"
+              onClick={handleDoneAdditionalCharges}
+            />
           </div>
         }
       >
-        <p className="text-muted small mb-2">Template content is already saved. You can add or edit additional charges and aircraft options below, or click Done to finish.</p>
+        <p className="text-muted small mb-2">
+          Template content is already saved. You can add or edit additional
+          charges and aircraft options below, or click Done to finish.
+        </p>
         <TabView>
           <TabPanel header="Additional Charges">
             <div className="mb-3 d-flex flex-wrap gap-3 align-items-end">
               <div style={{ minWidth: "200px" }}>
-                <label className="form-label small fw-semibold">Handling Company</label>
-                <Form.Select value={selectedChargesBusiness} onChange={(e) => setSelectedChargesBusiness(e.target.value)}>
+                <label className="form-label small fw-semibold">
+                  Handling Company
+                </label>
+                <Form.Select
+                  value={selectedChargesBusiness}
+                  onChange={(e) => setSelectedChargesBusiness(e.target.value)}
+                >
                   <option value="">Select business</option>
                   {chargesBusinesses.map((b) => (
-                    <option key={b.business_id} value={b.business_id}>{b.name}</option>
+                    <option key={b.business_id} value={b.business_id}>
+                      {b.name}
+                    </option>
                   ))}
                 </Form.Select>
               </div>
               <div style={{ minWidth: "220px" }}>
                 <label className="form-label small fw-semibold">Airport</label>
-                <Form.Select value={selectedChargesAirport} onChange={(e) => setSelectedChargesAirport(e.target.value)}>
+                <Form.Select
+                  value={selectedChargesAirport}
+                  onChange={(e) => setSelectedChargesAirport(e.target.value)}
+                >
                   <option value="">Select airport</option>
                   {chargesAirports.map((a) => (
-                    <option key={a.code} value={a.code}>{a.name}</option>
+                    <option key={a.code} value={a.code}>
+                      {a.name}
+                    </option>
                   ))}
                 </Form.Select>
               </div>
-              <Button label="Add charge" icon="pi pi-plus" onClick={() => setAddChargeSidebarVisible(true)} />
+              <Button
+                label="Add charge"
+                icon="pi pi-plus"
+                onClick={() => setAddChargeSidebarVisible(true)}
+              />
             </div>
             <div style={{ maxHeight: "36vh", overflow: "auto" }}>
               {chargesListLoading ? (
@@ -1769,16 +2071,33 @@ const SGHA_Add = () => {
                           <td>{c.Service_name}</td>
                           <td>{c.Charge_type}</td>
                           <td>{c.unit_or_measure || "—"}</td>
-                          <td>₹ {c.rate_inr ?? "—"} / $ {c.rate_usd ?? "—"}</td>
+                          <td>
+                            ₹ {c.rate_inr ?? "—"} / $ {c.rate_usd ?? "—"}
+                          </td>
                           <td>{c.Remarks || "—"}</td>
                           <td>
-                            <Button icon="pi pi-pencil" className="p-button-text p-button-sm p-0 me-1" onClick={() => handleEditCharge(c)} />
-                            <Button icon="pi pi-trash" className="p-button-danger p-button-text p-button-sm p-0" onClick={() => handleDeleteCharge(c.Additional_charges_id)} />
+                            <Button
+                              icon="pi pi-pencil"
+                              className="p-button-text p-button-sm p-0 me-1"
+                              onClick={() => handleEditCharge(c)}
+                            />
+                            <Button
+                              icon="pi pi-trash"
+                              className="p-button-danger p-button-text p-button-sm p-0"
+                              onClick={() =>
+                                handleDeleteCharge(c.Additional_charges_id)
+                              }
+                            />
                           </td>
                         </tr>
                       ))
                     ) : (
-                      <tr><td colSpan="7" className="text-center text-muted">No charges for this business/airport. Click &quot;Add charge&quot; to add one.</td></tr>
+                      <tr>
+                        <td colSpan="7" className="text-center text-muted">
+                          No charges for this business/airport. Click &quot;Add
+                          charge&quot; to add one.
+                        </td>
+                      </tr>
                     )}
                   </tbody>
                 </Table>
@@ -1788,24 +2107,42 @@ const SGHA_Add = () => {
           <TabPanel header="Aircraft Options">
             <div className="mb-3 d-flex flex-wrap gap-3 align-items-end">
               <div style={{ minWidth: "200px" }}>
-                <label className="form-label small fw-semibold">Handling Company</label>
-                <Form.Select value={selectedAircraftBusiness} onChange={(e) => setSelectedAircraftBusiness(e.target.value)}>
+                <label className="form-label small fw-semibold">
+                  Handling Company
+                </label>
+                <Form.Select
+                  value={selectedAircraftBusiness}
+                  onChange={(e) => setSelectedAircraftBusiness(e.target.value)}
+                >
                   <option value="">Select business</option>
                   {aircraftBusinesses.map((b) => (
-                    <option key={b.business_id} value={b.business_id}>{b.name}</option>
+                    <option key={b.business_id} value={b.business_id}>
+                      {b.name}
+                    </option>
                   ))}
                 </Form.Select>
               </div>
               <div style={{ minWidth: "220px" }}>
                 <label className="form-label small fw-semibold">Airport</label>
-                <Form.Select value={selectedAircraftAirport} onChange={(e) => setSelectedAircraftAirport(e.target.value)} disabled={!selectedAircraftBusiness}>
+                <Form.Select
+                  value={selectedAircraftAirport}
+                  onChange={(e) => setSelectedAircraftAirport(e.target.value)}
+                  disabled={!selectedAircraftBusiness}
+                >
                   <option value="">Select airport</option>
                   {aircraftAirports.map((a) => (
-                    <option key={a.code} value={a.code}>{a.name}</option>
+                    <option key={a.code} value={a.code}>
+                      {a.name}
+                    </option>
                   ))}
                 </Form.Select>
               </div>
-              <Button label="Add New" icon="pi pi-plus" severity="help" onClick={() => setAddAircraftSidebarVisible(true)} />
+              <Button
+                label="Add New"
+                icon="pi pi-plus"
+                severity="help"
+                onClick={() => setAddAircraftSidebarVisible(true)}
+              />
             </div>
             <div style={{ maxHeight: "36vh", overflow: "auto" }}>
               {aircraftListLoading ? (
@@ -1829,13 +2166,26 @@ const SGHA_Add = () => {
                         <tr key={aircraft.aircraft_id}>
                           <td>
                             <div className="d-flex align-items-center gap-2">
-                              <Avatar className="me-2" style={{ backgroundColor: "rgb(197 197 197 / 27%)", color: "rgb(146 74 151)" }} shape="circle">
+                              <Avatar
+                                className="me-2"
+                                style={{
+                                  backgroundColor: "rgb(197 197 197 / 27%)",
+                                  color: "rgb(146 74 151)",
+                                }}
+                                shape="circle"
+                              >
                                 <MdFlight />
                               </Avatar>
                               <span className="d-flex flex-column gap-0">
                                 <b>{aircraft.Company_name}</b>
-                                <small>Aircraft: <b>{aircraft.Aircraft_name || "—"}</b></small>
-                                <small>Model/Make: <b>{aircraft.Aircraft_model || "—"}</b></small>
+                                <small>
+                                  Aircraft:{" "}
+                                  <b>{aircraft.Aircraft_name || "—"}</b>
+                                </small>
+                                <small>
+                                  Model/Make:{" "}
+                                  <b>{aircraft.Aircraft_model || "—"}</b>
+                                </small>
                               </span>
                             </div>
                           </td>
@@ -1845,13 +2195,28 @@ const SGHA_Add = () => {
                           <td>₹ {aircraft.Price_per_Limit_inr ?? "—"}</td>
                           <td>$ {aircraft.Price_per_Limit_usd ?? "—"}</td>
                           <td>
-                            <Button icon="pi pi-pencil" className="p-button-text p-button-sm p-0 me-1" onClick={() => handleEditAircraft(aircraft)} />
-                            <Button icon="pi pi-trash" className="p-button-danger p-button-text p-button-sm p-0" onClick={() => handleDeleteAircraft(aircraft.aircraft_id)} />
+                            <Button
+                              icon="pi pi-pencil"
+                              className="p-button-text p-button-sm p-0 me-1"
+                              onClick={() => handleEditAircraft(aircraft)}
+                            />
+                            <Button
+                              icon="pi pi-trash"
+                              className="p-button-danger p-button-text p-button-sm p-0"
+                              onClick={() =>
+                                handleDeleteAircraft(aircraft.aircraft_id)
+                              }
+                            />
                           </td>
                         </tr>
                       ))
                     ) : (
-                      <tr><td colSpan="7" className="text-center text-muted">No aircraft for this business/airport. Click &quot;Add New&quot; to add one.</td></tr>
+                      <tr>
+                        <td colSpan="7" className="text-center text-muted">
+                          No aircraft for this business/airport. Click &quot;Add
+                          New&quot; to add one.
+                        </td>
+                      </tr>
                     )}
                   </tbody>
                 </Table>
@@ -1861,20 +2226,70 @@ const SGHA_Add = () => {
         </TabView>
       </Dialog>
 
-      <Sidebar visible={addChargeSidebarVisible} position="right" style={{ width: "500px" }} onHide={() => setAddChargeSidebarVisible(false)} dismissable={false}>
-        <Add_Aircraft_Charge onClose={() => setAddChargeSidebarVisible(false)} page_name={ADDITIONAL_CHARGES_PAGE} />
+      <Sidebar
+        visible={addChargeSidebarVisible}
+        position="right"
+        style={{ width: "500px" }}
+        onHide={() => setAddChargeSidebarVisible(false)}
+        dismissable={false}
+      >
+        <Add_Aircraft_Charge
+          onClose={() => setAddChargeSidebarVisible(false)}
+          page_name={ADDITIONAL_CHARGES_PAGE}
+        />
       </Sidebar>
-      <Sidebar visible={editChargeSidebarVisible} position="right" style={{ width: "500px" }} onHide={() => { setEditChargeSidebarVisible(false); setEditingCharge(null); }} dismissable={false}>
+      <Sidebar
+        visible={editChargeSidebarVisible}
+        position="right"
+        style={{ width: "500px" }}
+        onHide={() => {
+          setEditChargeSidebarVisible(false);
+          setEditingCharge(null);
+        }}
+        dismissable={false}
+      >
         {editingCharge && (
-          <Edit_Aircraft_Charge onClose={() => { setEditChargeSidebarVisible(false); setEditingCharge(null); }} page_name={ADDITIONAL_CHARGES_PAGE} initialData={editingCharge} />
+          <Edit_Aircraft_Charge
+            onClose={() => {
+              setEditChargeSidebarVisible(false);
+              setEditingCharge(null);
+            }}
+            page_name={ADDITIONAL_CHARGES_PAGE}
+            initialData={editingCharge}
+          />
         )}
       </Sidebar>
-      <Sidebar visible={addAircraftSidebarVisible} position="right" style={{ width: "450px" }} onHide={() => setAddAircraftSidebarVisible(false)} dismissable={false}>
-        <AddCompanyAircraft onClose={() => setAddAircraftSidebarVisible(false)} page_name={AIRCRAFT_OPTIONS_PAGE} />
+      <Sidebar
+        visible={addAircraftSidebarVisible}
+        position="right"
+        style={{ width: "450px" }}
+        onHide={() => setAddAircraftSidebarVisible(false)}
+        dismissable={false}
+      >
+        <AddCompanyAircraft
+          onClose={() => setAddAircraftSidebarVisible(false)}
+          page_name={AIRCRAFT_OPTIONS_PAGE}
+        />
       </Sidebar>
-      <Sidebar visible={editAircraftSidebarVisible} position="right" style={{ width: "450px" }} onHide={() => { setEditAircraftSidebarVisible(false); setEditingAircraft(null); }} dismissable={false}>
+      <Sidebar
+        visible={editAircraftSidebarVisible}
+        position="right"
+        style={{ width: "450px" }}
+        onHide={() => {
+          setEditAircraftSidebarVisible(false);
+          setEditingAircraft(null);
+        }}
+        dismissable={false}
+      >
         {editingAircraft && (
-          <EditCompanyAircraft onClose={() => { setEditAircraftSidebarVisible(false); setEditingAircraft(null); }} page_name={AIRCRAFT_OPTIONS_PAGE} airlineData={editingAircraft} />
+          <EditCompanyAircraft
+            onClose={() => {
+              setEditAircraftSidebarVisible(false);
+              setEditingAircraft(null);
+            }}
+            page_name={AIRCRAFT_OPTIONS_PAGE}
+            airlineData={editingAircraft}
+          />
         )}
       </Sidebar>
 
@@ -1887,7 +2302,7 @@ const SGHA_Add = () => {
           setIsDragging(false);
         }}
         header="Create Template from PDF"
-        style={{ width: '500px' }}
+        style={{ width: "500px" }}
         footer={
           <div className="d-flex justify-content-end gap-2">
             <Button
@@ -1914,10 +2329,10 @@ const SGHA_Add = () => {
         <div className="p-fluid">
           <div className="field mt-3">
             <label className="mb-2">Upload PDF File</label>
-            
+
             {/* Drag and Drop Area */}
             <div
-              className={`indothai-drag-drop-area ${isDragging ? 'dragging' : ''} ${selectedPdfFile ? 'has-file' : ''}`}
+              className={`indothai-drag-drop-area ${isDragging ? "dragging" : ""} ${selectedPdfFile ? "has-file" : ""}`}
               onDragEnter={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1937,11 +2352,11 @@ const SGHA_Add = () => {
                 e.preventDefault();
                 e.stopPropagation();
                 setIsDragging(false);
-                
+
                 const files = e.dataTransfer.files;
                 if (files.length > 0) {
                   const file = files[0];
-                  if (file.type === 'application/pdf') {
+                  if (file.type === "application/pdf") {
                     setSelectedPdfFile(file);
                   } else {
                     showMessage("error", "Please upload a PDF file only");
@@ -1949,13 +2364,13 @@ const SGHA_Add = () => {
                 }
               }}
               onClick={() => {
-                const input = document.createElement('input');
-                input.type = 'file';
-                input.accept = '.pdf';
+                const input = document.createElement("input");
+                input.type = "file";
+                input.accept = ".pdf";
                 input.onchange = (e) => {
                   const file = e.target.files[0];
                   if (file) {
-                    if (file.type === 'application/pdf') {
+                    if (file.type === "application/pdf") {
                       setSelectedPdfFile(file);
                     } else {
                       showMessage("error", "Please upload a PDF file only");
@@ -1968,7 +2383,10 @@ const SGHA_Add = () => {
               {!selectedPdfFile ? (
                 <>
                   <div className="indothai-upload-icon">
-                    <i className="pi pi-cloud-upload" style={{ fontSize: '3rem' }}></i>
+                    <i
+                      className="pi pi-cloud-upload"
+                      style={{ fontSize: "3rem" }}
+                    ></i>
                   </div>
                   <div className="indothai-upload-text">
                     <p className="mb-1">
@@ -1979,7 +2397,10 @@ const SGHA_Add = () => {
                 </>
               ) : (
                 <div className="indothai-file-preview">
-                  <i className="pi pi-file-pdf" style={{ fontSize: '3rem', color: '#ff8104' }}></i>
+                  <i
+                    className="pi pi-file-pdf"
+                    style={{ fontSize: "3rem", color: "#ff8104" }}
+                  ></i>
                   <p className="mb-1 fw-bold mt-2">{selectedPdfFile.name}</p>
                   <small className="text-muted">
                     {(selectedPdfFile.size / 1024 / 1024).toFixed(2)} MB
@@ -1997,7 +2418,7 @@ const SGHA_Add = () => {
                 </div>
               )}
             </div>
-            
+
             <small className="text-muted d-block mt-2">
               Only PDF files are accepted.
             </small>

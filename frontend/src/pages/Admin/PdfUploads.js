@@ -13,6 +13,7 @@ import CustomToast from "../../components/CustomToast";
 import { getSocket } from "../../context/socket";
 import { useAuth } from "../../context/AuthContext";
 import logoImage from "../../assets/images/logo.png";
+import { stringLooksLikeHtml } from "../../utils/agreementDocFormat";
 import "../../assets/css/dashboard.css";
 
 const UPLOADS_API_URL = "https://indothai-ai.72.61.173.50.sslip.io/uploads";
@@ -299,10 +300,58 @@ const tableStyles = {
 const getRowId = (row, index) =>
   row?.id ?? row?.upload_id ?? row?.uploadId ?? index;
 
+/**
+ * PDF text extraction often returns one long line (spaces instead of newlines).
+ * Insert line breaks so section parsing and editor HTML get real paragraphs / clauses.
+ */
+function reflowPdfExtractedText(text) {
+  if (typeof text !== "string") return text;
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const trimmed = normalized.trim();
+  if (!trimmed) return normalized;
+
+  const nonEmptyLines = trimmed
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  // Already structured: keep original newlines (only normalize CRLF)
+  if (nonEmptyLines.length >= 4) return normalized;
+  if (trimmed.length < 100) return normalized;
+
+  let s = trimmed.replace(/[ \t]+/g, " ").trim();
+
+  s = s.replace(
+    /\s+((?:ARTICLE|SECTION|PARAGRAPH)\s+\d+[.\s:])/gi,
+    "\n\n$1",
+  );
+  s = s.replace(/\s+(ANNEX\s+[AB]\b)/gi, "\n\n$1");
+
+  // Subsection numbers followed by title: " 1.1 General " → newline before 1.1
+  s = s.replace(
+    /\s+(\d{1,2}\.\d{1,2}(?![.\d]))\s+(?=[A-Za-z(])/g,
+    "\n$1 ",
+  );
+
+  // Lettered sub-clauses: " (a) text "
+  s = s.replace(/\s+(\([a-z]\))\s+/gi, "\n$1 ");
+
+  // Numbered parens: " (1) text "
+  s = s.replace(/\s+(\(\d{1,2}\))\s+/g, "\n$1 ");
+
+  // Bullet glyphs common in PDFs
+  s = s.replace(/\s+([•·▪])\s+/g, "\n$1 ");
+
+  // Double space after period often marks a new paragraph in extracted PDF text
+  s = s.replace(/\.\s{2,}(?=[A-Z(0-9])/g, ".\n\n");
+
+  return s.trim();
+}
+
 // Parse plain-text SGHA files (Main Agreement, Annex A, Annex B) into sections
 // Handles ARTICLE X., SECTION X, PARAGRAPH X., and numbered subsections (1.1, 1.1.1, etc.)
 function parsePlainTextToSections(text) {
   if (typeof text !== "string" || !text.trim()) return [];
+  text = reflowPdfExtractedText(text);
   const lines = text.split(/\r?\n/);
   const sections = [];
   let current = { title: "", content: [] };
@@ -423,6 +472,7 @@ function normalizeContentToNumberedList(text) {
 // Format content: bullet (•) -> <ul><li>; two-level "1.\n  1. 2." -> <ol><li><ol><li>...</li></ol></li></ol>.
 function formatContentWithBulletLists(text) {
   if (!text || typeof text !== "string") return text || "";
+  text = reflowPdfExtractedText(text);
   const escape = (s) =>
     String(s)
       .replace(/&/g, "&amp;")
@@ -909,7 +959,19 @@ const PdfUploads = () => {
         : content.type === "text" && typeof content.content === "string"
           ? content.content
           : null;
-    if (text != null) return [{ type: "editor", id: Date.now(), value: text }];
+    if (text != null) {
+      return [
+        {
+          type: "editor",
+          id: Date.now(),
+          value: formatContentWithBulletLists(text),
+          checkboxValue: [],
+          checkboxConfig: {},
+          commentConfig: {},
+          variableDefaults: {},
+        },
+      ];
+    }
     return null;
   }, []);
 
@@ -931,7 +993,7 @@ const PdfUploads = () => {
           id: baseId || Date.now(),
           type: "editor",
           label: "Content",
-          value: rawText,
+          value: formatContentWithBulletLists(rawText),
           checkboxValue: [],
           checkboxConfig: {},
           commentConfig: {},
@@ -1356,6 +1418,13 @@ const PdfUploads = () => {
 
   const renderHTMLContent = useCallback((htmlString) => {
     if (!htmlString) return null;
+    if (!stringLooksLikeHtml(htmlString)) {
+      return (
+        <div className="sgha-doc-html sgha-doc-plain small text-body">
+          {htmlString}
+        </div>
+      );
+    }
     const sanitized = DOMPurify.sanitize(htmlString, {
       ALLOWED_TAGS: [
         "p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li",
@@ -1363,7 +1432,12 @@ const PdfUploads = () => {
       ],
       ALLOWED_ATTR: [],
     });
-    return <div dangerouslySetInnerHTML={{ __html: sanitized }} />;
+    return (
+      <div
+        className="sgha-doc-html small text-body"
+        dangerouslySetInnerHTML={{ __html: sanitized }}
+      />
+    );
   }, []);
 
   const renderSectionContent = (content) => {

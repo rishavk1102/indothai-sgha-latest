@@ -10,6 +10,7 @@ import { Dialog } from "primereact/dialog";
 import { useNavigate } from 'react-router-dom';
 import { getSocket } from '../../context/socket';
 import { IoChevronBackOutline } from "react-icons/io5";
+import AgreementBodyHtml from '../../components/AgreementBodyHtml';
 const Employmentletter = () => {
   const navigate = useNavigate(); // Initialize the navigate function
   const { roleId} = useAuth(); // Get roleId from the context
@@ -231,7 +232,7 @@ if (unauthorized) {
                                             <tr key={index}>
                                                 <td className='text-center py-2'>
                                                     <h5 className='text-start'>{section.section_heading}</h5>
-                                                    <div className='text-srart' dangerouslySetInnerHTML={{ __html: section.section_body }}></div>
+                                                    <div className='text-srart'><AgreementBodyHtml content={section.section_body} /></div>
                                                 </td>
                                             </tr>
                                         ))}

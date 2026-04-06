@@ -11,6 +11,7 @@ import { Dialog } from "primereact/dialog";
 import { getSocket } from '../../context/socket';
 import { IoChevronBackOutline } from "react-icons/io5";
 import GifLoder from '../../interfaces/GifLoder';
+import AgreementBodyHtml from '../../components/AgreementBodyHtml';
 const EditEmploymentletter = () => {
       const navigate = useNavigate(); // Initialize the navigate function
       const { roleId} = useAuth(); // Get roleId from the context
@@ -273,7 +274,7 @@ if (unauthorized) {
                                             <tr key={index}>
                                                 <td>
                                                     <h5>{section.section_heading}</h5>
-                                                    <div dangerouslySetInnerHTML={{ __html: section.section_body }}></div>
+                                                    <div><AgreementBodyHtml content={section.section_body} /></div>
                                                 </td>
                                             </tr>
                                         ))}

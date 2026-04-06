@@ -1418,6 +1418,28 @@ ease;
 
 
 
+/* Client agreement: preserve paragraphs, line breaks, and list HTML from rich editor */
+.sgha-doc-html {
+    line-height: 1.55;
+}
+.sgha-doc-html p {
+    margin: 0 0 0.65em;
+}
+.sgha-doc-html p:last-child {
+    margin-bottom: 0;
+}
+.sgha-doc-html ul,
+.sgha-doc-html ol {
+    margin: 0.35em 0 0.65em;
+    padding-left: 1.25rem;
+}
+.sgha-doc-html li {
+    margin-bottom: 0.35em;
+}
+.sgha-doc-plain {
+    white-space: pre-line;
+}
+
 @media screen and (max-width: 1560px) {
     .hrshortdata {
         font-size: 78px;

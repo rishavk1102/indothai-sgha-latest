@@ -18,7 +18,8 @@ import { useAuth } from "../../context/AuthContext";
 import api from "../../api/axios";
 import GifLoder from '../../interfaces/GifLoder';
 import { Dialog } from "primereact/dialog";
-import DOMPurify from 'dompurify';
+import DOMPurify from "dompurify";
+import { stringLooksLikeHtml } from "../../utils/agreementDocFormat";
 
 const Edit_Section_Template = () => {
     const { roleId } = useAuth(); // Get roleId from the context
@@ -95,12 +96,24 @@ const Edit_Section_Template = () => {
             label: item.SGHA_section_Subheading || `Step ${idx + 1}`
         }));
 
-        const contents = items.map((item) => (
-            <div>
-                <h5>{item.SGHA_section_Subheading}</h5>
-                <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.SGHA_Section_body) }} />
-            </div>
-        ));
+        const contents = items.map((item, idx) => {
+            const body = item.SGHA_Section_body ?? "";
+            return (
+                <div key={idx}>
+                    <h5>{item.SGHA_section_Subheading}</h5>
+                    {!stringLooksLikeHtml(body) ? (
+                        <div className="sgha-doc-html sgha-doc-plain">{body}</div>
+                    ) : (
+                        <div
+                            className="sgha-doc-html"
+                            dangerouslySetInnerHTML={{
+                                __html: DOMPurify.sanitize(body),
+                            }}
+                        />
+                    )}
+                </div>
+            );
+        });
 
         setStepItems(steps);
         setStepContents(contents);

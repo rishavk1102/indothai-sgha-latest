@@ -6,6 +6,7 @@ import { Sidebar } from 'primereact/sidebar';
 import { Checkbox } from "primereact/checkbox";
 import api from '../api/axios';
 import DOMPurify from 'dompurify';
+import { stringLooksLikeHtml } from '../utils/agreementDocFormat';
 
 const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null }) => {
     const [visibleRight, setVisibleRight] = useState(false);
@@ -153,16 +154,31 @@ const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null }) => {
         fetchMainAgreementData();
     }, [parseMainAgreementData, templateYear, templateName]);
 
-    // Render HTML content safely
+    // Render HTML content safely (plain text must not use innerHTML alone — newlines collapse)
     const renderHTMLContent = (htmlString) => {
         if (!htmlString) return null;
-        
+
+        if (!stringLooksLikeHtml(htmlString)) {
+            return (
+                <div className="sgha-doc-html sgha-doc-plain">{htmlString}</div>
+            );
+        }
+
         const sanitizedHTML = DOMPurify.sanitize(htmlString, {
-            ALLOWED_TAGS: ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'strong', 'em', 'b', 'i', 'br', 'div', 'span'],
-            ALLOWED_ATTR: []
+            ALLOWED_TAGS: [
+                'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
+                'strong', 'em', 'b', 'i', 'u', 'br', 'div', 'span', 'sub', 'sup',
+                'blockquote', 'a', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td',
+            ],
+            ALLOWED_ATTR: ['href', 'target', 'rel', 'class', 'colspan', 'rowspan'],
         });
-        
-        return <div dangerouslySetInnerHTML={{ __html: sanitizedHTML }} />;
+
+        return (
+            <div
+                className="sgha-doc-html"
+                dangerouslySetInnerHTML={{ __html: sanitizedHTML }}
+            />
+        );
     };
 
      return (

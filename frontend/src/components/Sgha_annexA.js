@@ -12,6 +12,61 @@ import React, {
 } from "react";
 import { Card, Table } from "react-bootstrap";
 import api from "../api/axios";
+import { stringLooksLikeHtml } from "../utils/agreementDocFormat";
+
+/** Rich text from template editor: keep block/line structure when rendering client-side */
+const AGREEMENT_DOC_PURIFY = {
+  ALLOWED_TAGS: [
+    "p",
+    "br",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "ul",
+    "ol",
+    "li",
+    "strong",
+    "em",
+    "b",
+    "i",
+    "u",
+    "div",
+    "span",
+    "sub",
+    "sup",
+    "blockquote",
+    "a",
+    "table",
+    "thead",
+    "tbody",
+    "tfoot",
+    "tr",
+    "th",
+    "td",
+  ],
+  ALLOWED_ATTR: ["href", "target", "rel", "class", "colspan", "rowspan"],
+};
+
+const sanitizeAgreementDocHtml = (html) =>
+  DOMPurify.sanitize(html == null ? "" : String(html), AGREEMENT_DOC_PURIFY);
+
+/** Single clause line: HTML from template vs plain text (preserve newlines) */
+const AnnexRichLine = ({ value }) => {
+  if (value == null || value === "") return null;
+  const s = typeof value === "string" ? value : String(value);
+  if (stringLooksLikeHtml(s)) {
+    return (
+      <div
+        className="sgha-doc-html d-inline-block align-top"
+        dangerouslySetInnerHTML={{ __html: sanitizeAgreementDocHtml(s) }}
+      />
+    );
+  }
+  return <span className="sgha-doc-plain">{s}</span>;
+};
 
 const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
   const [visibleRight, setVisibleRight] = useState(false);
@@ -1097,7 +1152,7 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
                           <span className="num">
                             {String.fromCharCode(97 + subIdx)})
                           </span>{" "}
-                          {subItemText}
+                          <AnnexRichLine value={subItemText} />
                         </span>
                       </li>
                     );
@@ -1120,7 +1175,8 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
                 }
               />
               <span>
-                <span className="num">{clauseId}</span> {clauseText}
+                <span className="num">{clauseId}</span>{" "}
+                <AnnexRichLine value={clauseText} />
               </span>
             </li>
           );
@@ -1237,7 +1293,7 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
                       <span className="num">
                         {String.fromCharCode(97 + subIdx)})
                       </span>{" "}
-                      {subItemText}
+                      <AnnexRichLine value={subItemText} />
                     </span>
                   </li>
                 );
@@ -1257,7 +1313,8 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
             }
           />
           <span>
-            <span className="num">{clauseId}</span> {clauseText}
+            <span className="num">{clauseId}</span>{" "}
+            <AnnexRichLine value={clauseText} />
           </span>
         </li>
       );
@@ -1330,6 +1387,11 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
           const textContent =
             itemClone.textContent || itemClone.innerText || "";
           const cleanText = textContent.trim();
+          const htmlBodyRaw = (itemClone.innerHTML || "").trim();
+          const htmlBody =
+            htmlBodyRaw.length > 0
+              ? sanitizeAgreementDocHtml(htmlBodyRaw)
+              : "";
 
           // Generate hierarchical index (e.g., "1", "1.1", "1.2", "2", etc.)
           let currentIndexPath;
@@ -1419,11 +1481,12 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
 
           // Only add this item if it has text OR sub-items
           // This prevents adding empty items
-          if (cleanText || subItems) {
+          if (cleanText || subItems || htmlBody) {
             const itemData = {
               id: itemId,
               index: hierarchicalIndex,
               text: cleanText,
+              htmlBody: htmlBody || null,
               ramp: currentState.ramp === true,
               comp: currentState.comp === true,
               cargo: currentState.cargo === true,
@@ -1450,10 +1513,18 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
     });
 
     if (allParsedItems.length === 0) {
-      // If no list, return the sanitized HTML as is
+      // Plain text (no <ol>/<ul>): innerHTML collapses newlines — show as text + pre-line
+      if (!stringLooksLikeHtml(htmlContent)) {
+        return (
+          <div className="sgha-doc-html sgha-doc-plain">{htmlContent}</div>
+        );
+      }
       return (
         <div
-          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(htmlContent) }}
+          className="sgha-doc-html"
+          dangerouslySetInnerHTML={{
+            __html: sanitizeAgreementDocHtml(htmlContent),
+          }}
         />
       );
     }
@@ -1695,10 +1766,19 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
                     />
                   )}
                 </div>
-                <div style={{ flex: 1 }}>
-                  <span>
-                    <span className="num">{item.index}</span> {item.text}
-                  </span>
+                <div style={{ flex: 1 }} className="min-w-0">
+                  <div className="d-flex align-items-start gap-2">
+                    <span className="num flex-shrink-0">{item.index}</span>
+                    <div className="flex-grow-1 min-w-0 sgha-doc-html">
+                      {item.htmlBody ? (
+                        <div
+                          dangerouslySetInnerHTML={{ __html: item.htmlBody }}
+                        />
+                      ) : (
+                        <span className="sgha-doc-plain">{item.text}</span>
+                      )}
+                    </div>
+                  </div>
                   {(() => {
                     if (item.subItems && item.subItems.length > 0) {
                       return (
@@ -1962,317 +2042,35 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
 
       <div className="annex-a comSty">
         <Accordion activeIndex={0}>
-          <AccordionTab header="Ground Handling Services">
-            <Table className="table" borderless>
-              <tbody>
-                <tr>
-                  <td>
-                    <h6>Ground Handling Services</h6>
-                    <span>
-                      to the Standard Ground Handling Agreement (SGHA) of
-                      January 2023
-                    </span>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="d-flex gap-2">
-                    <span className="d-block">between: </span>
-                    <b className="mb-0">Malindo Airways SDN BHD</b>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="d-flex gap-2">
-                    <span className="d-block">
-                      having its principal office at:
-                    </span>
-                    <b className="mb-0"></b>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="d-flex gap-2">
-                    <span className="d-block">
-                      having its principal office at·
-                    </span>
-                    <b className="mb-0">Petaling Jaya, Malaysia</b>
-                  </td>
-                </tr>
-                <tr>
-                  <td>hereinafter referred to as the 'Carrier'</td>
-                  <td>
-                    <b className="mb-0"></b>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="d-flex gap-2">
-                    <span className="d-block">and:</span>
-                    <b className="mb-0">INDOTHAI KOLKATA PRIVATE LIMITED</b>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="d-flex gap-2">
-                    <span className="d-block">
-                      having its principal office at·
-                    </span>
-                    <b className="mb-0">Kolkata, IN</b>
-                  </td>
-                </tr>
-                <tr>
-                  <td>
-                    the Carrier and/or the Handling Company may hereinafter be
-                    referred to as the "Party(ies)" effective from:
-                  </td>
-                </tr>
-
-                <tr>
-                  <td className="d-flex gap-2">
-                    <span className="d-block">This Annex BX.X for </span>
-                    <b className="mb-0"></b>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="d-flex gap-2">
-                    <span className="d-block">the location(s) :</span>
-                    <b className="mb-0"></b>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="d-flex gap-2">
-                    <span className="d-block">is valid from:</span>
-                    <b className="mb-0"></b>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="d-flex gap-2">
-                    <span className="d-block">and replaces : </span>
-                    <b className="mb-0"></b>
-                  </td>
-                </tr>
-              </tbody>
-            </Table>
-          </AccordionTab>
-          <AccordionTab
-            header={
-              <div className="d-flex justify-content-between align-items-center">
-                <span>SECTION 1. {section1MainTitle}</span>
-                <span>
-                  <i className="pi pi-check"></i>
-                </span>
-              </div>
-            }
-          >
-            <Card className="h-auto border-0 shadow-0">
-              <Card.Body>
-                <div className="vertical-stepper-container">
-                  <Steps
-                    model={steps}
-                    activeIndex={activeIndex}
-                    onSelect={(e) => setActiveIndex(e.index)}
-                    readOnly={false}
-                    orientation="vertical"
-                  />
-                </div>
-
-                {/* Stepper Content */}
-
-                <div
-                  className="vertical-stepper-content"
-                  style={{ flex: 1, marginLeft: "20px" }}
-                >
-                  {/* Step 1 Content */}
-                  {activeIndex === 0 && (
-                    <>
-                      {/* Display table row data if available */}
-                      {tableRowData && (
-                        <div
-                          className="step-content-box mt-0 mb-3"
-                          style={{
-                            border: "1px solid #ddd",
-                            padding: "15px",
-                            borderRadius: "5px",
-                            backgroundColor: "#f9f9f9",
-                          }}
-                        >
-                          <h6 className="mb-3">
-                            Template Table Row Data (ID: {tableRowData.row_id})
-                          </h6>
-                          <Table striped bordered hover responsive>
-                            <thead>
-                              <tr>
-                                <th>Section</th>
-                                <th>Description</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <tr>
-                                <td>{tableRowData.section || "N/A"}</td>
-                                <td>{tableRowData.description || "N/A"}</td>
-                              </tr>
-                            </tbody>
-                          </Table>
-                        </div>
-                      )}
-                      {loadingTableRow && (
-                        <div className="step-content-box mt-0 mb-3">
-                          <p>Loading table row data...</p>
-                        </div>
-                      )}
-                      {/* Always try to render dynamic content first if available */}
-                      {(() => {
-                        // Check if we have parsed sections with content
-                        if (parsedSections && parsedSections["1.1"]) {
-                          const rendered = renderSection(
-                            "1.1",
-                            "Representation",
-                          );
-                          if (rendered) {
-                            return rendered;
-                          }
-                        }
-
-                        // If no parsed sections or rendering failed, show static content
-                        return null;
-                      })()}
-
-                      {/* When there's no template-driven section for 1.1, show a simple message instead of static SGHA text */}
-                      {(!parsedSections || !parsedSections["1.1"]) &&
-                        !loadingTemplate && (
-                          <div className="step-content-box mt-0 text-muted">
-                            <p className="mb-0">
-                              No Annex A template content is available for this
-                              template. Annex A will remain blank until a
-                              template is defined.
-                            </p>
-                          </div>
-                        )}
-                    </>
-                  )}
-
-                  {/* Step 2 Content - 1.2 */}
-                  {activeIndex === 1 && (
-                    <>
-                      {(() => {
-                        if (parsedSections && parsedSections["1.2"]) {
-                          const rendered = renderSection(
-                            "1.2",
-                            "Administrative Functions",
-                          );
-                          if (rendered) return rendered;
-                        }
-                        return (
-                          <div className="step-content-box mt-0">
-                            <h6>
-                              <span className="num">1.2</span> Administrative
-                              Functions
-                            </h6>
-                            <p>No content available for this section.</p>
-                          </div>
-                        );
-                      })()}
-                    </>
-                  )}
-
-                  {/* Step 3 Content - 1.3 */}
-                  {activeIndex === 2 && (
-                    <>
-                      {(() => {
-                        if (parsedSections && parsedSections["1.3"]) {
-                          const rendered = renderSection(
-                            "1.3",
-                            "Supervision and/or Coordination",
-                          );
-                          if (rendered) return rendered;
-                        }
-                        return (
-                          <div className="step-content-box mt-0">
-                            <h6>
-                              <span className="num">1.3</span> Supervision
-                              and/or Coordination
-                            </h6>
-                            <p>No content available for this section.</p>
-                          </div>
-                        );
-                      })()}
-                    </>
-                  )}
-
-                  {/* Step 4 Content - 1.4 */}
-                  {activeIndex === 3 && (
-                    <>
-                      {(() => {
-                        if (parsedSections && parsedSections["1.4"]) {
-                          const rendered = renderSection(
-                            "1.4",
-                            "Station Management",
-                          );
-                          if (rendered) return rendered;
-                        }
-                        return (
-                          <div className="step-content-box mt-0">
-                            <h6>
-                              <span className="num">1.4</span> Station
-                              Management
-                            </h6>
-                            <p>No content available for this section.</p>
-                          </div>
-                        );
-                      })()}
-                    </>
-                  )}
-                </div>
-              </Card.Body>
-              <Card.Footer className="d-flex justify-content-between bg-white border-0 shadow-0">
-                <div className="w-75 d-flex gap-2">
-                  <Button
-                    variant="outline-success"
-                    onClick={saveCheckboxStates}
-                    label="Save States"
-                    className="py-1"
-                    outlined
-                    severity="success"
-                    icon="pi pi-save"
-                  />
-                </div>
-                <div>
-                  <Button
-                    icon="pi pi-chevron-left"
-                    tooltip="Prv"
-                    severity="warning"
-                    className="py-1 me-2"
-                    iconPos="left"
-                    onClick={() => {
-                      prevStep();
-                      setTimeout(
-                        () => window.scrollTo({ top: 0, behavior: "smooth" }),
-                        10,
-                      );
-                    }}
-                    disabled={activeIndex === 0}
-                  />
-
-                  <Button
-                    icon="pi pi-chevron-right"
-                    severity="warning"
-                    tooltip="Next"
-                    className="py-1"
-                    iconPos="right"
-                    onClick={() => {
-                      nextStep();
-                      setTimeout(
-                        () => window.scrollTo({ top: 0, behavior: "smooth" }),
-                        10,
-                      );
-                    }}
-                    disabled={activeIndex === steps.length - 1}
-                  />
-                </div>
-              </Card.Footer>
-            </Card>
-          </AccordionTab>
-
           {/* Dynamic Sections - rendered from allParsedSections */}
-          {allParsedSections
-            .filter((s) => s.sectionNo !== "1")
-            .map((section) => {
+          {(() => {
+            const sectionsWithContent = (allParsedSections || []).filter((s) => {
+              // Render only template-driven sections that actually have editor content.
+              // This prevents any hardcoded/fallback sections from showing up.
+              if (!s || !s.sectionNo) return false;
+              if (String(s.sectionNo) === "1") return false;
+              const hasContent = s.subsections?.some(
+                (sub) =>
+                  sub?.editor?.value &&
+                  String(sub.editor.value).trim() !== "" &&
+                  String(sub.editor.value).trim() !== "<p><br></p>",
+              );
+              return !!hasContent;
+            });
+
+            if (sectionsWithContent.length === 0) {
+              return (
+                <div className="p-3">
+                  <div className="step-content-box mt-0 text-muted">
+                    <p className="mb-0">
+                      No content available in Annex A for this template.
+                    </p>
+                  </div>
+                </div>
+              );
+            }
+
+            return sectionsWithContent.map((section) => {
               const sectionActiveIdx = getSectionActiveIndex(section.sectionNo);
               const sectionSteps = section.subsections?.map((sub, idx) => ({
                 id: sub.id || `step-${section.sectionNo}-${idx}`,
@@ -2412,7 +2210,8 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
                   </Card>
                 </AccordionTab>
               );
-            })}
+            });
+          })()}
         </Accordion>
       </div>
     </>

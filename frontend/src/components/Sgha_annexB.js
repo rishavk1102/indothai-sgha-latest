@@ -11,6 +11,7 @@ import { Table } from "react-bootstrap";
 import { MdFlight } from "react-icons/md";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
+import { stringLooksLikeHtml } from "../utils/agreementDocFormat";
 import { useAuth } from "../context/AuthContext";
 import { getSocket } from "../context/socket";
 import CustomToast from "./CustomToast";
@@ -2199,13 +2200,21 @@ const Sgha_annexB = ({
                                             </Table>
                                           )}
                                         {partObj.content &&
-                                          partObj.content.trim() && (
+                                          partObj.content.trim() &&
+                                          (stringLooksLikeHtml(partObj.content) ? (
                                             <div
+                                              className="sgha-doc-html"
                                               dangerouslySetInnerHTML={{
-                                                __html: partObj.content,
+                                                __html: DOMPurify.sanitize(
+                                                  partObj.content,
+                                                ),
                                               }}
                                             />
-                                          )}
+                                          ) : (
+                                            <div className="sgha-doc-html sgha-doc-plain">
+                                              {partObj.content}
+                                            </div>
+                                          ))}
                                       </React.Fragment>
                                     ))}
                                   </div>
@@ -2215,9 +2224,16 @@ const Sgha_annexB = ({
                                 replaceVariablesWithUnderscores(
                                   section.editor.value,
                                 );
+                              if (!stringLooksLikeHtml(processedContent)) {
+                                return (
+                                  <div className="mt-4 sgha-doc-html sgha-doc-plain">
+                                    {processedContent}
+                                  </div>
+                                );
+                              }
                               return (
                                 <div
-                                  className="mt-4"
+                                  className="mt-4 sgha-doc-html"
                                   dangerouslySetInnerHTML={{
                                     __html:
                                       DOMPurify.sanitize(processedContent),

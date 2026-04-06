@@ -14,6 +14,7 @@ import { useAuth } from "../../context/AuthContext";
 import { Dropdown } from "primereact/dropdown";
 import api from "../../api/axios";
 import GifLoder from '../../interfaces/GifLoder';
+import AgreementBodyHtml from '../../components/AgreementBodyHtml';
 import { IoChevronBackOutline } from "react-icons/io5";
 import { Sidebar } from 'primereact/sidebar';
 const ClientSGHA_List = () => {
@@ -229,11 +230,7 @@ const ClientSGHA_List = () => {
                                             <tr key={section.section_id}>
                                                 <td colSpan={2}>
                                                     <h6>{section.section_heading}</h6>
-                                                    <div
-                                                        dangerouslySetInnerHTML={{
-                                                            __html: section.section_body,
-                                                        }}
-                                                    />
+                                                    <AgreementBodyHtml content={section.section_body} />
                                                 </td>
                                             </tr>
                                         ))

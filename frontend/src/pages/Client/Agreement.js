@@ -1117,7 +1117,7 @@ const Agreement = () => {
                             )}
 
                             {/* Sections */}
-                            {annexASummary.sections.length > 0 ? (
+                            {annexASummary.sections.length > 0 && (
                                 <div>
                                     <h6 className="text-primary mb-3">Sections and Items:</h6>
                                     {annexASummary.sections.map((sectionData, idx) => {
@@ -1175,11 +1175,6 @@ const Agreement = () => {
                                             </div>
                                         );
                                     })}
-                                </div>
-                            ) : (
-                                <div className="text-center p-4 text-muted">
-                                    <i className="pi pi-info-circle me-2"></i>
-                                    No content available in Annex A.
                                 </div>
                             )}
                         </>

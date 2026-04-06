@@ -2,7 +2,6 @@ const express = require("express");
 const sequelize = require("./config/database");
 const cors = require("cors");
 const path = require("path");
-const bodyParser = require("body-parser");
 const cookieParser = require("cookie-parser");
 const http = require("http");
 require("dotenv").config();
@@ -72,7 +71,11 @@ app.use(
   })
 );
 
-app.use(bodyParser.json());
+/** Large SGHA template payloads (HTML + JSON fields) exceed default ~100kb body limit */
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || "50mb";
+
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
 app.use(cookieParser());
 
 const server = http.createServer(app); // Create HTTP server
@@ -84,9 +87,6 @@ initializeSockets(server); // Initialize WebSocket server
 const port = process.env.PORT || 7072;
 
 const publicRoot = path.resolve(__dirname, "./dist");
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // Routes Path
 app.use("/AuthRoutes", authRoutes);

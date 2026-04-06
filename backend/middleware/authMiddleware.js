@@ -25,7 +25,7 @@ const authenticateToken = (req, res, next) => {
   // } else {
   //   next();
   // }
-  
+
   next();
 };
 

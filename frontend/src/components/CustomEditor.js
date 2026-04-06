@@ -6,6 +6,7 @@ import { InputText } from 'primereact/inputtext';
 import { Toolbar } from 'primereact/toolbar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api from '../api/axios';
+import { plainTextToAgreementHtml, stringLooksLikeHtml } from '../utils/agreementDocFormat';
 import {
     FaAlignCenter,
     FaAlignLeft,
@@ -318,6 +319,8 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
   const handleContentChangeRef = useRef(null);
   // When we send content to parent, they echo it back as value.htmlValue. Skip overwriting the editor with that to avoid resetting cursor to start.
   const lastSentHtmlRef = useRef(null);
+  /** Last `htmlValue` / legacy string we applied — avoids re-applying when processVariables mutates DOM */
+  const lastAppliedIncomingRef = useRef(null);
 
   // Serialize current editor innerHTML by replacing inline table blocks with {{variable}} text
   // so we can compare against the parent-supplied htmlValue (which never contains table HTML).
@@ -844,59 +847,64 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
     if (editorRef.current && value !== undefined) {
       // Handle both string (legacy) and object formats
       if (typeof value === 'string') {
-        // Legacy format: just HTML string
-        console.log('[CustomEditor] Legacy string value, length:', value.length);
-        if (editorRef.current.innerHTML !== value) {
-          editorRef.current.innerHTML = value || '';
-          setTimeout(() => {
-            processVariables();
-            normalizeAllLists();
-          }, 0);
+        const incoming = value || '';
+        console.log('[CustomEditor] Legacy string value, length:', incoming.length);
+        if (incoming === lastAppliedIncomingRef.current) {
+          return;
         }
+        const toSet = stringLooksLikeHtml(incoming)
+          ? incoming
+          : plainTextToAgreementHtml(incoming);
+        editorRef.current.innerHTML = toSet;
+        lastAppliedIncomingRef.current = incoming;
+        setTimeout(() => {
+          processVariables();
+          normalizeAllLists();
+        }, 0);
       } else if (typeof value === 'object' && value !== null) {
-        // Skip overwrite when value matches what we last sent to parent
-        // (the parent echoes it back and we don't want to reset the editor)
-        const incomingHtml = value.htmlValue || '';
-        const isSameAsLastSent = incomingHtml && incomingHtml === lastSentHtmlRef.current;
-
-        // Also compare the normalised (table-blocks → {{var}}) version of the
-        // current editor content so that table-block presence doesn't force a
-        // spurious innerHTML reset on every parent re-render.
-        const currentNormalized = serializeEditorHTML();
-        const isSameContent = incomingHtml && incomingHtml === currentNormalized;
+        const incomingRaw = value.htmlValue || '';
+        const isSameAsLastSent =
+          incomingRaw && incomingRaw === lastSentHtmlRef.current;
+        const currentSerialized = serializeEditorHTML();
+        const alreadyShown =
+          incomingRaw === lastAppliedIncomingRef.current ||
+          (!!incomingRaw && incomingRaw === currentSerialized);
 
         console.log('[CustomEditor] Init useEffect:', {
-          incomingHtmlLength: incomingHtml.length,
-          incomingHtmlPreview: incomingHtml.substring(0, 200),
+          incomingHtmlLength: incomingRaw.length,
+          incomingHtmlPreview: incomingRaw.substring(0, 200),
           isSameAsLastSent,
-          isSameContent,
-          currentNormalizedLength: currentNormalized.length,
-          currentNormalizedPreview: currentNormalized.substring(0, 200),
+          alreadyShown,
+          currentSerializedLength: currentSerialized.length,
           lastSentHtmlRefLength: lastSentHtmlRef.current?.length || 0,
-          willSetInnerHTML: !isSameAsLastSent && !isSameContent && !!incomingHtml,
-          showVariablePreview
+          willSetInnerHTML:
+            !!incomingRaw && !isSameAsLastSent && !alreadyShown,
+          showVariablePreview,
         });
 
-        if (!isSameAsLastSent && !isSameContent && incomingHtml) {
-          console.log('[CustomEditor] Setting innerHTML, full incoming HTML:', incomingHtml.substring(0, 500));
-          editorRef.current.innerHTML = incomingHtml;
-          console.log('[CustomEditor] innerHTML set, editor childNodes count:', editorRef.current.childNodes.length);
+        if (incomingRaw && !isSameAsLastSent && !alreadyShown) {
+          const toSet = stringLooksLikeHtml(incomingRaw)
+            ? incomingRaw
+            : plainTextToAgreementHtml(incomingRaw);
+          console.log(
+            '[CustomEditor] Setting innerHTML, preview:',
+            toSet.substring(0, 500),
+          );
+          editorRef.current.innerHTML = toSet;
+          lastAppliedIncomingRef.current = incomingRaw;
           lastSentHtmlRef.current = null;
           setTimeout(() => {
-            console.log('[CustomEditor] Before processVariables, editor innerHTML length:', editorRef.current?.innerHTML?.length);
             processVariables();
-            console.log('[CustomEditor] After processVariables, editor innerHTML length:', editorRef.current?.innerHTML?.length);
-            console.log('[CustomEditor] After processVariables, editor childNodes count:', editorRef.current?.childNodes?.length);
-            const tableBlocks = editorRef.current?.querySelectorAll('.variable-table-block');
+            const tableBlocks =
+              editorRef.current?.querySelectorAll('.variable-table-block');
             console.log('[CustomEditor] Table blocks found:', tableBlocks?.length);
             normalizeAllLists();
             setTimeout(() => {
-              console.log('[CustomEditor] After normalizeAllLists, editor innerHTML length:', editorRef.current?.innerHTML?.length);
               syncVariableDefaults();
             }, 50);
           }, 0);
-        } else {
-          console.log('[CustomEditor] Skipping innerHTML set (content matches)');
+        } else if (incomingRaw) {
+          lastAppliedIncomingRef.current = incomingRaw;
         }
         if (value.checkboxConfig) {
           setListConfigurations(value.checkboxConfig);
@@ -907,7 +915,7 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
         if (value.variableDefaults) {
           const mergedDefaults = {
             ...value.variableDefaults,
-            ...RESERVED_VARIABLES
+            ...RESERVED_VARIABLES,
           };
           setVariableDefaults(mergedDefaults);
         } else {
@@ -2425,7 +2433,8 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
       <style jsx>{`
         .custom-editor {
           border-radius: 6px;
-          overflow: hidden;
+          /* Don't clip toolbar SVG icons inside dialogs/modals */
+          overflow: visible;
           box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
         
@@ -2457,28 +2466,52 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
           gap: 4px;
           background: #f8f9fa !important;
           border-bottom: 1px solid #dee2e6 !important;
+          overflow: visible;
+          min-height: 44px;
         }
         
-        .custom-editor .p-button {
+        .custom-editor .p-toolbar .p-button {
           border-radius: 4px;
           transition: all 0.2s ease;
           border: 1px solid transparent;
           background: transparent;
+          color: #495057 !important;
+        }
+
+        /* Ensure react-icons (SVG) are visible */
+        .custom-editor .p-toolbar .p-button svg {
+          display: block;
+          width: 1rem;
+          height: 1rem;
+          flex-shrink: 0;
+          opacity: 1 !important;
+          color: #495057 !important;
+          fill: currentColor !important;
         }
         
-        .custom-editor .p-button:hover {
+        .custom-editor .p-toolbar .p-button:hover {
           background-color: #e9ecef !important;
           border-color: #007bff !important;
           color: #007bff !important;
         }
+
+        .custom-editor .p-toolbar .p-button:hover svg {
+          color: #007bff !important;
+          fill: currentColor !important;
+        }
         
-        .custom-editor .p-button:focus {
+        .custom-editor .p-toolbar .p-button:focus {
           box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
         }
         
-        .custom-editor .p-button:active {
+        .custom-editor .p-toolbar .p-button:active {
           background-color: #007bff !important;
           color: white !important;
+        }
+
+        .custom-editor .p-toolbar .p-button:active svg {
+          color: #fff !important;
+          fill: currentColor !important;
         }
         
         .custom-editor .p-divider {

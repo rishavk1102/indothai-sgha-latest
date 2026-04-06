@@ -16,6 +16,7 @@ import DynamicSectionsList from '../../components/DynamicSectionsList';
 import { useAuth } from "../../context/AuthContext";
 import { getSocket } from "../../context/socket";
 import GifLoder from '../../interfaces/GifLoder';
+import AgreementBodyHtml from '../../components/AgreementBodyHtml';
 const Section_Template_list = () => {
     const { roleId } = useAuth(); // Get roleId from the context
     const PAGE_NAME = "Section Template"; // Page name for permission checking
@@ -457,9 +458,7 @@ const Section_Template_list = () => {
                                                 <div key={sec.SGHA_ST_id} className="mb-4">
                                                     <h5>{sec.subheading}</h5>
                                                     {sec.body && sec.body !== "<p><br></p>" && (
-                                                        <div
-                                                            dangerouslySetInnerHTML={{ __html: sec.body }}
-                                                        />
+                                                        <AgreementBodyHtml content={sec.body} />
                                                     )}
                                                 </div>
                                             ))}

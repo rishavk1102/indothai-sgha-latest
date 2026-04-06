@@ -15,6 +15,7 @@ import successVideo from '../../assets/video/paperplane.mp4';
 import crossVideo from '../../assets/video/cross.mp4';
 import { getSocket } from '../../context/socket';
 import GifLoder from '../../interfaces/GifLoder';
+import AgreementBodyHtml from '../../components/AgreementBodyHtml';
 import { Sidebar } from 'primereact/sidebar';
 
 const Letter_template = () => {
@@ -414,11 +415,7 @@ if (unauthorized) {
                           <tr key={section.section_id}>
                             <td colSpan={2}>
                               <h6>{section.section_heading}</h6>
-                              <div
-                                dangerouslySetInnerHTML={{
-                                  __html: section.section_body,
-                                }}
-                              />
+                              <AgreementBodyHtml content={section.section_body} />
                             </td>
                           </tr>
                         ))

@@ -79,6 +79,12 @@ const AgreedServicesCharges = () => {
    const [editDialogVisible, setEditDialogVisible] = useState(false);
    const [editSubmission, setEditSubmission] = useState(null);
    const [editFields, setEditFields] = useState([]);
+   const [editActiveDoc, setEditActiveDoc] = useState('Main Agreement'); // Main Agreement | Annex A | Annex B
+   const [editFieldsByDoc, setEditFieldsByDoc] = useState({
+      'Main Agreement': [],
+      'Annex A': [],
+      'Annex B': [],
+   });
    const [editTemplateData, setEditTemplateData] = useState(null);
    const [editNote, setEditNote] = useState('');
    const [editLoading, setEditLoading] = useState(false);
@@ -557,6 +563,66 @@ const AgreedServicesCharges = () => {
    }, [parseHTMLContent]);
 
    // --- Edit agreement (template-based, same format as createSGHATemplate) ---
+   const coerceTemplateFields = useCallback((rawFields) => {
+      if (!rawFields) return [];
+      let fields = rawFields;
+      if (typeof fields === 'string') {
+         try {
+            fields = JSON.parse(fields);
+         } catch (e) {
+            return [];
+         }
+      }
+      if (!Array.isArray(fields)) return [];
+
+      const normalizeValue = (type, value) => {
+         if (type === 'editor' && value && typeof value === 'object') {
+            if (typeof value.htmlValue === 'string') return value.htmlValue;
+         }
+         return value ?? '';
+      };
+
+      return fields
+         .map((f, idx) => {
+            if (!f || typeof f !== 'object') return null;
+            const type = f.type ?? f.fieldType ?? f.field_type ?? f.kind;
+            const safeType = type || 'editor';
+            const id = f.id ?? f._id ?? f.fieldId ?? f.field_id ?? (Date.now() + idx);
+            const label =
+               f.label ||
+               (safeType === 'heading_no'
+                  ? 'Heading No.'
+                  : safeType === 'heading'
+                     ? 'Heading'
+                     : safeType === 'subheading_no'
+                        ? 'Subheading No.'
+                        : safeType === 'subheading'
+                           ? 'Sub-heading'
+                           : safeType === 'textarea'
+                              ? 'Text'
+                              : safeType === 'table'
+                                 ? 'Table'
+                                 : 'Content');
+            const value = normalizeValue(
+               safeType,
+               f.value ?? f.text ?? f.val ?? f.content ?? f.body
+            );
+
+            return {
+               ...f,
+               id,
+               type: safeType,
+               label,
+               value,
+               checkboxValue: f.checkboxValue ?? f.checkbox_value ?? [],
+               checkboxConfig: f.checkboxConfig ?? f.checkbox_config ?? {},
+               commentConfig: f.commentConfig ?? f.comment_config ?? {},
+               variableDefaults: f.variableDefaults ?? f.variable_defaults ?? {},
+            };
+         })
+         .filter(Boolean);
+   }, []);
+
    const getNextHeadingNumber = (currentFields) => {
       let maxNumber = 0;
       currentFields.forEach((field, index) => {
@@ -661,34 +727,240 @@ const AgreedServicesCharges = () => {
       setEditDialogVisible(true);
       setEditLoading(true);
       setEditNote('');
+      setEditActiveDoc('Main Agreement');
+      setEditFieldsByDoc({ 'Main Agreement': [], 'Annex A': [], 'Annex B': [] });
+      setEditFields([]);
       try {
+         const DEBUG_EDIT = (() => {
+            try { return localStorage.getItem('DEBUG_EDIT_AGREEMENT') === '1'; } catch { return false; }
+         })();
+
          const res = await api.get(`/api/client/annex-a-submissions/${submission.submission_id}/details`);
          if (res.data?.data) {
             const data = res.data.data;
             const selections = data.checkbox_selections || {};
             setEditTemplateData(selections);
-            if (selections._templateFields && Array.isArray(selections._templateFields) && selections._templateFields.length > 0) {
+            const templateNameRaw =
+               selections?.template_name ??
+               selections?.templateName ??
+               data?.template_name ??
+               data?.form_details?.template_name ??
+               submission?.template_name ??
+               submission?.templateName ??
+               submission?.form_details?.template_name ??
+               null;
+            const templateName =
+               typeof templateNameRaw === 'string' && templateNameRaw.trim() !== ''
+                  ? templateNameRaw.trim()
+                  : null;
+            const stored = selections._templateFields;
+            const isStoredObj = stored && typeof stored === 'object' && !Array.isArray(stored);
+
+            if (DEBUG_EDIT) {
+               console.debug('[Edit Agreement] details loaded', {
+                  submission_id: submission?.submission_id,
+                  agreement_year: submission?.agreement_year,
+                  templateName,
+                  storedType: typeof stored,
+                  storedIsArray: Array.isArray(stored),
+                  storedKeys: isStoredObj ? Object.keys(stored || {}) : null,
+               });
+            }
+
+            /** DB/API may store template JSON as a bare array or wrapped ({ fields, items, ... }). */
+            const extractTemplateContentArray = (parsed) => {
+               if (parsed == null) return null;
+               if (Array.isArray(parsed)) return parsed;
+               if (typeof parsed === 'object') {
+                  if (Array.isArray(parsed.fields)) return parsed.fields;
+                  if (Array.isArray(parsed.items)) return parsed.items;
+                  if (Array.isArray(parsed.templateFields)) return parsed.templateFields;
+                  for (const v of Object.values(parsed)) {
+                     if (
+                        Array.isArray(v) &&
+                        v.length > 0 &&
+                        v[0] &&
+                        typeof v[0] === 'object' &&
+                        (v[0].type != null || v[0].fieldType != null || v[0].field_type != null)
+                     ) {
+                        return v;
+                     }
+                  }
+               }
+               return null;
+            };
+
+            const rawToFieldArray = (raw) => {
+               if (raw == null) return null;
+               let v = raw;
+               if (typeof v === 'string') {
+                  try {
+                     v = JSON.parse(v);
+                  } catch {
+                     return null;
+                  }
+               }
+               return extractTemplateContentArray(v);
+            };
+
+            if (isStoredObj) {
+               const pickDocFields = (obj, doc) => {
+                  if (!obj || typeof obj !== 'object') return null;
+                  const candidates = [];
+                  const base = String(doc);
+                  candidates.push(base);
+                  candidates.push(base.trim());
+                  candidates.push(base.toLowerCase());
+                  candidates.push(base.replace(/\s+/g, '').toLowerCase());
+                  // common alternates
+                  if (doc === 'Main Agreement') {
+                     candidates.push('main');
+                     candidates.push('mainAgreement');
+                     candidates.push('main_agreement');
+                     candidates.push('mainagreement');
+                     candidates.push('Main');
+                  }
+                  if (doc === 'Annex A') {
+                     candidates.push('annexA');
+                     candidates.push('annex_a');
+                     candidates.push('annex a');
+                     candidates.push('Annex-A');
+                  }
+                  if (doc === 'Annex B') {
+                     candidates.push('annexB');
+                     candidates.push('annex_b');
+                     candidates.push('annex b');
+                     candidates.push('Annex-B');
+                  }
+
+                  // build lookup map of keys normalized
+                  const keys = Object.keys(obj);
+                  const norm = (k) => String(k).trim().toLowerCase().replace(/\s+/g, '').replace(/[-_]/g, '');
+                  const byNorm = new Map(keys.map((k) => [norm(k), k]));
+                  for (const c of candidates) {
+                     const direct = obj[c];
+                     if (direct != null) return direct;
+                     const k2 = byNorm.get(norm(c));
+                     if (k2 != null) return obj[k2];
+                  }
+                  return null;
+               };
+
+               let map = {
+                  'Main Agreement': coerceTemplateFields(rawToFieldArray(pickDocFields(stored, 'Main Agreement')) || []),
+                  'Annex A': coerceTemplateFields(rawToFieldArray(pickDocFields(stored, 'Annex A')) || []),
+                  'Annex B': coerceTemplateFields(rawToFieldArray(pickDocFields(stored, 'Annex B')) || []),
+               };
+               let hasAny = map['Main Agreement'].length || map['Annex A'].length || map['Annex B'].length;
+
+               // If keys did not match known names, infer document from each stored key (e.g. camelCase or legacy labels).
+               if (!hasAny) {
+                  const normKey = (k) =>
+                     String(k).trim().toLowerCase().replace(/\s+/g, '').replace(/[-_]/g, '');
+                  const inferDoc = (key) => {
+                     const n = normKey(key);
+                     if (n.includes('annexb') || n === 'annexb') return 'Annex B';
+                     if (n.includes('annexa') || n === 'annexa' || n.includes('annex')) return 'Annex A';
+                     if (n.includes('main') || n.includes('agreement')) return 'Main Agreement';
+                     return null;
+                  };
+                  const merged = { ...map };
+                  for (const [k, v] of Object.entries(stored)) {
+                     const doc = inferDoc(k);
+                     if (!doc || merged[doc].length) continue;
+                     const arr = rawToFieldArray(v);
+                     if (arr && arr.length) merged[doc] = coerceTemplateFields(arr);
+                  }
+                  map = merged;
+                  hasAny = map['Main Agreement'].length || map['Annex A'].length || map['Annex B'].length;
+               }
+               if (DEBUG_EDIT) {
+                  console.debug('[Edit Agreement] parsed stored _templateFields map', {
+                     main: map['Main Agreement']?.length,
+                     annexA: map['Annex A']?.length,
+                     annexB: map['Annex B']?.length,
+                     hasAny,
+                  });
+               }
+               if (hasAny) {
+                  submissionHadTemplateFieldsRef.current = true;
+                  setEditFieldsByDoc(map);
+                  initialEditFieldsRef.current = JSON.parse(JSON.stringify(map));
+                  const firstDoc = map['Main Agreement'].length ? 'Main Agreement' : (map['Annex A'].length ? 'Annex A' : 'Annex B');
+                  setEditActiveDoc(firstDoc);
+                  setEditFields(map[firstDoc] || []);
+                  return;
+               }
+            }
+
+            const hydratedTemplateFields = coerceTemplateFields(rawToFieldArray(stored) || []);
+            if (hydratedTemplateFields.length > 0) {
                submissionHadTemplateFieldsRef.current = true;
-               const fields = selections._templateFields;
-               setEditFields(fields);
-               initialEditFieldsRef.current = JSON.parse(JSON.stringify(fields));
+               // legacy: treat stored array as Annex A
+               const map = { 'Main Agreement': [], 'Annex A': hydratedTemplateFields, 'Annex B': [] };
+               setEditFieldsByDoc(map);
+               initialEditFieldsRef.current = JSON.parse(JSON.stringify(map));
+               setEditActiveDoc('Annex A');
+               setEditFields(hydratedTemplateFields);
             } else {
                submissionHadTemplateFieldsRef.current = false;
                try {
-                  const templateRes = await api.get(`/sgha_template_content/get/${submission.agreement_year || 2025}/Annex A/Section Template`);
-                  if (templateRes.data?.data?.content) {
-                     const content = templateRes.data.data.content;
-                     const parsed = typeof content === 'string' ? JSON.parse(content) : content;
-                     setEditFields(parsed);
-                     initialEditFieldsRef.current = JSON.parse(JSON.stringify(parsed));
-                  } else {
-                     setEditFields([]);
-                     initialEditFieldsRef.current = [];
+                  const year = parseInt(String(data.agreement_year ?? submission.agreement_year ?? 2025), 10) || 2025;
+                  const getContentArray = (r) => {
+                     const c = r?.data?.data?.content;
+                     if (c == null) return null;
+                     let parsed;
+                     try {
+                        parsed = typeof c === 'string' ? JSON.parse(c) : c;
+                     } catch {
+                        return null;
+                     }
+                     return extractTemplateContentArray(parsed);
+                  };
+                  /** Try named template row first, then default (template_name null) so we still load year defaults. */
+                  const fetchFieldsForDocType = async (type) => {
+                     const url = `/sgha_template_content/get/${year}/${encodeURIComponent(type)}/Section Template`;
+                     const paramSets = templateName
+                        ? [{ template_name: templateName }, {}]
+                        : [{}];
+                     for (const params of paramSets) {
+                        try {
+                           const r = await api.get(url, { params });
+                           const arr = getContentArray(r);
+                           if (arr && arr.length) return arr;
+                        } catch (e) {
+                           /* try next */
+                        }
+                     }
+                     return null;
+                  };
+
+                  const loaded = { 'Main Agreement': [], 'Annex A': [], 'Annex B': [] };
+                  for (const doc of ['Main Agreement', 'Annex A', 'Annex B']) {
+                     const arr = await fetchFieldsForDocType(doc);
+                     if (arr) loaded[doc] = coerceTemplateFields(arr);
                   }
+
+                  if (DEBUG_EDIT) {
+                     console.debug('[Edit Agreement] fallback templates loaded', {
+                        year,
+                        templateName,
+                        main: loaded['Main Agreement']?.length,
+                        annexA: loaded['Annex A']?.length,
+                        annexB: loaded['Annex B']?.length,
+                     });
+                  }
+
+                  setEditFieldsByDoc(loaded);
+                  initialEditFieldsRef.current = JSON.parse(JSON.stringify(loaded));
+                  const firstDoc = loaded['Main Agreement'].length ? 'Main Agreement' : (loaded['Annex A'].length ? 'Annex A' : 'Annex B');
+                  setEditActiveDoc(firstDoc);
+                  setEditFields(loaded[firstDoc] || []);
                } catch (templateErr) {
                   console.error('Error loading template:', templateErr);
                   setEditFields([]);
-                  initialEditFieldsRef.current = [];
+                  setEditFieldsByDoc({ 'Main Agreement': [], 'Annex A': [], 'Annex B': [] });
+                  initialEditFieldsRef.current = { 'Main Agreement': [], 'Annex A': [], 'Annex B': [] };
                }
             }
          }
@@ -698,13 +970,18 @@ const AgreedServicesCharges = () => {
       } finally {
          setEditLoading(false);
       }
-   }, []);
+   }, [coerceTemplateFields]);
 
    const handleSaveEdit = async () => {
       if (!editSubmission) return;
       setEditSaving(true);
       try {
-         const updatedSelections = { ...(editTemplateData || {}), _templateFields: editFields };
+         // Persist current doc edits before saving
+         const nextMap = { ...(editFieldsByDoc || {}) };
+         nextMap[editActiveDoc] = Array.isArray(editFields) ? editFields : [];
+         setEditFieldsByDoc(nextMap);
+
+         const updatedSelections = { ...(editTemplateData || {}), _templateFields: nextMap };
          const payload = {
             checkbox_selections: updatedSelections,
             editor_type: 'Employee',
@@ -712,7 +989,7 @@ const AgreedServicesCharges = () => {
             editor_name: username || 'Unknown',
             edit_note: editNote || undefined,
          };
-         if (!submissionHadTemplateFieldsRef.current && initialEditFieldsRef.current && initialEditFieldsRef.current.length > 0) {
+         if (!submissionHadTemplateFieldsRef.current && initialEditFieldsRef.current) {
             payload.previous_template_fields = initialEditFieldsRef.current;
          }
          const res = await api.put(`/api/client/annex-a-submissions/${editSubmission.submission_id}/edit`, payload);
@@ -734,6 +1011,8 @@ const AgreedServicesCharges = () => {
          setEditDialogVisible(false);
          setEditSubmission(null);
          setEditFields([]);
+         setEditFieldsByDoc({ 'Main Agreement': [], 'Annex A': [], 'Annex B': [] });
+         setEditActiveDoc('Main Agreement');
          setEditNote('');
          setEditTemplateData(null);
          initialEditFieldsRef.current = null;
@@ -1910,6 +2189,23 @@ const AgreedServicesCharges = () => {
                ) : (
                   <Row>
                      <Col md={9} lg={10}>
+                        <TabView
+                           className="mx-0"
+                           activeIndex={['Main Agreement', 'Annex A', 'Annex B'].indexOf(editActiveDoc)}
+                           onTabChange={(e) => {
+                              const docs = ['Main Agreement', 'Annex A', 'Annex B'];
+                              const nextDoc = docs[e.index] || 'Main Agreement';
+                              const nextMap = { ...(editFieldsByDoc || {}) };
+                              nextMap[editActiveDoc] = Array.isArray(editFields) ? editFields : [];
+                              setEditFieldsByDoc(nextMap);
+                              setEditActiveDoc(nextDoc);
+                              setEditFields(Array.isArray(nextMap?.[nextDoc]) ? nextMap[nextDoc] : []);
+                           }}
+                        >
+                           <TabPanel header="Main Agreement" />
+                           <TabPanel header="Annex A" />
+                           <TabPanel header="Annex B" />
+                        </TabView>
                         <div style={{ maxHeight: 'calc(80vh - 120px)', overflowY: 'auto', overflowX: 'hidden' }}>
                            <Card className="mb-3 border-0">
                               <Card.Body>

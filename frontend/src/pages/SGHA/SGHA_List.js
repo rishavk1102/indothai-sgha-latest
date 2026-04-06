@@ -16,6 +16,7 @@ import logoImage from '../../assets/images/logo.png';
 import { useAuth } from "../../context/AuthContext";
 import { getSocket } from "../../context/socket";
 import GifLoder from '../../interfaces/GifLoder';
+import AgreementBodyHtml from '../../components/AgreementBodyHtml';
 const SGHA_List = () => {
     const navigate = useNavigate(); // Initialize the navigate function
     const { roleId, userId } = useAuth(); // Get roleId from the context
@@ -225,11 +226,7 @@ const SGHA_List = () => {
                                             <tr key={section.section_id}>
                                                 <td colSpan={2}>
                                                     <h6>{section.section_heading}</h6>
-                                                    <div
-                                                        dangerouslySetInnerHTML={{
-                                                            __html: section.section_body,
-                                                        }}
-                                                    />
+                                                    <AgreementBodyHtml content={section.section_body} />
                                                 </td>
                                             </tr>
                                         ))

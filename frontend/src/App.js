@@ -2,6 +2,7 @@ import 'primeicons/primeicons.css';
 import React from 'react';
 import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import '././assets/css/responsive.css';
+import './assets/css/common_style.css';
 import './App.css';
 import Login from './pages/AuthPages/Login';
 import Signup from './pages/AuthPages/Signup';

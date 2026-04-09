@@ -31,6 +31,11 @@ export const AuthProvider = ({ children }) => {
       setUsername(username);
       setImgUrl(imgUrl);
 
+      if (isAuthenticated && role) {
+        sessionStorage.setItem("role", role);
+        if (roleId != null) sessionStorage.setItem("roleId", String(roleId));
+      }
+
       // ✅ Connect to socket if not already connected
       if (!socketConnected) {
         try {

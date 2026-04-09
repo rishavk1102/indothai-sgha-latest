@@ -855,10 +855,11 @@ router.post("/refresh-token", async (req, res) => {
         Role_id: user.Role_id,
       });
 
+      const isProduction = process.env.NODE_ENV === "production";
       res.cookie("accessToken", newAccessToken, {
         httpOnly: true,
-        secure: true,
-        sameSite: "None",
+        secure: isProduction,
+        sameSite: isProduction ? "None" : "Lax",
       });
       res.status(200).json({ message: "Access token refreshed" });
     } catch (error) {
@@ -868,8 +869,8 @@ router.post("/refresh-token", async (req, res) => {
   });
 });
 
-// Logout route to clear refresh token
-router.post("/Logout", async (req, res) => {
+// Logout route to clear refresh token (both paths — frontend uses /logout)
+const handleLogout = async (req, res) => {
   const { userId, user_type } = req.body;
   const refreshToken = req.cookies.refreshToken;
 
@@ -878,6 +879,13 @@ router.post("/Logout", async (req, res) => {
       .status(400)
       .json({ message: "Refresh token, userId, and user_type are required." });
   }
+
+  const isProduction = process.env.NODE_ENV === "production";
+  const clearOpts = {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? "None" : "Lax",
+  };
 
   try {
     if (user_type === "Client") {
@@ -904,25 +912,18 @@ router.post("/Logout", async (req, res) => {
       }
     }
 
-    // Clear cookies
-    res.clearCookie("accessToken", {
-      httpOnly: true,
-      secure: true,
-      sameSite: "None",
-    });
-
-    res.clearCookie("refreshToken", {
-      httpOnly: true,
-      secure: true,
-      sameSite: "None",
-    });
+    res.clearCookie("accessToken", clearOpts);
+    res.clearCookie("refreshToken", clearOpts);
 
     res.status(200).json({ message: "Logged out successfully." });
   } catch (error) {
     console.error("Error during logout:", error);
     res.status(500).json({ message: "Internal server error." });
   }
-});
+};
+
+router.post("/Logout", handleLogout);
+router.post("/logout", handleLogout);
 
 // GET /check-session - Verify if refresh token is still valid
 router.get("/check-session", async (req, res) => {

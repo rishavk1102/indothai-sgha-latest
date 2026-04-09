@@ -36,11 +36,15 @@ const ClientLogin = () => {
     e.preventDefault();
 
     try {
-      const response = await axios.post(`${config.apiBASEURL}/AuthRoutes/user-login`, {
-        email: email,
-        password: password,
-        loginType: 'Client',
-      });
+      const response = await axios.post(
+        `${config.apiBASEURL}/AuthRoutes/user-login`,
+        {
+          email: email,
+          password: password,
+          loginType: 'Client',
+        },
+        { withCredentials: true }
+      );
 
       const authData = response.data;
       login(authData); // Make sure this function is not blocking further execution

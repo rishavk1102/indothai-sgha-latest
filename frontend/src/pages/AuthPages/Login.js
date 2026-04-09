@@ -39,7 +39,8 @@ const Login = () => {
           email: email,
           password: password,
           loginType: "User",
-        }
+        },
+        { withCredentials: true }
       );
 
       const authData = response.data;

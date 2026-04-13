@@ -1956,9 +1956,9 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
     );
     if (activeStep) {
       activeStep.scrollIntoView({
-        behavior: "smooth",
+        behavior: "auto",
         block: "nearest",
-        inline: "center",
+        inline: "nearest",
       });
     }
   }, [activeIndex]);

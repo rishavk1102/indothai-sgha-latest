@@ -125,9 +125,9 @@ const SGHA_Form = () => {
         const activeStep = stepsRef.current?.querySelector(".p-steps-item.p-highlight");
         if (activeStep) {
           activeStep.scrollIntoView({
-            behavior: "smooth",
+            behavior: "auto",
             block: "nearest",
-            inline: "center",
+            inline: "nearest",
           });
         }
       }, [activeIndex]);

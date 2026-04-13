@@ -857,6 +857,10 @@ table td p{
 }
 .steps-scroll {
   overflow-x: auto;
+  overflow-y: hidden;
+  width: 100%;
+  max-width: 100%;
+  overscroll-behavior-x: contain;
   scrollbar-height: thin; /* For Firefox */
 }
 

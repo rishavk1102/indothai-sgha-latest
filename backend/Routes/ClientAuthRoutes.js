@@ -39,6 +39,46 @@ const generateToken = () => {
     return crypto.randomBytes(16).toString('hex');
 };
 
+/** Public signup links must open in the same host the admin is using (localhost vs deployed domain). */
+const resolveFrontendOrigin = (req) => {
+    const tryParseOrigin = (value) => {
+        if (!value || typeof value !== 'string') return null;
+        const trimmed = value.trim().replace(/\/$/, '');
+        try {
+            const u = new URL(trimmed);
+            if (u.protocol === 'http:' || u.protocol === 'https:') {
+                return `${u.protocol}//${u.host}`;
+            }
+        } catch {
+            /* ignore */
+        }
+        return null;
+    };
+
+    const fromBody = tryParseOrigin(req.body?.frontend_origin);
+    if (fromBody) return fromBody;
+
+    const fromOrigin = tryParseOrigin(req.get('origin'));
+    if (fromOrigin) return fromOrigin;
+
+    const referer = req.get('referer');
+    if (referer) {
+        try {
+            const u = new URL(referer);
+            if (u.protocol === 'http:' || u.protocol === 'https:') {
+                return `${u.protocol}//${u.host}`;
+            }
+        } catch {
+            /* ignore */
+        }
+    }
+
+    const fromEnv = tryParseOrigin(process.env.FRONTEND_BASE_URL);
+    if (fromEnv) return fromEnv;
+
+    return 'https://indothai-sgha-8paro.ondigitalocean.app';
+};
+
 // Encrypt Function
 const encryptToken = (token) => {
     const iv = generateIV(); // Generate a new IV for each encryption
@@ -630,7 +670,8 @@ router.post('/generate-link/:page_name', authenticateToken, checkPermission('add
         const { client_name } = req.body; // ✅ Get client_name from request body
         const token = generateToken();
         const encryptedToken = encryptToken(token);
-        const linkUrl = `https://indothai-sgha-8paro.ondigitalocean.app/Client_signup/${encryptedToken}`;
+        const frontendOrigin = resolveFrontendOrigin(req);
+        const linkUrl = `${frontendOrigin}/Client_signup/${encryptedToken}`;
 
         await ClientRegistrationLink.create(
             {

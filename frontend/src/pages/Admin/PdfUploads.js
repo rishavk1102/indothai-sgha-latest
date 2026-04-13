@@ -150,6 +150,64 @@ const getFileName = (row) => {
   return null;
 };
 
+/** MinIO object key for the uploaded source PDF (not segregated JSON/text). */
+const ORIGINAL_PDF_HINTS = [
+  "original_pdf_path",
+  "original_pdf",
+  "pdf_path",
+  "pdfPath",
+  "pdf_file",
+  "pdf_file_path",
+  "filepath",
+  "file_path",
+  "uploaded_pdf_path",
+  "uploaded_file_path",
+  "minio_path",
+  "object_key",
+  "s3_key",
+  "storage_path",
+  "document_path",
+  "source_file",
+  "bucket_key",
+];
+
+const getOriginalPdfPathFromRow = (row) => {
+  const fromHints = getPathFromRow(row, ORIGINAL_PDF_HINTS);
+  if (fromHints) return fromHints;
+  if (!row || typeof row !== "object") return null;
+  for (const [k, v] of Object.entries(row)) {
+    if (typeof v === "string") {
+      const t = v.trim();
+      if (
+        /\.pdf$/i.test(t) &&
+        !/segregated|structured|_structured/i.test(t)
+      ) {
+        return t;
+      }
+      if (
+        /original|source|upload|pdf|file_path|object|storage|bucket|document/i.test(
+          k,
+        ) &&
+        !/segregated|annex|main_agreement_path|filename|name$/i.test(k) &&
+        t.includes("/") &&
+        !/\.(json|txt)$/i.test(t)
+      ) {
+        return t;
+      }
+    }
+    if (v && typeof v === "object" && typeof v.path === "string") {
+      const t = v.path.trim();
+      if (
+        /\.pdf$/i.test(t) &&
+        !/segregated|structured/i.test(t)
+      ) {
+        return t;
+      }
+    }
+  }
+  return null;
+};
+
 const PROCESS_STARTED_HINTS = [
   "started_at",
   "start_date",
@@ -764,6 +822,9 @@ const PdfUploads = () => {
   const [selectedPdfFile, setSelectedPdfFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
+  /** Which download is in progress: row key from table, or "template-details" for the dialog. */
+  const [pdfDownloadingKey, setPdfDownloadingKey] = useState(null);
+  const pdfDownloading = pdfDownloadingKey != null;
 
   // Save to Additional Charges: two-step dialog
   const [saveToChargesVisible, setSaveToChargesVisible] = useState(false);
@@ -819,6 +880,76 @@ const PdfUploads = () => {
       setUploadingPdf(false);
     }
   }, [selectedPdfFile, showMessage]);
+
+  const handleDownloadPdf = useCallback(
+    async (row, downloadKey) => {
+      const path = getOriginalPdfPathFromRow(row);
+      if (!path) {
+        showMessage(
+          "warn",
+          "No stored PDF path found for this upload. It may still be processing.",
+        );
+        return;
+      }
+      const key = downloadKey ?? `path:${path}`;
+      setPdfDownloadingKey(key);
+      try {
+        const res = await api.get("/api/pdf-uploads/file-content", {
+          params: { path },
+          responseType: "blob",
+        });
+        const ct = (res.headers["content-type"] || "").toLowerCase();
+        if (ct.includes("application/json")) {
+          const text = await res.data.text();
+          let msg = "Could not download PDF.";
+          try {
+            const j = JSON.parse(text);
+            if (j.message) msg = j.message;
+          } catch (_) {}
+          showMessage("error", msg);
+          return;
+        }
+        const blob =
+          res.data instanceof Blob
+            ? res.data
+            : new Blob([res.data], { type: ct || "application/pdf" });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        let name = getFileName(row);
+        if (name && typeof name === "string" && !/\.pdf$/i.test(name)) {
+          name = `${name.replace(/\.[^.]+$/, "")}.pdf`;
+        }
+        if (!name) {
+          const tail = path.split("/").pop() || "document.pdf";
+          name = /\.pdf$/i.test(tail) ? tail : `${tail}.pdf`;
+        }
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        showMessage("success", "PDF download started.");
+      } catch (err) {
+        let msg = "Failed to download PDF.";
+        if (err.response?.data instanceof Blob) {
+          try {
+            const t = await err.response.data.text();
+            const j = JSON.parse(t);
+            if (j.message) msg = j.message;
+          } catch (_) {}
+        } else if (err.response?.data?.message) {
+          msg = err.response.data.message;
+        } else if (err.message) {
+          msg = err.message;
+        }
+        showMessage("error", msg);
+      } finally {
+        setPdfDownloadingKey(null);
+      }
+    },
+    [showMessage],
+  );
 
   useEffect(() => {
     const fetchUploads = async () => {
@@ -1608,8 +1739,27 @@ const PdfUploads = () => {
                     {(() => {
                       const inProgress = isRowProcessInProgress(row);
                       const disabledBtnClass = inProgress ? "opacity-50 pe-none" : "";
+                      const pdfPath = getOriginalPdfPathFromRow(row);
+                      const rowDownloadKey = `row:${getRowId(row, i)}`;
+                      const rowDownloading = pdfDownloadingKey === rowDownloadKey;
                       return (
                         <>
+                          <Button
+                            tooltip={
+                              pdfPath
+                                ? "Download original PDF"
+                                : "Original PDF path not available"
+                            }
+                            icon="pi pi-download"
+                            severity="help"
+                            className="p-0 border-0 me-1"
+                            style={{ width: "30px" }}
+                            tooltipOptions={{ position: "left" }}
+                            text
+                            loading={rowDownloading}
+                            disabled={!pdfPath || rowDownloading}
+                            onClick={() => handleDownloadPdf(row, rowDownloadKey)}
+                          />
                           <Button
                             tooltip={inProgress ? "Process in progress – actions disabled" : "Open template (Main Agg, Annex A, Annex B)"}
                             icon="pi pi-plus"
@@ -1819,6 +1969,25 @@ const PdfUploads = () => {
                   const disabledBtnClass = inProgress ? "opacity-50 pe-none" : "";
                   return (
                     <>
+                      <Button
+                        label="Download PDF"
+                        icon="pi pi-download"
+                        severity="help"
+                        outlined
+                        loading={pdfDownloadingKey === "template-details"}
+                        disabled={
+                          pdfDownloadingKey === "template-details" ||
+                          !getOriginalPdfPathFromRow(selectedRow)
+                        }
+                        tooltip={
+                          getOriginalPdfPathFromRow(selectedRow)
+                            ? "Download the uploaded PDF from storage"
+                            : "Original PDF path not available for this upload"
+                        }
+                        onClick={() =>
+                          handleDownloadPdf(selectedRow, "template-details")
+                        }
+                      />
                       <Button
                         label="Preview"
                         icon="pi pi-eye"

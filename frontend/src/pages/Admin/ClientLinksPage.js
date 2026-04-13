@@ -70,7 +70,10 @@ const ClientLinksPage = () => {
         try {
             const response = await api.post(
                 `/ClientAuthRoutes/generate-link/${PAGE_NAME}`,
-                { client_name: clientName }  // ✅ send client_name in body
+                {
+                    client_name: clientName,
+                    frontend_origin: typeof window !== 'undefined' ? window.location.origin : undefined,
+                }
             );
 
             setGeneratedLink(response.data.link || '');
@@ -313,35 +316,56 @@ const ClientLinksPage = () => {
                 visible={dialogVisible}
                 onHide={() => setDialogVisible(false)}
                 header="Generated Registration Link"
-                style={{ width: '340px' }}
+                style={{ width: 'min(95vw, 520px)', maxWidth: '100%' }}
             >
-                <p>Here is the newly generated registration link:</p>
-                {generatedLink ? (
-                    <>
-                        <a
-                            href={generatedLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-500 underline linkgenerated"
-                        >
-                            {generatedLink}
-                        </a>
-                        <div className='d-flex justify-content-center align-items-center'>
-                            <Button
-                                label="Copy Link"
-                                icon="pi pi-copy"
-                                className="border-0 py-2 my-3"
-                                onClick={handleCopyLink}
-                                severity='success'
-                            />
-                        </div>
-                        {copySuccess && (
-                            <Alert variant="success" className='py-1 text-center'>{copySuccess}</Alert>
-                        )}
-                    </>
-                ) : (
-                    <Alert variant="danger" className='py-1 text-center'>No link generated yet.</Alert>
-                )}
+                <div style={{ overflowX: 'hidden', maxWidth: '100%' }}>
+                    <p className="mb-2 small text-secondary">
+                        Copy or open this link and share it with the client.
+                    </p>
+                    {generatedLink ? (
+                        <>
+                            <div
+                                className="rounded border bg-light p-3 mb-3 font-monospace small"
+                                style={{
+                                    overflowWrap: 'anywhere',
+                                    wordBreak: 'break-word',
+                                    maxWidth: '100%',
+                                }}
+                            >
+                                <a
+                                    href={generatedLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-primary text-decoration-underline"
+                                    style={{
+                                        overflowWrap: 'anywhere',
+                                        wordBreak: 'break-word',
+                                    }}
+                                >
+                                    {generatedLink}
+                                </a>
+                            </div>
+                            <div className="d-flex justify-content-center align-items-center">
+                                <Button
+                                    label="Copy Link"
+                                    icon="pi pi-copy"
+                                    className="border-0 py-2"
+                                    onClick={handleCopyLink}
+                                    severity="success"
+                                />
+                            </div>
+                            {copySuccess && (
+                                <Alert variant="success" className="py-1 text-center mt-3 mb-0">
+                                    {copySuccess}
+                                </Alert>
+                            )}
+                        </>
+                    ) : (
+                        <Alert variant="danger" className="py-1 text-center mb-0">
+                            No link generated yet.
+                        </Alert>
+                    )}
+                </div>
             </Dialog>
 
             <Dialog

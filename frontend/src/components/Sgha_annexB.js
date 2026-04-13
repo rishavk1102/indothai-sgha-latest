@@ -450,9 +450,9 @@ const Sgha_annexB = ({
     );
     if (activeStep) {
       activeStep.scrollIntoView({
-        behavior: "smooth",
+        behavior: "auto",
         block: "nearest",
-        inline: "center",
+        inline: "nearest",
       });
     }
   }, [activeIndex]);

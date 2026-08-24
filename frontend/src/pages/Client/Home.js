@@ -6,6 +6,8 @@ import { Button } from "primereact/button";
 import { Fieldset } from 'primereact/fieldset';
 import { RadioButton } from "primereact/radiobutton";
 import { InputText } from "primereact/inputtext";
+import { IconField } from "primereact/iconfield";
+import { InputIcon } from "primereact/inputicon";
 import { InputTextarea } from "primereact/inputtextarea";
 import { getSocket } from "../../context/socket";
 import { useAuth } from "../../context/AuthContext";
@@ -16,7 +18,7 @@ import { TabView, TabPanel } from 'primereact/tabview';
 import api from '../../api/axios';
 
 const Home = () => {
-  const { role, roleId, userId } = useAuth(); // Get roleId from the context
+  const { role, roleId, userId, username } = useAuth(); // Get roleId from the context
   const PAGE_NAME = "Add New SGHA"; // Page name for permission checking
   const socket = getSocket();
   const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
@@ -145,6 +147,24 @@ const Home = () => {
   const [isCargoChecked, setIsCargoChecked] = useState(false);
 
   const [formData, setFormData] = useState({});
+
+  // Company name is the logged-in client's registered name and cannot be edited.
+  useEffect(() => {
+    if (!username || selectedCities.length === 0) return;
+    setFormData((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      selectedCities.forEach((airport) => {
+        const id = airport.airport_id;
+        const current = next[id] || {};
+        if (current.company_name !== username) {
+          next[id] = { ...current, company_name: username };
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [username, selectedCities]);
 
   const updateAirportData = (airport_id, field, value) => {
     setFormData((prev) => ({
@@ -527,12 +547,25 @@ const Home = () => {
                               <Col md={6} lg={4} className="d-flex flex-column gap-1 mb-3">
                                 <label className="mb-2">
                                   Company Name <sup className="text-danger">*</sup>
+                                  <i
+                                    className="pi pi-lock ms-2"
+                                    title="This name cannot be changed"
+                                    style={{ fontSize: "12px", color: "#6c757d" }}
+                                  />
                                 </label>
-                                <InputText
-                                  placeholder="Enter Company Name"
-                                  value={data.company_name || ""}
-                                  onChange={(e) => updateAirportData(airport.airport_id, "company_name", e.target.value)}
-                                />
+                                <IconField iconPosition="right" className="w-100">
+                                  <InputIcon
+                                    className="pi pi-lock"
+                                    title="This name cannot be changed"
+                                  />
+                                  <InputText
+                                    placeholder="Company Name"
+                                    value={data.company_name || username || ""}
+                                    disabled
+                                    className="w-100"
+                                    title="This name cannot be changed"
+                                  />
+                                </IconField>
                               </Col>
                               <Col md={6} lg={4} className="d-flex flex-column gap-1 mb-3">
                                 <label className="mb-2">Email <sup className="text-danger">*</sup></label>

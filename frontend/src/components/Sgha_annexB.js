@@ -22,7 +22,7 @@ const Sgha_annexB = ({
   formData = {},
   selectedCities = [],
 }) => {
-  const { roleId, role, userId } = useAuth();
+  const { roleId, role, userId, username } = useAuth();
   const agreementYear =
     templateYear >= 2000 && templateYear <= 2100 ? Number(templateYear) : 2025;
   const navigate = useNavigate();
@@ -30,6 +30,26 @@ const Sgha_annexB = ({
   const toastRef = useRef(null);
   const [visibleRight, setVisibleRight] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const firstAirportId = selectedCities[0]?.airport_id;
+  const clientCompanyName =
+    (firstAirportId && formData[firstAirportId]?.company_name) ||
+    username ||
+    "";
+
+  const isClientNameVariable = (variableName) => {
+    const n = String(variableName || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+    return [
+      "company_name",
+      "client_name",
+      "company",
+      "name",
+      "carrier_name",
+    ].includes(n);
+  };
 
   // State for cards
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -1830,6 +1850,9 @@ const Sgha_annexB = ({
           // Keep reserved variables as is
           return match;
         }
+        if (isClientNameVariable(variableName)) {
+          return clientCompanyName || "________";
+        }
         // Replace non-reserved variables with underscores
         return "________";
       },
@@ -2054,9 +2077,16 @@ const Sgha_annexB = ({
                   <b className="mb-0"></b>
                 </tr>
                 <tr>
-                  <td className="">
+                  <td className="d-flex align-items-center gap-2">
                     <span>and:</span>
-                    <b className="mb-0">INDOTHAI KOLKATA PRIVATE LIMITED</b>
+                    <b className="mb-0">
+                      {clientCompanyName || "INDOTHAI KOLKATA PRIVATE LIMITED"}
+                    </b>
+                    <i
+                      className="pi pi-lock text-muted"
+                      title="This name cannot be changed"
+                      style={{ fontSize: "12px" }}
+                    />
                   </td>
                 </tr>
                 <tr>
@@ -2186,14 +2216,35 @@ const Sgha_annexB = ({
                                                     )}
                                                   </td>
                                                   <td>
-                                                    <span
-                                                      className="border-bottom d-inline-block"
-                                                      style={{
-                                                        minWidth: "200px",
-                                                      }}
-                                                    >
-                                                      ________________
-                                                    </span>
+                                                    {isClientNameVariable(
+                                                      partObj.variableName,
+                                                    ) ? (
+                                                      <span
+                                                        className="border-bottom d-inline-block"
+                                                        style={{
+                                                          minWidth: "200px",
+                                                        }}
+                                                        title="This name cannot be changed"
+                                                      >
+                                                        {clientCompanyName ||
+                                                          "—"}
+                                                        <i
+                                                          className="pi pi-lock text-muted ms-2"
+                                                          style={{
+                                                            fontSize: "12px",
+                                                          }}
+                                                        />
+                                                      </span>
+                                                    ) : (
+                                                      <span
+                                                        className="border-bottom d-inline-block"
+                                                        style={{
+                                                          minWidth: "200px",
+                                                        }}
+                                                      >
+                                                        ________________
+                                                      </span>
+                                                    )}
                                                   </td>
                                                 </tr>
                                               </tbody>

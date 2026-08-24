@@ -7,8 +7,15 @@ import { Checkbox } from "primereact/checkbox";
 import api from '../api/axios';
 import DOMPurify from 'dompurify';
 import { stringLooksLikeHtml } from '../utils/agreementDocFormat';
+import { useAuth } from '../context/AuthContext';
 
-const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null }) => {
+const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, formData = {}, selectedCities = [] }) => {
+    const { username } = useAuth();
+    const firstAirportId = selectedCities[0]?.airport_id;
+    const clientCompanyName =
+        (firstAirportId && formData[firstAirportId]?.company_name) ||
+        username ||
+        '';
     const [visibleRight, setVisibleRight] = useState(false);
     const [templateData, setTemplateData] = useState(null);
     const [loadingTemplate, setLoadingTemplate] = useState(false);
@@ -215,9 +222,10 @@ const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null }) => {
                                 <td>hereinafter referred to as the 'Carrier' or the 'Handling Company' as the case may be,</td>
                             </tr>
                             <tr>
-                                <td className="d-flex gap-2">
+                                <td className="d-flex gap-2 align-items-center">
                                 <span>and:</span>
-                                <b className="mb-0">INDOTHAI KOLKATA PRIVATE LIMITED</b>
+                                <b className="mb-0">{clientCompanyName || 'INDOTHAI KOLKATA PRIVATE LIMITED'}</b>
+                                <i className="pi pi-lock text-muted" title="This name cannot be changed" style={{ fontSize: '12px' }} />
                                 </td>
                             </tr>
                             <tr>
@@ -351,7 +359,29 @@ const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null }) => {
         
                 <Form.Group className="mb-3" controlId="formBasicEmail">
                     <Form.Label>hereinafter referred to as the 'Carrier' or the 'Handling Company' as the case may be, and:</Form.Label>
-                    <Form.Control type="text" placeholder="INDOTHAI KOLKATA PRIVATE LIMITED" />
+                    <div className="position-relative">
+                        <Form.Control
+                            type="text"
+                            value={clientCompanyName}
+                            disabled
+                            readOnly
+                            placeholder="Company name"
+                            title="This name cannot be changed"
+                            style={{ paddingRight: '2.25rem' }}
+                        />
+                        <i
+                            className="pi pi-lock"
+                            title="This name cannot be changed"
+                            style={{
+                                position: 'absolute',
+                                right: '0.75rem',
+                                top: '50%',
+                                transform: 'translateY(-50%)',
+                                color: '#6c757d',
+                                pointerEvents: 'none',
+                            }}
+                        />
+                    </div>
                 </Form.Group>
         
                 <Form.Group className="mb-3" controlId="formBasicEmail">

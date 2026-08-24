@@ -926,7 +926,7 @@ const Agreement = () => {
                                     transition={{ duration: 0.4 }}
                                     className="content-box"
                                     >
-                                    <Sgha_mainagreemment templateYear={templateYear} templateName={templateName}/>
+                                    <Sgha_mainagreemment templateYear={templateYear} templateName={templateName} formData={formData} selectedCities={selectedCities}/>
 
                                     </motion.div>
                                 )}

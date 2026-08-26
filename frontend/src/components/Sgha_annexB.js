@@ -15,6 +15,14 @@ import { stringLooksLikeHtml } from "../utils/agreementDocFormat";
 import { useAuth } from "../context/AuthContext";
 import { getSocket } from "../context/socket";
 import CustomToast from "./CustomToast";
+import {
+  buildFormDetailsAirportFields,
+  clearClientDraft,
+  getSelectedAirportCity,
+  getSelectedAirportLabel,
+  getSelectedAirportOffice,
+} from "../utils/clientWorkspace";
+import { CLIENT_ROUTES } from "./ClientPageChrome";
 
 const Sgha_annexB = ({
   templateYear = 2025,
@@ -741,6 +749,7 @@ const Sgha_annexB = ({
               template_year: firstData.template_year || null,
               template_name: firstData.template_name || null,
               other_details: firstData.value || null,
+              ...buildFormDetailsAirportFields(selectedCities, formData),
             };
           }
         }
@@ -824,7 +833,14 @@ const Sgha_annexB = ({
           }
         }
 
-        navigate("/dashboard/reportsummary");
+        clearClientDraft({ clearAnnexA: true });
+        navigate(CLIENT_ROUTES.submissions, {
+          replace: true,
+          state: {
+            justSubmitted: true,
+            highlightSubmissionId: submissionId || null,
+          },
+        });
       } catch (error) {
         console.error("Error saving Annex A submission:", error);
 
@@ -1998,7 +2014,7 @@ const Sgha_annexB = ({
         className="d-flex justify-content-center align-items-center flex-column gap-2 mb-2 p-3 sticky-top"
         style={{ background: "#f6e9f7", borderRadius: "10px" }}
       >
-        <h6>IATA STANDARD GROUND HANDLING AGREEMENT ANNEX BX.X-Kolkata</h6>
+        <h6>IATA STANDARD GROUND HANDLING AGREEMENT ANNEX B — {getSelectedAirportCity(selectedCities) || getSelectedAirportLabel(selectedCities) || "Selected airport"}</h6>
         <div className="d-flex gap-4">
           <div className="d-flex align-items-center">
             <Checkbox
@@ -2092,7 +2108,7 @@ const Sgha_annexB = ({
                 <tr>
                   <td className="">
                     <span>having its principal office at·</span>
-                    <b className="mb-0">Kolkata, IN</b>
+                    <b className="mb-0">{getSelectedAirportOffice(selectedCities, formData) || "Selected airport"}</b>
                   </td>
                 </tr>
                 <tr>

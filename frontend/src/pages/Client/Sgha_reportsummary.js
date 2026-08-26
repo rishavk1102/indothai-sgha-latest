@@ -16,28 +16,37 @@ import React, {
 } from "react";
 import {
   Badge,
-  Breadcrumb,
   Card,
   Col,
   Form,
   Row,
   Table,
 } from "react-bootstrap";
-import { IoChevronBackOutline } from "react-icons/io5";
 import { MdFlight } from "react-icons/md";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 import { getSocket } from "../../context/socket";
 import GifLoder from "../../interfaces/GifLoder";
 import { generateSubmissionPDF } from "../../utils/generateSubmissionPDF";
+import {
+  ClientBreadcrumbs,
+  ClientEmptyState,
+  CLIENT_HOME,
+  CLIENT_ROUTES,
+} from "../../components/ClientPageChrome";
 
 const Sgha_reportsummary = () => {
   const { userId, username } = useAuth(); // userId is client_registration_id for clients
   const navigate = useNavigate();
-  const goBack = () => {
-    navigate(-1);
-  };
+  const location = useLocation();
+  const highlightedRowRef = useRef(null);
+  const [showSubmitSuccess, setShowSubmitSuccess] = useState(
+    !!location.state?.justSubmitted,
+  );
+  const [highlightId, setHighlightId] = useState(
+    location.state?.highlightSubmissionId || null,
+  );
 
   const [expandedRow, setExpandedRow] = useState(null);
   const [visible, setVisible] = useState(false);
@@ -626,6 +635,32 @@ const Sgha_reportsummary = () => {
     fetchSubmissions();
   }, [fetchSubmissions]);
 
+  useEffect(() => {
+    if (location.state?.justSubmitted || location.state?.highlightSubmissionId) {
+      setShowSubmitSuccess(!!location.state.justSubmitted);
+      if (location.state.highlightSubmissionId) {
+        setHighlightId(location.state.highlightSubmissionId);
+      }
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.pathname, location.state, navigate]);
+
+  useEffect(() => {
+    if (!highlightId || !submissions.length) return;
+    const match = submissions.find(
+      (item) => String(item.submission_id) === String(highlightId),
+    );
+    if (!match) return;
+    setExpandedRow(match.submission_id);
+    const timer = setTimeout(() => {
+      highlightedRowRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [highlightId, submissions]);
+
   // Filter submissions by search
   useEffect(() => {
     if (!searchValue) {
@@ -676,6 +711,13 @@ const Sgha_reportsummary = () => {
     const fd = submission.form_details;
     if (!fd || typeof fd !== "object") return "—";
     const parts = [];
+    if (fd.airport_city || fd.airport_iata || fd.airport_name) {
+      const airportBits = [
+        fd.airport_city || fd.airport_name,
+        fd.airport_iata ? `(${fd.airport_iata})` : null,
+      ].filter(Boolean);
+      if (airportBits.length) parts.push(airportBits.join(" "));
+    }
     if (fd.company_name) parts.push(fd.company_name);
     if (fd.contact_person) parts.push(`Contact: ${fd.contact_person}`);
     if (fd.applicable_for) parts.push(fd.applicable_for);
@@ -901,13 +943,35 @@ const Sgha_reportsummary = () => {
             {filteredSubmissions.length === 0 ? (
               <tr>
                 <td colSpan="10" className="text-center py-4">
-                  No submissions found
+                  {searchValue ? (
+                    "No submissions match your search"
+                  ) : (
+                    <ClientEmptyState
+                      title="No submissions yet"
+                      message="When you submit an agreement, it will show up here so you can check status, comments, and PDFs."
+                      primaryLabel="Go to Home"
+                      primaryTo={CLIENT_HOME}
+                      secondaryLabel="Start a new SGHA"
+                      secondaryTo={CLIENT_ROUTES.newSgha}
+                    />
+                  )}
                 </td>
               </tr>
             ) : (
               filteredSubmissions.map((submission) => (
                 <React.Fragment key={submission.submission_id}>
-                  <tr>
+                  <tr
+                    className={
+                      String(submission.submission_id) === String(highlightId)
+                        ? "client-row-highlight"
+                        : undefined
+                    }
+                    ref={
+                      String(submission.submission_id) === String(highlightId)
+                        ? highlightedRowRef
+                        : undefined
+                    }
+                  >
                     <td>
                       <Button
                         icon={
@@ -1444,15 +1508,20 @@ const Sgha_reportsummary = () => {
   return (
     <>
       <Row className="mb-4">
-        <Col md={12} lg={4}>
-          <Breadcrumb>
-            <Breadcrumb.Item onClick={goBack}>
-              <IoChevronBackOutline /> Back
-            </Breadcrumb.Item>
-            <Breadcrumb.Item active>Report Summary</Breadcrumb.Item>
-          </Breadcrumb>
+        <Col md={12} lg={8}>
+          <ClientBreadcrumbs
+            backTo={CLIENT_HOME}
+            backLabel="Home"
+            items={[{ label: "My Submissions" }]}
+          />
         </Col>
       </Row>
+
+      {showSubmitSuccess && (
+        <div className="client-submit-banner">
+          Your agreement was submitted. It is listed below so you can check status, comments, and the PDF.
+        </div>
+      )}
 
       <TabView
         className="mx-0"

@@ -5,23 +5,48 @@ import { Button } from 'primereact/button';
 import { Dialog } from 'primereact/dialog';
 import { TabPanel, TabView } from 'primereact/tabview';
 import React, { useEffect, useMemo, useState } from "react";
-import { Breadcrumb, Col, Row } from "react-bootstrap";
-import { IoChevronBackOutline } from "react-icons/io5";
+import { Col, Row } from "react-bootstrap";
 import { useNavigate, useLocation } from "react-router-dom";
 import api from '../../api/axios';
+import {
+  ClientBreadcrumbs,
+  ClientFlowStepper,
+  CLIENT_HOME,
+  CLIENT_ROUTES,
+} from '../../components/ClientPageChrome';
 import Sgha_annexA from '../../components/Sgha_annexA';
 import Sgha_annexB from '../../components/Sgha_annexB';
 import Sgha_mainagreemment from '../../components/Sgha_mainagreemment';
+import {
+  getSelectedAirportLabel,
+  hasClientDraft,
+  loadClientDraft,
+  saveClientDraft,
+} from '../../utils/clientWorkspace';
 
 const Agreement = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [selectedCities, setSelectedCities] = useState(location.state?.selectedCities || []);
-  const [formData, setFormData] = useState(location.state?.formData || {});
+  const initialDraft = (() => {
+    if (location.state?.selectedCities?.length) {
+      return {
+        selectedCities: location.state.selectedCities,
+        formData: location.state.formData || {},
+        templateYear: location.state.templateYear,
+        templateName: location.state.templateName,
+        agreementIndex: 0,
+      };
+    }
+    return loadClientDraft() || {};
+  })();
+
+  const [selectedCities] = useState(initialDraft.selectedCities || []);
+  const [formData] = useState(initialDraft.formData || {});
+  const [missingContext] = useState(!hasClientDraft({ selectedCities: initialDraft.selectedCities }));
 
   // Template year: from navigation state (Add New SGHA) then sessionStorage then default
   const templateYear = (() => {
-    const fromState = location.state?.templateYear;
+    const fromState = location.state?.templateYear ?? initialDraft.templateYear;
     if (fromState != null && fromState !== '') {
       const n = typeof fromState === 'number' ? fromState : parseInt(fromState, 10);
       if (!isNaN(n) && n >= 2000 && n <= 2100) return n;
@@ -40,7 +65,7 @@ const Agreement = () => {
 
   // Template name for named templates (e.g. "Rishav Test 3") — required so Annex B/Main/Annex A load the same template as employee
   const templateName = (() => {
-    const fromState = location.state?.templateName;
+    const fromState = location.state?.templateName ?? initialDraft.templateName;
     if (fromState != null && typeof fromState === 'string') {
       const t = fromState.trim();
       if (t !== '') {
@@ -66,21 +91,49 @@ const Agreement = () => {
 
   console.log('[Agreement] templateYear:', templateYear, '| templateName:', templateName ?? '(null)');
 
-   const goBack = () => {
-        navigate(-1); // This will take the user back to the previous page in history
-    };
+  const airportLabel = getSelectedAirportLabel(selectedCities) || "Selected airport";
+  const agreementSteps = [
+    { label: "Main Agreement" },
+    { label: "Annex A" },
+    { label: "Annex B" },
+  ];
 
-    const [visibleRight, setVisibleRight] = useState(false);
+  const goToNewSgha = () => {
+    navigate(CLIENT_ROUTES.newSgha);
+  };
+
+  const [visibleRight, setVisibleRight] = useState(false);
     const [showAnnexASummary, setShowAnnexASummary] = useState(false);
     const [pendingIndex, setPendingIndex] = useState(null);
     const [templateData, setTemplateData] = useState(null);
     const [loadingTemplate, setLoadingTemplate] = useState(false);
 
     const sections = ["main", "annex-a", "annex-b"];
-    const [activeIndex, setActiveIndex] = useState(0);
+    const [activeIndex, setActiveIndex] = useState(
+      Number.isInteger(initialDraft.agreementIndex) ? initialDraft.agreementIndex : 0
+    );
 
-    // Main, Annex A, and Annex B content are loaded only from the selected template (templateYear + templateName).
-    // Persist template year and name so refresh or re-mount keeps the selection
+    useEffect(() => {
+      if (missingContext) {
+        navigate(CLIENT_ROUTES.newSgha, {
+          replace: true,
+          state: { missingDraft: true },
+        });
+      }
+    }, [missingContext, navigate]);
+
+    useEffect(() => {
+      if (!selectedCities.length) return;
+      saveClientDraft({
+        selectedCities,
+        formData,
+        templateYear,
+        templateName,
+        wizardStep: 2,
+        stage: "agreement",
+        agreementIndex: activeIndex,
+      });
+    }, [selectedCities, formData, templateYear, templateName, activeIndex]);
     useEffect(() => {
         if (templateYear >= 2000 && templateYear <= 2100) {
             try {
@@ -856,26 +909,44 @@ const Agreement = () => {
         setShowAnnexASummary(false);
         setPendingIndex(null);
     };
+
+    if (missingContext) {
+        return null;
+    }
     
 
     return (
         <>
             <Row>
-                <Col md={12} lg={6}>
-                    <Breadcrumb>
-                        <Breadcrumb.Item onClick={goBack}>
-                            <IoChevronBackOutline /> Back
-                        </Breadcrumb.Item>
-                        <Breadcrumb.Item active>Agreement</Breadcrumb.Item>
-                    </Breadcrumb>
+                <Col md={12} lg={10}>
+                    <ClientBreadcrumbs
+                        backTo={CLIENT_ROUTES.newSgha}
+                        backLabel="New SGHA"
+                        items={[
+                            { label: "Home", to: CLIENT_HOME },
+                            { label: "New SGHA", to: CLIENT_ROUTES.newSgha },
+                            { label: "Agreement" },
+                        ]}
+                    />
                 </Col>
             </Row>
-            <Row className="mt-4 mx-0">
+            <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                <span className="client-airport-chip">
+                    <i className="pi pi-map-marker" />
+                    {airportLabel}
+                </span>
+            </div>
+            <ClientFlowStepper
+                steps={agreementSteps}
+                activeIndex={activeIndex}
+                onSelect={handleClick}
+            />
+            <Row className="mt-2 mx-0">
                 <TabView>
                     <TabPanel 
                         header={
                             <div className="flex align-items-center gap-2">
-                                <span>Kolkata</span>
+                                <span>{airportLabel}</span>
                             </div>
                         }
                     >
@@ -926,7 +997,7 @@ const Agreement = () => {
                                     transition={{ duration: 0.4 }}
                                     className="content-box"
                                     >
-                                    <Sgha_mainagreemment templateYear={templateYear} templateName={templateName} formData={formData} selectedCities={selectedCities}/>
+                                    <Sgha_mainagreemment templateYear={templateYear} templateName={templateName} selectedCities={selectedCities} formData={formData}/>
 
                                     </motion.div>
                                 )}
@@ -964,27 +1035,45 @@ const Agreement = () => {
                                 </AnimatePresence>
 
                                 {/* Navigation Buttons */}
-                               <div className="nav-buttons d-flex justify-content-end gap-2 mt-4">
-                                    {/* Show Back button only when not in Main Agreement (index 0) and not in Annex-B (index 2) */}
-                                    {activeIndex !== 0 && activeIndex !== 2 && (
+                                <div className="nav-buttons d-flex justify-content-end gap-2 mt-4">
+                                    {activeIndex === 0 && (
+                                        <Button
+                                            onClick={goToNewSgha}
+                                            icon="pi pi-arrow-left"
+                                            className="py-2 me-2"
+                                            severity="secondary"
+                                            label="Back to New SGHA"
+                                            iconPos="left"
+                                        />
+                                    )}
+                                    {activeIndex === 1 && (
                                         <Button
                                             onClick={handlePrev}
                                             icon="pi pi-arrow-left"
                                             className="py-2 me-2"
                                             severity="secondary"
-                                            tooltip="Previous"
+                                            label="Back to Main Agreement"
+                                            iconPos="left"
+                                        />
+                                    )}
+                                    {activeIndex === 2 && (
+                                        <Button
+                                            onClick={handlePrev}
+                                            icon="pi pi-arrow-left"
+                                            className="py-2 me-2"
+                                            severity="secondary"
+                                            label="Back to Annex A"
                                             iconPos="left"
                                         />
                                     )}
 
-                                    {/* Hide Next button on Annex-B (index 2) */}
                                     {activeIndex !== 2 && (
                                         <Button
                                             onClick={handleNext}
                                             icon="pi pi-arrow-right"
                                             className="py-2"
                                             severity="warning"
-                                            label="Next"
+                                            label={activeIndex === 0 ? "Next: Annex A" : "Next: Annex B"}
                                             iconPos="right"
                                         />
                                     )}

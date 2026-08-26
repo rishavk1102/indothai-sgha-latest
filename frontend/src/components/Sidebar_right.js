@@ -4,12 +4,24 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { FiMenu, FiHome } from 'react-icons/fi';
 import { LiaTimesSolid } from 'react-icons/lia';
 import DynamicIcon from './DynamicIcon'; // Make sure this resolves icon_url strings
+import { CLIENT_ROUTES } from '../utils/clientWorkspace';
 
 const SidebarRight = ({ pages = [] }) => {
   const location = useLocation();
   const [menuCollapse, setMenuCollapse] = useState(false);
 
   const menuIconClick = () => setMenuCollapse(!menuCollapse);
+
+  const isPageActive = (page) => {
+    if (location.pathname === page.path) return true;
+    if (
+      page.path === CLIENT_ROUTES.newSgha &&
+      location.pathname === CLIENT_ROUTES.agreement
+    ) {
+      return true;
+    }
+    return false;
+  };
 
   // Group pages by menu_group.id (for submenu) and null (for direct items)
   const groupedPages = {};
@@ -45,7 +57,7 @@ const SidebarRight = ({ pages = [] }) => {
               <MenuItem
                 key={page.page_id}
                 icon={<DynamicIcon name={page.icon_url} />}
-                active={location.pathname === page.path}
+                active={isPageActive(page)}
                 component={<NavLink to={page.path} />}
               >
                 {page.name}
@@ -69,7 +81,7 @@ const SidebarRight = ({ pages = [] }) => {
                   <MenuItem
                     key={page.page_id}
                     icon={<DynamicIcon name={page.icon_url} />}
-                    active={location.pathname === page.path}
+                    active={isPageActive(page)}
                     component={<NavLink to={page.path} />}
                   >
                     {page.name}

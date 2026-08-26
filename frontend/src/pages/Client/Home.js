@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from "react";
-import { Row, Col, Badge, Breadcrumb, Card, Form } from "react-bootstrap";
+import React, { useState, useEffect, useRef } from "react";
+import { Row, Col, Badge, Form } from "react-bootstrap";
 import { Checkbox } from "primereact/checkbox";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "primereact/button";
-import { Fieldset } from 'primereact/fieldset';
 import { RadioButton } from "primereact/radiobutton";
 import { InputText } from "primereact/inputtext";
 import { IconField } from "primereact/iconfield";
@@ -11,11 +10,22 @@ import { InputIcon } from "primereact/inputicon";
 import { InputTextarea } from "primereact/inputtextarea";
 import { getSocket } from "../../context/socket";
 import { useAuth } from "../../context/AuthContext";
-import { Dialog } from 'primereact/dialog';
 import GifLoder from '../../interfaces/GifLoder';
-import { IoChevronBackOutline } from "react-icons/io5";
 import { TabView, TabPanel } from 'primereact/tabview';
 import api from '../../api/axios';
+import {
+  ClientBreadcrumbs,
+  ClientFlowStepper,
+  ClientUnauthorizedDialog,
+  ClientEmptyState,
+  CLIENT_HOME,
+  CLIENT_ROUTES,
+} from "../../components/ClientPageChrome";
+import {
+  clearClientDraft,
+  loadClientDraft,
+  saveClientDraft,
+} from "../../utils/clientWorkspace";
 
 const Home = () => {
   const { role, roleId, userId, username } = useAuth(); // Get roleId from the context
@@ -24,11 +34,15 @@ const Home = () => {
   const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
   const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error
   const navigate = useNavigate();
+  const location = useLocation();
+  const restoredRef = useRef(false);
   const [selectedCities, setSelectedCities] = useState([]);
+  const [formData, setFormData] = useState({});
   const [ingredient, setIngredient] = useState('');
   const [step, setStep] = useState(1); // 1 = airport selection, 2 = add business
   const [airports, setAirports] = useState([]);
   const [yearsWithStatus, setYearsWithStatus] = useState([]); // Same as employee side: years with templates[] per year
+  const [missingDraft, setMissingDraft] = useState(!!location.state?.missingDraft);
 
   // ✅ Fetch template years with individual templates per year (same as employee side)
   useEffect(() => {
@@ -46,6 +60,35 @@ const Home = () => {
 
     fetchTemplates();
   }, []);
+
+  useEffect(() => {
+    if (location.state?.startFresh) {
+      clearClientDraft({ clearAnnexA: true });
+      setSelectedCities([]);
+      setFormData({});
+      setStep(1);
+      restoredRef.current = true;
+      navigate(location.pathname, { replace: true, state: {} });
+      return;
+    }
+
+    if (location.state?.missingDraft) {
+      setMissingDraft(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+
+    const draft = loadClientDraft();
+    if (draft?.selectedCities?.length) {
+      setSelectedCities(draft.selectedCities);
+      if (draft.formData && typeof draft.formData === "object") {
+        setFormData(draft.formData);
+      }
+      if (draft.wizardStep === 1 || draft.wizardStep === 2) {
+        setStep(draft.wizardStep);
+      }
+    }
+    restoredRef.current = true;
+  }, [location.pathname, location.state?.startFresh, location.state?.missingDraft, navigate]);
 
   // Flatten to dropdown options: each option = (year, templateName). Value: "year" or "year|templateName"
   const templateOptions = (() => {
@@ -101,6 +144,17 @@ const Home = () => {
     };
   }, [socket, roleId, PAGE_NAME]);
 
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    if (!selectedCities.length && (!formData || Object.keys(formData).length === 0)) return;
+    saveClientDraft({
+      selectedCities,
+      formData,
+      wizardStep: step,
+      stage: step === 2 ? "wizard-details" : "wizard-airport",
+    });
+  }, [selectedCities, formData, step]);
+
 
   const handleCitySelect = (airport) => {
     // Single selection (radio): set to this airport only
@@ -125,14 +179,16 @@ const Home = () => {
     const rawName = first?.template_name;
     const templateYear = (rawYear != null && rawYear !== '') ? (parseInt(String(rawYear), 10) || 2025) : 2025;
     const templateName = (rawName != null && String(rawName).trim() !== '') ? String(rawName).trim() : null;
-    console.log('[Home] Next → Agreement | templateYear:', templateYear, '| templateName:', templateName ?? '(null)', '| raw formData:', { template_year: rawYear, template_name: rawName });
-    try {
-      sessionStorage.setItem('sgha_agreement_template_year', String(templateYear));
-      sessionStorage.setItem('sgha_agreement_template_name', templateName != null ? templateName : '');
-    } catch (e) {
-      // ignore
-    }
-    navigate(`/dashboard/agreement`, { state: { selectedCities, templateYear, templateName, formData } });
+    saveClientDraft({
+      selectedCities,
+      formData,
+      templateYear,
+      templateName,
+      wizardStep: 2,
+      stage: "agreement",
+      agreementIndex: 0,
+    });
+    navigate(CLIENT_ROUTES.agreement, { state: { selectedCities, templateYear, templateName, formData } });
   };
 
   /*----------------------formsubmit------------------------*/
@@ -146,7 +202,15 @@ const Home = () => {
   // Services state
   const [isCargoChecked, setIsCargoChecked] = useState(false);
 
-  const [formData, setFormData] = useState({});
+  const updateAirportData = (airport_id, field, value) => {
+    setFormData((prev) => ({
+      ...prev,
+      [airport_id]: {
+        ...prev[airport_id],
+        [field]: value,
+      },
+    }));
+  };
 
   // Company name is the logged-in client's registered name and cannot be edited.
   useEffect(() => {
@@ -165,16 +229,6 @@ const Home = () => {
       return changed ? next : prev;
     });
   }, [username, selectedCities]);
-
-  const updateAirportData = (airport_id, field, value) => {
-    setFormData((prev) => ({
-      ...prev,
-      [airport_id]: {
-        ...prev[airport_id],
-        [field]: value,
-      },
-    }));
-  };
 
   const handleFlightTypeChange = (airport_id, type, checked) => {
     updateAirportData(airport_id, type, checked);
@@ -277,14 +331,6 @@ const Home = () => {
   };
 
 
-  const goBack = () => {
-    navigate(-1); // This will take the user back to the previous page in history
-  };
-
-
-  const handleDialogHide = () => navigate(-1);
-
-  // Check if all required fields (*) for the current airport tab have values
   const isTabValid = (airportId) => {
     const data = formData[airportId] || {};
     if (!data.applicable_for?.trim()) return false;
@@ -308,27 +354,10 @@ const Home = () => {
 
   if (unauthorized) {
     return (
-      <Dialog
-        style={{ width: '360px' }}
+      <ClientUnauthorizedDialog
         visible={unauthorized}
-        onHide={handleDialogHide}
-        closable={false}
-        dismissableMask={false}
-      >
-        <div className="text-center">
-          <img src="https://blackboxstorage.blr1.cdn.digitaloceanspaces.com/assetImages/protect.png" alt="symbol" width="100" className="mb-3" />
-          <h5>Unauthorized</h5>
-          <p>You are not authorized</p>
-          <Button
-            label="Go Back"
-            icon="pi pi-arrow-left"
-            className="py-2 mt-3 text-white"
-            style={{ fontSize: '14px' }}
-            severity='danger'
-            onClick={handleDialogHide}
-          />
-        </div>
-      </Dialog>
+        message="You are not authorized to start a new SGHA. Return to Home to continue in your workspace."
+      />
     );
   }
 
@@ -340,21 +369,46 @@ const Home = () => {
   return (
     <>
       <Row>
-        <Col md={12} lg={6}>
-          <Breadcrumb>
-            <Breadcrumb.Item onClick={goBack}>
-              <IoChevronBackOutline /> Back
-            </Breadcrumb.Item>
-            <Breadcrumb.Item active>Dashboard</Breadcrumb.Item>
-          </Breadcrumb>
+        <Col md={12} lg={8}>
+          <ClientBreadcrumbs
+            backTo={CLIENT_HOME}
+            backLabel="Home"
+            items={[{ label: "New SGHA" }]}
+          />
         </Col>
       </Row>
+
+      {missingDraft && (
+        <div className="client-missing-draft">
+          Open a new agreement from here. Choose an airport and complete the details before continuing to the agreement.
+        </div>
+      )}
+
+      <ClientFlowStepper
+        steps={[{ label: "Choose airport" }, { label: "Agreement details" }]}
+        activeIndex={step - 1}
+        onSelect={(index) => {
+          if (index === 0) setStep(1);
+          if (index === 1 && selectedCities.length > 0) setStep(2);
+        }}
+      />
 
       {/* STEP 1 - Airport Selection */}
       {step === 1 && (
         <>
           <Row className="mx-0 mb-3">
             <div className="airport_list">
+              <h5 className="mb-2">Choose airport</h5>
+              <p className="text-muted mb-3">Select the airport this agreement is for, then continue to company and service details.</p>
+              {airports.length === 0 ? (
+                <ClientEmptyState
+                  icon="pi pi-map-marker"
+                  title="No airports available"
+                  message="Nothing is listed here yet. Return to Home and try again, or contact your handling company."
+                  primaryLabel="Go to Home"
+                  primaryTo={CLIENT_HOME}
+                />
+              ) : null}
               <ul>
                 {airports.map((airport) => {
                   const isSelected = selectedCities.some(
@@ -399,10 +453,19 @@ const Home = () => {
             </div>
             <div className="d-flex justify-content-end mt-3 ueselect">
               <Button
+                severity="secondary"
+                outlined
+                onClick={() => navigate(CLIENT_HOME)}
+                label="Back to Home"
+                icon="pi pi-arrow-left"
+                className="py-2 px-4 me-2"
+                style={{ width: "fit-content" }}
+              />
+              <Button
                 severity="warning"
                 onClick={handleNextStep1}
                 disabled={selectedCities.length === 0}
-                label="Next"
+                label="Next: Agreement details"
                 icon="pi pi-arrow-right"
                 iconPos="right"
                 className="py-2 px-4"
@@ -418,7 +481,9 @@ const Home = () => {
       {step === 2 && (
         <Row className="mx-0 mb-3">
           <div className="add_business ueselect">
-            <div className="my-5">
+            <h5 className="mb-2">Agreement details</h5>
+            <p className="text-muted mb-3">Enter flight type, services, and company details for the selected airport.</p>
+            <div className="my-3">
               <TabView>
                 {selectedCities.map((airport) => {
                   const data = formData[airport.airport_id] || {};
@@ -728,14 +793,14 @@ const Home = () => {
                         <Button
                           severity="secondary"
                           onClick={handleBack}
-                          tooltip="Back"
+                          label="Back to Choose airport"
                           icon="pi pi-arrow-left"
                           className="py-2 px-4 me-2"
                         />
                         <Button
                           severity="warning"
                           onClick={handleNextStep2}
-                          label="Next"
+                          label="Continue to Agreement"
                           icon="pi pi-arrow-right"
                           iconPos="right"
                           className="py-2 px-4"

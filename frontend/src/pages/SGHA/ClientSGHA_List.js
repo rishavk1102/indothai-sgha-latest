@@ -4,9 +4,7 @@ import { DataTable } from "primereact/datatable";
 import { Column } from "primereact/column";
 import { Button } from "primereact/button";
 import { Tag } from "primereact/tag";
-import { Row, Col, Breadcrumb, Card, Table } from 'react-bootstrap';
-import { useNavigate } from 'react-router-dom'; // Import useNavigate
-import { Dialog } from 'primereact/dialog';
+import { Row, Col, Card, Table } from 'react-bootstrap';
 import { AutoComplete } from 'primereact/autocomplete';
 import { InputText } from 'primereact/inputtext';
 import logoImage from '../../assets/images/logo.png';
@@ -15,10 +13,14 @@ import { Dropdown } from "primereact/dropdown";
 import api from "../../api/axios";
 import GifLoder from '../../interfaces/GifLoder';
 import AgreementBodyHtml from '../../components/AgreementBodyHtml';
-import { IoChevronBackOutline } from "react-icons/io5";
 import { Sidebar } from 'primereact/sidebar';
+import {
+    ClientBreadcrumbs,
+    ClientEmptyState,
+    ClientUnauthorizedDialog,
+    CLIENT_HOME,
+} from '../../components/ClientPageChrome';
 const ClientSGHA_List = () => {
-    const navigate = useNavigate(); // Initialize the navigate function
     const { roleId, userId } = useAuth(); // Get roleId from the context
     const PAGE_NAME = "SGHA Agreement list"; // Page name for permission checking
     const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error
@@ -27,11 +29,6 @@ const ClientSGHA_List = () => {
     const socket = getSocket();
     const [selectedTemplate, setSelectedTemplate] = useState(null);
     const [showDialog, setShowDialog] = useState(false);
-    const goBack = () => {
-        navigate(-1); // This will take the user back to the previous page in history
-    };
-
-    const [visible, setVisible] = useState(false);
 
     useEffect(() => {
         if (!socket || !userId) return;
@@ -317,32 +314,12 @@ const ClientSGHA_List = () => {
 
 
 
-    const handleDialogHide = () => navigate(-1);
-
-
     if (unauthorized) {
         return (
-            <Dialog
-                style={{ width: '360px' }}
+            <ClientUnauthorizedDialog
                 visible={unauthorized}
-                onHide={handleDialogHide}
-                closable={false}
-                dismissableMask={false}
-            >
-                <div className="text-center">
-                    <img src="https://blackboxstorage.blr1.cdn.digitaloceanspaces.com/assetImages/protect.png" alt="symbol" width="100" className="mb-3" />
-                    <h5>Unauthorized</h5>
-                    <p>You are not authorized</p>
-                    <Button
-                        label="Go Back"
-                        icon="pi pi-arrow-left"
-                        className="py-2 mt-3 text-white"
-                        style={{ fontSize: '14px' }}
-                        severity='danger'
-                        onClick={handleDialogHide}
-                    />
-                </div>
-            </Dialog>
+                message="You are not authorized to view agreements sent to you. Return to Home to continue in your workspace."
+            />
         );
     }
 
@@ -353,13 +330,12 @@ const ClientSGHA_List = () => {
     return (
         <>
             <Row className='mb-4'>
-                <Col md={12} lg={6}>
-                    <Breadcrumb>
-                        <Breadcrumb.Item onClick={goBack}>
-                            <IoChevronBackOutline /> Back
-                        </Breadcrumb.Item>
-                        <Breadcrumb.Item active>SGH Agreement List</Breadcrumb.Item>
-                    </Breadcrumb>
+                <Col md={12} lg={8}>
+                    <ClientBreadcrumbs
+                        backTo={CLIENT_HOME}
+                        backLabel="Home"
+                        items={[{ label: "Agreements" }]}
+                    />
                 </Col>
             </Row>
             <Card className="shadow-sm border-0 p-0">
@@ -369,7 +345,15 @@ const ClientSGHA_List = () => {
                     rows={10}
                     stripedRows
                     responsiveLayout="scroll"
-                    emptyMessage="No SGH Agreement Templates found."
+                    emptyMessage={
+                        <ClientEmptyState
+                            icon="pi pi-file"
+                            title="No agreements sent to you"
+                            message="When a handling company sends you an agreement, it will appear here. Your own submissions live under My Submissions."
+                            primaryLabel="Go to Home"
+                            primaryTo={CLIENT_HOME}
+                        />
+                    }
                 >
                     <Column header="Sl.No" body={(_, { rowIndex }) => rowIndex + 1} style={{ width: "120px" }} />
                     <Column field="template_name" header="Template Name" body={templateNameBody} />

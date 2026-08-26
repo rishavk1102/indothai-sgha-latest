@@ -7,9 +7,10 @@ import { Checkbox } from "primereact/checkbox";
 import api from '../api/axios';
 import DOMPurify from 'dompurify';
 import { stringLooksLikeHtml } from '../utils/agreementDocFormat';
+import { getSelectedAirportOffice } from '../utils/clientWorkspace';
 import { useAuth } from '../context/AuthContext';
 
-const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, formData = {}, selectedCities = [] }) => {
+const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, selectedCities = [], formData = {} }) => {
     const { username } = useAuth();
     const firstAirportId = selectedCities[0]?.airport_id;
     const clientCompanyName =
@@ -20,6 +21,7 @@ const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, formDat
     const [templateData, setTemplateData] = useState(null);
     const [loadingTemplate, setLoadingTemplate] = useState(false);
     const [mainAgreementSections, setMainAgreementSections] = useState([]);
+    const airportOffice = getSelectedAirportOffice(selectedCities, formData) || getSelectedAirportOffice(selectedCities) || "";
 
     // Parse Main Agreement template data to extract sections
     const parseMainAgreementData = useCallback((templateData) => {
@@ -231,7 +233,7 @@ const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, formDat
                             <tr>
                                 <td className="d-flex gap-2">
                                 <span>having its principal office at·</span>
-                                <b className="mb-0">Kolkata, IN</b>
+                                <b className="mb-0">{airportOffice || "Selected airport"}</b>
                                 </td>
                             </tr>
                             <tr>
@@ -386,7 +388,7 @@ const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, formDat
         
                 <Form.Group className="mb-3" controlId="formBasicEmail">
                     <Form.Label>having its principal office at·</Form.Label>
-                    <Form.Control type="text" placeholder="Kolkata, IN" />
+                    <Form.Control type="text" placeholder={airportOffice || "Selected airport"} />
                 </Form.Group>
                 <div className="d-flex justify-content-end gap-2">
                     <Button

@@ -1,7 +1,9 @@
 import React from 'react';
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import ProtectedRoute from '../../interfaces/PrivateRoute';
+import { useAuth } from '../../context/AuthContext';
+import { CLIENT_ROUTES } from '../../utils/clientWorkspace';
 import AdditionalCharges from '../Admin/AdditionalCharges';
 import AdminDashboard from '../Admin/AdminDashboard';
 import AgreedServicesCharges from '../Admin/AgreedServicesCharges';
@@ -24,7 +26,6 @@ import Section_Template_list from '../AnnexA/Section_Template_list';
 import Agreement from '../Client/Agreement';
 import Home from '../Client/Home';
 import Sgha_reportsummary from '../Client/Sgha_reportsummary';
-import Client_Dashboard from '../Dashboard/Client_Dashboard';
 import EditEmploymentletter from '../MainAgreement/EditEmploymentletter';
 import Employmentletter from '../MainAgreement/Employmentletter';
 import ClientSGHA_List from '../SGHA/ClientSGHA_List';
@@ -38,6 +39,25 @@ import SGHA_Add from '../AnnexA/SGHA_Add';
 import ClientDashboard from '../Client/ClientDashboard';
 import Sgha_list from '../NewSGHA/Sgha_list';
 import PdfUploads from '../Admin/PdfUploads';
+
+const RoleHomeRedirect = () => {
+  const { role } = useAuth();
+  if (role === 'Client') {
+    return <Navigate to={CLIENT_ROUTES.hub} replace />;
+  }
+  return <Navigate to="/dashboard/Dashcommon" replace />;
+};
+
+const ClientHubRedirect = () => <Navigate to={CLIENT_ROUTES.hub} replace />;
+
+const SghaFormGate = () => {
+  const { role } = useAuth();
+  if (role === 'Client') {
+    return <Navigate to={CLIENT_ROUTES.newSgha} replace />;
+  }
+  return <SGHA_Form />;
+};
+
 const Dashboard = () => {
   // const role = sessionStorage.getItem('role');
   // const userType = role === 'Client' ? 'Client' : 'User'; // explicit
@@ -48,7 +68,7 @@ const Dashboard = () => {
   return (
     <Layout>
       <Routes>
-
+        <Route index element={<ProtectedRoute element={RoleHomeRedirect} />} />
         <Route path="Dashcommon" element={<ProtectedRoute element={AdminDashboard} />} />
         <Route path="all_users" element={<ProtectedRoute element={Users} />} />
         <Route path="Clients" element={<ProtectedRoute element={Clients} />} />
@@ -85,8 +105,8 @@ const Dashboard = () => {
         <Route path="flight_type" element={<ProtectedRoute element={FlightType} />} />
 
 
-        <Route path="sgha_form" element={<ProtectedRoute element={SGHA_Form} />} />
-        <Route path="client_dashboard" element={<ProtectedRoute element={Client_Dashboard} />} />
+        <Route path="sgha_form" element={<ProtectedRoute element={SghaFormGate} />} />
+        <Route path="client_dashboard" element={<ProtectedRoute element={ClientHubRedirect} />} />
         <Route path="services_price" element={<ProtectedRoute element={Services_Price} />} />
 
         <Route path='additional_charge' element={<ProtectedRoute element={AdditionalCharges} />} />

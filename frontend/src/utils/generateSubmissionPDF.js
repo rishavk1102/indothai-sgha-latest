@@ -2,6 +2,7 @@ import DOMPurify from "dompurify";
 import jsPDF from "jspdf";
 import api from "../api/axios";
 import logoImage from "../assets/images/logo.png";
+import { getPrincipalOfficeLabel } from "./clientWorkspace";
 
 /**
  * Parse HTML content to extract items with their text and numbers
@@ -780,16 +781,7 @@ export const generateSubmissionPDF = async (
     doc.setFont("helvetica", "normal");
     const line5Text = "having its principal office at·";
     // Build address from client details
-    let principalOffice = "Kolkata, IN"; // Default fallback
-    if (clientDetails) {
-      const addressParts = [];
-      if (clientDetails.city) addressParts.push(clientDetails.city);
-      if (clientDetails.state) addressParts.push(clientDetails.state);
-      if (clientDetails.country) addressParts.push(clientDetails.country);
-      if (addressParts.length > 0) {
-        principalOffice = addressParts.join(", ");
-      }
-    }
+    let principalOffice = getPrincipalOfficeLabel(clientDetails, submission) || "—";
     doc.text(line5Text, margin, yPos);
     const line5Width = doc.getTextWidth(line5Text);
     doc.setFont("helvetica", "bold");
@@ -1401,16 +1393,7 @@ export const generateSubmissionPDF = async (
     doc.setFont("helvetica", "normal");
     const annexLine4Text = "having its principal office at·";
     // Build address from client details
-    let annexPrincipalOffice = "Kolkata, IN"; // Default fallback
-    if (clientDetails) {
-      const addressParts = [];
-      if (clientDetails.city) addressParts.push(clientDetails.city);
-      if (clientDetails.state) addressParts.push(clientDetails.state);
-      if (clientDetails.country) addressParts.push(clientDetails.country);
-      if (addressParts.length > 0) {
-        annexPrincipalOffice = addressParts.join(", ");
-      }
-    }
+    let annexPrincipalOffice = getPrincipalOfficeLabel(clientDetails, submission) || "—";
     doc.text(annexLine4Text, margin, yPos);
     const annexLine4Width = doc.getTextWidth(annexLine4Text);
     doc.setFont("helvetica", "bold");

@@ -13,6 +13,7 @@ import GifLoder from '../../interfaces/GifLoder';
 import { getSocket } from "../../context/socket";
 import { useAuth } from "../../context/AuthContext";
 import { useDebounce } from 'use-debounce'; // First, install it via npm
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 
 const ClientLinksPage = () => {
     const { role, roleId } = useAuth();
@@ -157,6 +158,14 @@ const ClientLinksPage = () => {
                             severity='primary'
                         />
                     </Col>
+                </Row>
+                <EmployeeRelatedLinks
+                    links={[
+                        { label: "Clients", to: EMPLOYEE_ROUTES.clients },
+                        { label: "Submission inbox", to: EMPLOYEE_ROUTES.inbox },
+                    ]}
+                />
+                <Row className="mx-0">
                     <Col sm={12} lg={12} className="mb-3">
                         <ul className='justify-content-start taskperform ticketlist'>
                             <li className='dashboard_card'>

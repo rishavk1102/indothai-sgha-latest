@@ -57,7 +57,7 @@ const ResetPassword = () => {
       await axios.post(`${config.apiBASEURL}/Forgot/reset-password/${token}`, { password });
       showMessage('success', 'Password has been reset successfully');
 
-      setTimeout(() => navigate('/Graphe/login'), 3000);
+      setTimeout(() => navigate('/login'), 3000);
     } catch (error) {
       console.error(error);
       showMessage('error', error.response?.data || 'Error resetting password');

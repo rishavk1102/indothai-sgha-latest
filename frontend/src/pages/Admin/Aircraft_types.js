@@ -19,6 +19,7 @@ import { useAuth } from "../../context/AuthContext.js";
 import api from "../../api/axios.js";
 import Add_Aircraft from "../../components/Add_Aircraft.js";
 import Edit_Aircraft from "../../components/Edit_Aircraft.js";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 
 const Aircraft_types = () => {
     const { role, roleId } = useAuth(); // Get roleId from the context
@@ -233,7 +234,16 @@ const Aircraft_types = () => {
                         className="py-2"
                         onClick={() => setVisible(true)}
                     />
-                </Col>
+                    </Col>
+                </Row>
+                <EmployeeRelatedLinks
+                    links={[
+                        { label: "Airlines", to: EMPLOYEE_ROUTES.airlines },
+                        { label: "Aircraft options", to: EMPLOYEE_ROUTES.aircraftOptions },
+                        { label: "Additional charges", to: EMPLOYEE_ROUTES.additionalCharges },
+                    ]}
+                />
+                <Row>
                 <Col md={12} lg={12} className="p-0 mt-4">
                     <Row className="mx-0">
                         <Col md={12} lg={12} className="airportDet d-flex gap-3">

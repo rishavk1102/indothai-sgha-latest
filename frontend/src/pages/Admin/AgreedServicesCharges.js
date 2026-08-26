@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { useAuth } from '../../context/AuthContext';
-import { IoChevronBackOutline } from "react-icons/io5";
-import { Row, Col, Card, Form, Badge, Table, Breadcrumb } from "react-bootstrap";
+import { Row, Col, Card, Form, Badge, Table } from "react-bootstrap";
 import { Button } from "primereact/button";
 import { Avatar } from 'primereact/avatar';
 import { Dialog } from 'primereact/dialog';
@@ -25,13 +24,11 @@ import GifLoder from '../../interfaces/GifLoder';
 import { generateSubmissionPDF } from '../../utils/generateSubmissionPDF';
 import { getSocket } from '../../context/socket';
 import CustomEditor from '../../components/CustomEditor';
+import { EmployeePageHeader } from '../../components/EmployeePageChrome';
 
 const AgreedServicesCharges = () => {
    const { role, userId, username } = useAuth();
-   const navigate = useNavigate();
-   const goBack = () => {
-      navigate(-1);
-   };
+   const location = useLocation();
 
    const [expandedRow, setExpandedRow] = useState(null);
    const [visible, setVisible] = useState(false);
@@ -1491,6 +1488,15 @@ const AgreedServicesCharges = () => {
       fetchSubmissions();
    }, [fetchSubmissions]);
 
+   useEffect(() => {
+      const params = new URLSearchParams(location.search);
+      const status = params.get("status");
+      const allowed = ["Pending", "In Progress", "Completed", "Suspended", "Cancelled", "Expired"];
+      if (status && allowed.includes(status)) {
+         setActiveStatus(status);
+      }
+   }, [location.search]);
+
    // Filter submissions by search
    useEffect(() => {
       if (!searchValue) {
@@ -1983,16 +1989,10 @@ const AgreedServicesCharges = () => {
 
    return (
       <>
-         <Row className='mb-4'>
-            <Col md={12} lg={4}>
-               <Breadcrumb>
-                  <Breadcrumb.Item onClick={goBack}>
-                     <IoChevronBackOutline /> Back
-                  </Breadcrumb.Item>
-                  <Breadcrumb.Item active>Agreed Services and Charges</Breadcrumb.Item>
-               </Breadcrumb>
-            </Col>
-         </Row>
+         <EmployeePageHeader
+            title="Submission inbox"
+            items={[{ label: "Submission inbox" }]}
+         />
          
          <TabView className="mx-0" activeIndex={['Pending', 'In Progress', 'Completed', 'Suspended', 'Cancelled', 'Expired'].indexOf(activeStatus)} onTabChange={(e) => {
             const statuses = ['Pending', 'In Progress', 'Completed', 'Suspended', 'Cancelled', 'Expired'];

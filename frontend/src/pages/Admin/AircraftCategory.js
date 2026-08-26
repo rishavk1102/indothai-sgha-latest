@@ -18,6 +18,7 @@ import { useAuth } from "../../context/AuthContext.js";
 import api from "../../api/axios.js";
 import Add_Aircraft_Category from "../../components/Add_Aircraft_Category.js";
 import Edit_Aircraft_Category from "../../components/Edit_Aircraft_Category.js";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 
 const AircraftCategory = () => {
     const { role, roleId } = useAuth(); // Get roleId from the context
@@ -186,6 +187,13 @@ const AircraftCategory = () => {
                     />
                 </Col>
             </Row>
+            <EmployeeRelatedLinks
+                links={[
+                    { label: "Aircraft options", to: EMPLOYEE_ROUTES.aircraftOptions },
+                    { label: "Airlines", to: EMPLOYEE_ROUTES.airlines },
+                    { label: "Categories", to: EMPLOYEE_ROUTES.categories },
+                ]}
+            />
             <Row className="mx-0 mt-3">
                 <Col>
                     <Card className="border-0 shadow-sm">

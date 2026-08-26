@@ -12,6 +12,7 @@ import { useDebounce } from 'use-debounce'; // First, install it via npm
 import { Dialog } from "primereact/dialog";
 import FlightTypeServices from "../../components/FlightTypeServices.js";
 import AddServicePriceSidebar from "../../components/AddServicePriceSidebar.js";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 const Services_Price = () => {
     const { roleId, userId } = useAuth();
     const socket = getSocket();
@@ -176,7 +177,7 @@ const Services_Price = () => {
             <Row className="mb-4">
                 <Col md={12} lg={4}>
                     <Breadcrumb>
-                        <Breadcrumb.Item active>Service Charges</Breadcrumb.Item>
+                        <Breadcrumb.Item active>Services price</Breadcrumb.Item>
                     </Breadcrumb>
                 </Col>
                 <Col md={12} lg={8} className="text-end">
@@ -218,6 +219,13 @@ const Services_Price = () => {
                     </div>
                 </Col>
             </Row>
+            <EmployeeRelatedLinks
+                links={[
+                    { label: "Additional charges", to: EMPLOYEE_ROUTES.additionalCharges },
+                    { label: "Aircraft options", to: EMPLOYEE_ROUTES.aircraftOptions },
+                    { label: "Flight types", to: EMPLOYEE_ROUTES.flightType },
+                ]}
+            />
             <Row className="justify-content-center">
                 <TabView>
                     {flightTypes.map((ft) => (

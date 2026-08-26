@@ -20,6 +20,7 @@ import { useDebounce } from 'use-debounce'; // First, install it via npm
 import { useAuth } from "../../context/AuthContext.js";
 import api from "../../api/axios.js";
 import EditAirport from "../../components/EditAirport.js";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 const Airports = () => {
   const [visibleRight, setVisibleRight] = useState(false);
   const navigate = useNavigate();
@@ -235,6 +236,13 @@ const Airports = () => {
           />
         </Col>
       </Row>
+      <EmployeeRelatedLinks
+        links={[
+          { label: "Headquarters", to: EMPLOYEE_ROUTES.headquarters },
+          { label: "Airlines", to: EMPLOYEE_ROUTES.airlines },
+          { label: "Clients", to: EMPLOYEE_ROUTES.clients },
+        ]}
+      />
       <Row className="mx-0 mt-3">
         <Col>
           <Card className="border-0 shadow-sm">
@@ -321,7 +329,7 @@ const Airports = () => {
                       <td data-label="City, State">{airport.city}, {airport.state}</td>
                       <td data-label="Clients" className="text-lg-center text-end">
                         <span
-                          onClick={() => navigate('/dashboard/clients')}
+                          onClick={() => navigate(EMPLOYEE_ROUTES.clients)}
                           style={{ cursor: 'pointer' }}
                         >
                           <Badge value={airport.clients?.length || 0} severity="info" />
@@ -330,7 +338,7 @@ const Airports = () => {
 
                       <td data-label="Airlines" className="text-lg-center text-end">
                         <span
-                          onClick={() => navigate('/dashboard/airlines')}
+                          onClick={() => navigate(EMPLOYEE_ROUTES.airlines)}
                           style={{ cursor: 'pointer' }}
                         >
                           <Badge value={airport.airlines?.length || 0} severity="warning" />

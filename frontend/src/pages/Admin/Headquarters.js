@@ -21,6 +21,7 @@ import { Dialog } from "primereact/dialog";
 import { useDebounce } from 'use-debounce'; // First, install it via npm
 import { useAuth } from "../../context/AuthContext.js";
 import Edit_handling_companies from "../../components/Edit_handling_companies.js";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 const Headquarters = () => {
   const { role, roleId } = useAuth(); // Get roleId from the context
   const PAGE_NAME = "Headquarters"; // Page name for permission checking
@@ -178,6 +179,13 @@ const Headquarters = () => {
           />
         </Col>
       </Row>
+      <EmployeeRelatedLinks
+        links={[
+          { label: "Airports", to: EMPLOYEE_ROUTES.airports },
+          { label: "Clients", to: EMPLOYEE_ROUTES.clients },
+          { label: "Airlines", to: EMPLOYEE_ROUTES.airlines },
+        ]}
+      />
       <Row className="mx-0 mt-3">
         <Col>
           <Card className="border-0 shadow-sm">
@@ -250,14 +258,14 @@ const Headquarters = () => {
                         <td data-label="City, State">{`${business.city}, ${business.state}`}</td>
                         <td data-label="Airports">
                           <span
-                            onClick={() => navigate('/dashboard/airports')}
+                          onClick={() => navigate(EMPLOYEE_ROUTES.airports)}
                             style={{ cursor: 'pointer' }}
                           >
                             <Badge value={business.airports?.length || 0} severity="warning" className="custom-tooltip-btn"></Badge>
                           </span>
                         </td>
                         <td data-label="Clients">  <span
-                          onClick={() => navigate('/dashboard/clients')}
+                          onClick={() => navigate(EMPLOYEE_ROUTES.clients)}
                           style={{ cursor: 'pointer' }}
                         ><Badge value={business.clients?.length || 0} severity="info"></Badge> </span></td>
                         <td data-label="Action">
@@ -285,13 +293,14 @@ const Headquarters = () => {
                             onClick={() => handleDuplicate(business.business_id)}
                           />
                           <Button
-                            tooltip="View"
+                            tooltip="View airports"
                             icon="pi pi-eye"
                             severity="help"
                             className="p-0 border-0"
                             tooltipOptions={{ position: "top" }}
                             style={{ width: '30px' }}
                             text
+                            onClick={() => navigate(EMPLOYEE_ROUTES.airports)}
                           />
                         </td>
                       </tr>

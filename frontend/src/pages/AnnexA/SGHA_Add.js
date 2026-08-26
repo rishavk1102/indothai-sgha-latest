@@ -32,6 +32,8 @@ import CustomEditor from "../../components/CustomEditor";
 import CustomToast from "../../components/CustomToast";
 import Edit_Aircraft_Charge from "../../components/Edit_Aircraft_Charge.js";
 import EditCompanyAircraft from "../../components/EditCompanyAircraft.js";
+import { ClientFlowStepper } from "../../components/ClientPageChrome";
+import { EMPLOYEE_ROUTES } from "../../utils/employeeWorkspace";
 import { useAuth } from "../../context/AuthContext";
 import { getSocket } from "../../context/socket";
 
@@ -66,8 +68,10 @@ const SGHA_Add = () => {
   const toastRef = useRef(null);
   const fromPdfUploadKeysRef = useRef(/** @type {Set<string>} */ (new Set()));
   const fromPdfUploadYearRef = useRef(/** @type {number | null} */ (null));
-  const goBack = () => navigate(-1);
+  const pendingOpenRef = useRef(null);
+  const goBack = () => navigate(EMPLOYEE_ROUTES.templates);
   const [selected, setSelected] = useState(null);
+  const [fromPdfBanner, setFromPdfBanner] = useState(false);
   const [loading, setLoading] = useState(false);
   const PAGE_NAME = "Section Template"; // Using existing page name from database (used by other Annex A pages)
 
@@ -200,6 +204,30 @@ const SGHA_Add = () => {
 
   // Get current template's fields
   const fields = selected ? templateFields[getTemplateKey(selected)] || [] : [];
+
+  const builderDocs = selected
+    ? getOptionsForYearAndTemplate(selected.year, selected.templateName)
+    : [];
+  const builderDocIndex = Math.max(
+    0,
+    builderDocs.findIndex((doc) => doc.title === selected?.title),
+  );
+
+  const sectionHasContent = (title) => {
+    if (!selected) return false;
+    const option = getOptionsForYearAndTemplate(
+      selected.year,
+      selected.templateName,
+    ).find((doc) => doc.title === title);
+    if (!option) return false;
+    const key = getTemplateKey(option);
+    return Array.isArray(templateFields[key]) && templateFields[key].length > 0;
+  };
+
+  const switchBuilderDoc = (index) => {
+    const next = builderDocs[index];
+    if (next) setSelected(next);
+  };
 
   // Helper function to get the next heading number
   const getNextHeadingNumber = (currentFields) => {
@@ -591,8 +619,35 @@ const SGHA_Add = () => {
         fromPdfUploadKeysRef.current.add(`${tn}-${t}`),
       );
     }
+    setFromPdfBanner(true);
     navigate(location.pathname, { replace: true, state: {} });
   }, []);
+
+  // Open a specific year/template from the Templates library
+  useEffect(() => {
+    const state = location.state;
+    if (state?.openTemplate) {
+      pendingOpenRef.current = state.openTemplate;
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const pending = pendingOpenRef.current;
+    if (!pending || yearsLoading) return;
+    const year = pending.year;
+    const templateName = pending.templateName ?? null;
+    if (year != null) {
+      setAvailableYears((prev) => {
+        if (prev.includes(year)) return prev;
+        return [...prev, year].sort((a, b) => b - a);
+      });
+    }
+    const options = getOptionsForYearAndTemplate(year, templateName);
+    if (options[0]) setSelected(options[0]);
+    pendingOpenRef.current = null;
+  }, [yearsLoading, yearsWithStatus]);
 
   // When landed after "Save as template" from PDF Uploads: ensure saved year is in the list and refresh
   useEffect(() => {
@@ -1403,13 +1458,13 @@ const SGHA_Add = () => {
       `}</style>
       <CustomToast ref={toastRef} />
       <ConfirmDialog />
-      <Row className="mx-0 align-items-center d-flex mb-5">
+      <Row className="mx-0 align-items-center d-flex mb-3">
         <Col md={12} lg={5}>
           <Breadcrumb className="mb-0">
-            <Breadcrumb.Item onClick={goBack}>
-              <IoChevronBackOutline /> Back
+            <Breadcrumb.Item onClick={goBack} style={{ cursor: "pointer" }}>
+              <IoChevronBackOutline /> Back to Templates
             </Breadcrumb.Item>
-            <Breadcrumb.Item active>Add SGHA Template</Breadcrumb.Item>
+            <Breadcrumb.Item active>Template builder</Breadcrumb.Item>
           </Breadcrumb>
         </Col>
         <Col md={12} lg={7} className="d-flex justify-content-end gap-2">
@@ -1431,6 +1486,36 @@ const SGHA_Add = () => {
           )}
         </Col>
       </Row>
+
+      {fromPdfBanner && (
+        <div className="employee-handoff-banner mb-3">
+          <div>
+            <strong>Continue in builder</strong>
+            <p className="mb-0">
+              This template was seeded from a PDF upload. Review Main Agreement, Annex A, and Annex B, then save it into the library.
+            </p>
+          </div>
+          <Button
+            label="Dismiss"
+            className="p-0"
+            text
+            severity="secondary"
+            onClick={() => setFromPdfBanner(false)}
+          />
+        </div>
+      )}
+
+      {selected && (
+        <div className="employee-builder-progress sticky-top mb-3">
+          <ClientFlowStepper
+            steps={builderDocs.map((doc) => ({
+              label: `${doc.title}${sectionHasContent(doc.title) ? " • saved" : ""}`,
+            }))}
+            activeIndex={builderDocIndex}
+            onSelect={switchBuilderDoc}
+          />
+        </div>
+      )}
 
       <Row>
         <AnimatePresence>

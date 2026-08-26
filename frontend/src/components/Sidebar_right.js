@@ -5,6 +5,7 @@ import { FiMenu, FiHome } from 'react-icons/fi';
 import { LiaTimesSolid } from 'react-icons/lia';
 import DynamicIcon from './DynamicIcon'; // Make sure this resolves icon_url strings
 import { CLIENT_ROUTES } from '../utils/clientWorkspace';
+import { EMPLOYEE_ROUTES } from '../utils/employeeWorkspace';
 
 const SidebarRight = ({ pages = [] }) => {
   const location = useLocation();
@@ -17,6 +18,19 @@ const SidebarRight = ({ pages = [] }) => {
     if (
       page.path === CLIENT_ROUTES.newSgha &&
       location.pathname === CLIENT_ROUTES.agreement
+    ) {
+      return true;
+    }
+    if (
+      page.path === EMPLOYEE_ROUTES.templates &&
+      (location.pathname === EMPLOYEE_ROUTES.builder ||
+        location.pathname === EMPLOYEE_ROUTES.pdfImport)
+    ) {
+      return true;
+    }
+    if (
+      page.path === EMPLOYEE_ROUTES.clients &&
+      location.pathname.toLowerCase() === "/dashboard/clients"
     ) {
       return true;
     }
@@ -64,20 +78,13 @@ const SidebarRight = ({ pages = [] }) => {
               </MenuItem>
             ));
           } else {
-            // Render submenu
-            // Filter out first 2 pages for "SGHA Builder" submenu
-            let pagesToRender = pages;
-            if (group.name === 'SGHA Builder') {
-              pagesToRender = pages.slice(2); // Skip first 2 items
-            }
-            
             return (
               <SubMenu
                 key={group.menu_group_id}
                 label={group.name}
                 icon={<DynamicIcon name={group.icon_url} />}
               >
-                {pagesToRender.map((page) => (
+                {pages.map((page) => (
                   <MenuItem
                     key={page.page_id}
                     icon={<DynamicIcon name={page.icon_url} />}

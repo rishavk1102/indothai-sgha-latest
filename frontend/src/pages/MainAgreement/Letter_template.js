@@ -17,6 +17,7 @@ import { getSocket } from '../../context/socket';
 import GifLoder from '../../interfaces/GifLoder';
 import AgreementBodyHtml from '../../components/AgreementBodyHtml';
 import { Sidebar } from 'primereact/sidebar';
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 
 const Letter_template = () => {
   const navigate = useNavigate(); // Initialize the navigate function
@@ -30,7 +31,7 @@ const Letter_template = () => {
   const [selectedTemplate, setSelectedTemplate] = useState(null); // State for the selected template data
   const [dialogVisible, setDialogVisible] = useState(false); // Dialog visibility 
     const goBack = () => {
-    navigate(-1); // This will take the user back to the previous page in history
+    navigate(EMPLOYEE_ROUTES.templates);
   };
 const showMessage = (severity, detail) => {
   const summary = severity.charAt(0).toUpperCase() + severity.slice(1);
@@ -291,7 +292,7 @@ if (unauthorized) {
                <Breadcrumb.Item onClick={goBack}>
                     <IoChevronBackOutline /> Back
                 </Breadcrumb.Item>
-                  <Breadcrumb.Item active>Main Agreement Template List</Breadcrumb.Item>
+                  <Breadcrumb.Item active>Main Agreement</Breadcrumb.Item>
               </Breadcrumb>
           </Col>
           <Col md={12} lg={6} className="text-end">
@@ -352,6 +353,12 @@ if (unauthorized) {
             </Card>
           </Col>
         </Row>
+        <EmployeeRelatedLinks
+          links={[
+            { label: "Templates", to: EMPLOYEE_ROUTES.templates },
+            { label: "Section library", to: EMPLOYEE_ROUTES.sections },
+          ]}
+        />
       </Row>
       {/* Dialog to display template details */}
 

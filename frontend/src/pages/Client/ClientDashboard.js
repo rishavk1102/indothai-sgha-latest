@@ -245,8 +245,7 @@ const ClientDashboard = () => {
               </span>
               <h5>My submissions</h5>
               <p>
-                Check status, comments, and PDFs
-                {submissionTotal != null ? ` (${submissionTotal} on file)` : ""}.
+                Check status, comments, and PDFs.
               </p>
               <Button
                 label="View submissions"

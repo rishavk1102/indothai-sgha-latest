@@ -20,6 +20,7 @@ import api from "../../api/axios.js";
 import { Dialog } from "primereact/dialog";
 import AddCompanyAircraft from "../../components/AddCompanyAircraft.js";
 import EditCompanyAircraft from "../../components/EditCompanyAircraft.js";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 
 
 const CompanyAircraft = () => {
@@ -252,7 +253,7 @@ const CompanyAircraft = () => {
                         <Breadcrumb.Item onClick={goBack}>
                             <IoChevronBackOutline /> Back
                         </Breadcrumb.Item>
-                        <Breadcrumb.Item active>Aircraft Types</Breadcrumb.Item>
+                        <Breadcrumb.Item active>Aircraft options</Breadcrumb.Item>
                     </Breadcrumb>
                 </Col>
                 <Col md={12} lg={6} className="text-end">
@@ -265,6 +266,13 @@ const CompanyAircraft = () => {
                     />
                 </Col>
             </Row>
+            <EmployeeRelatedLinks
+                links={[
+                    { label: "Airlines", to: EMPLOYEE_ROUTES.airlines },
+                    { label: "Additional charges", to: EMPLOYEE_ROUTES.additionalCharges },
+                    { label: "Services price", to: EMPLOYEE_ROUTES.servicesPrice },
+                ]}
+            />
             <Row className="mx-0 mt-3">
                 <Col>
                     <Card className="border-0 shadow-sm">

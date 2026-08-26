@@ -60,7 +60,7 @@ const Login = () => {
       // Show success message
       showMessage("success", `Welcome ${response.data.name}`);
       // ✅ Redirect after successful login
-      navigate("/dashboard/Dashcommon", { replace: true });
+      navigate("/dashboard/Dashcommon", { replace: true }); // Employee Hub
     } catch (error) {
       console.error("Error logging in:", error.response);
       showMessage("error", "Invalid email or password");

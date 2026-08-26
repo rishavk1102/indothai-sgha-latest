@@ -6,6 +6,7 @@ import { Avatar } from 'primereact/avatar';
 import { useAuth } from "../context/AuthContext";
 import { Link, useNavigate, useLocation, NavLink } from 'react-router-dom';
 import { CLIENT_HOME } from "../utils/clientWorkspace";
+import { EMPLOYEE_HOME } from "../utils/employeeWorkspace";
 const Header = () => {
     const { isAuthenticated, username, role, logout, imgUrl } = useAuth();
     const navigate = useNavigate();
@@ -30,7 +31,7 @@ const Header = () => {
                 <Row className='mx-0 d-flex align-items-center justify-content-between'>
                     <Col md={6} lg={6} sm={6} className='p-0'>
                         <div className="d-flex align-items-center gap-2">
-                            <Link to={role === "Client" ? CLIENT_HOME : "/dashboard/Dashcommon"} className="d-flex align-items-center gap-2 text-decoration-none">
+                            <Link to={role === "Client" ? CLIENT_HOME : EMPLOYEE_HOME} className="d-flex align-items-center gap-2 text-decoration-none">
                                 <img src={require("../assets/images/logo.png")} alt="Logo" className='brandLogo' />
                                 <img src={require("../assets/images/indo_text.png")} alt="Logo" className='brandLogo' style={{width:'105px'}}/>
                             </Link>

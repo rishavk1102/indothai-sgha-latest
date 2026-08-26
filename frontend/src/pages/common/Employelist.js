@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { getSocket, waitForSocketConnection, isSocketConnected } from '../../context/socket';
 import { Dialog } from "primereact/dialog";
 import GifLoder from '../../interfaces/GifLoder';
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 const Employelist = () => {
     const { role, roleId } = useAuth(); // Get roleId from the context
     const PAGE_NAME = "EmployeeList"; // Page name for permission checking
@@ -145,8 +146,16 @@ const Employelist = () => {
                             <Breadcrumb.Item onClick={() => navigate(-1)} style={{ cursor: "pointer" }}>
                                 <i className="pi pi-angle-left"></i> Back
                             </Breadcrumb.Item>
-                            <Breadcrumb.Item active>Employee List</Breadcrumb.Item>
+                            <Breadcrumb.Item active>Directory</Breadcrumb.Item>
                         </Breadcrumb>
+                    </Col>
+                    <Col md={12} lg={12} className="mb-3">
+                        <EmployeeRelatedLinks
+                            links={[
+                                { label: "Verify employees", to: EMPLOYEE_ROUTES.verify },
+                                { label: "Roles and permissions", to: EMPLOYEE_ROUTES.roles },
+                            ]}
+                        />
                     </Col>
                     <Col lg={12} className='my-4'>
                         <Row className='mx-0'>

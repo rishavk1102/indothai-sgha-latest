@@ -15,6 +15,7 @@ import { useAuth } from "../../context/AuthContext";
 import GifLoder from '../../interfaces/GifLoder';
 import { Dialog } from "primereact/dialog";
 import { useDebounce } from 'use-debounce'; // First, install it via npm
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 const Roles_permissions = () => {
   const navigate = useNavigate();
   const socket = getSocket();
@@ -159,6 +160,12 @@ const Roles_permissions = () => {
           />
         </Col>
       </Row>
+      <EmployeeRelatedLinks
+        links={[
+          { label: "Verify employees", to: EMPLOYEE_ROUTES.verify },
+          { label: "Directory", to: EMPLOYEE_ROUTES.directory },
+        ]}
+      />
       <Row className="mx-0 mt-3">
         <Col>
           <Card className="border-0 shadow-sm">

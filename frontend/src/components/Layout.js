@@ -6,6 +6,7 @@ import { Container } from 'react-bootstrap';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/axios';
 import { buildClientMenu } from '../utils/clientWorkspace';
+import { buildEmployeeMenu } from '../utils/employeeWorkspace';
 const Layout = ({ children }) => {
   const { roleId, role } = useAuth();
   const [pages, setPages] = useState([]);
@@ -14,9 +15,7 @@ const Layout = ({ children }) => {
   useEffect(() => {
     const fetchPages = async () => {
       if (!roleId) {
-        if (role === 'Client') {
-          setPages(buildClientMenu([]));
-        }
+        setPages(role === 'Client' ? buildClientMenu([]) : buildEmployeeMenu([]));
         setPagesLoading(false);
         return;
       }
@@ -28,6 +27,8 @@ const Layout = ({ children }) => {
 
         if (role === 'Client') {
           fetchedPages = buildClientMenu(fetchedPages);
+        } else {
+          fetchedPages = buildEmployeeMenu(fetchedPages);
         }
 
         setPages(fetchedPages);
@@ -40,7 +41,7 @@ const Layout = ({ children }) => {
           // Don't clear pages immediately, let the auth context handle redirect
         }
         
-        setPages(role === 'Client' ? buildClientMenu([]) : []);
+        setPages(role === 'Client' ? buildClientMenu([]) : buildEmployeeMenu([]));
       } finally {
         setPagesLoading(false);
       }

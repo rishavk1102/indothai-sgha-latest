@@ -924,19 +924,20 @@ const Sgha_reportsummary = () => {
         </div>
       </Card.Header>
       <Card.Body>
-        <Table bordered>
+        <div className="submission-inbox-table-wrap">
+        <Table bordered className="submission-inbox-table">
           <thead>
             <tr>
-              <th style={{ width: "60px" }}></th>
-              <th>Client Name</th>
-              <th>Contact Name</th>
-              <th style={{ minWidth: "180px" }}>SGHA Details</th>
-              <th>Effective To</th>
-              <th>Effective From</th>
-              <th>Service Type</th>
-              <th style={{ width: "150px" }}>Price</th>
-              <th style={{ width: "160px" }}>Submission Time</th>
-              <th style={{ width: "260px" }}>Status/Actions</th>
+              <th className="col-expand"></th>
+              <th className="col-client">Client Name</th>
+              <th className="col-contact">Contact Name</th>
+              <th className="col-sgha">SGHA Details</th>
+              <th className="col-date">Effective To</th>
+              <th className="col-date">Effective From</th>
+              <th className="col-service">Service Type</th>
+              <th className="col-price">Price</th>
+              <th className="col-submitted">Submission Time</th>
+              <th className="col-actions">Status/Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -972,7 +973,7 @@ const Sgha_reportsummary = () => {
                         : undefined
                     }
                   >
-                    <td>
+                    <td className="col-expand" data-label="">
                       <Button
                         icon={
                           expandedRow === submission.submission_id
@@ -985,10 +986,10 @@ const Sgha_reportsummary = () => {
                         onClick={() => toggleRow(submission.submission_id)}
                       />
                     </td>
-                    <td>
-                      <div className="d-flex align-items-center gap-2">
+                    <td className="col-client" data-label="Client Name">
+                      <div className="client-cell">
                         <Avatar
-                          className="me-2"
+                          className="client-cell__avatar"
                           style={{
                             backgroundColor: "rgb(197 197 197 / 27%)",
                             color: "rgb(146 74 151)",
@@ -999,21 +1000,19 @@ const Sgha_reportsummary = () => {
                         >
                           <MdFlight />
                         </Avatar>
-                        <span className="d-flex flex-column gap-1">
+                        <span className="client-cell__name">
                           <b>{submission.client_name}</b>
                         </span>
                       </div>
                     </td>
-                    <td>
-                      {submission.contact_name}
-                      <small className="d-block mt-1 mb-0">
-                        E: {submission.contact_email}
-                      </small>
-                      <small className="d-block mt-1 mb-0">
-                        M: {submission.contact_phone}
-                      </small>
+                    <td className="col-contact" data-label="Contact Name">
+                      <div className="contact-cell">
+                        {submission.contact_name}
+                        <small>E: {submission.contact_email}</small>
+                        <small>M: {submission.contact_phone}</small>
+                      </div>
                     </td>
-                    <td>
+                    <td className="col-sgha" data-label="SGHA Details">
                       <small
                         className="text-muted"
                         style={{ fontSize: "12px", lineHeight: 1.3 }}
@@ -1022,15 +1021,23 @@ const Sgha_reportsummary = () => {
                         {getSghaDetailsSummary(submission)}
                       </small>
                     </td>
-                    <td>{formatDate(submission.effective_to)}</td>
-                    <td>{formatDate(submission.effective_from)}</td>
-                    <td>{submission.service_type}</td>
-                    <td>INR -</td>
-                    <td className="small">
+                    <td className="col-date" data-label="Effective To">
+                      {formatDate(submission.effective_to)}
+                    </td>
+                    <td className="col-date" data-label="Effective From">
+                      {formatDate(submission.effective_from)}
+                    </td>
+                    <td className="col-service" data-label="Service Type">
+                      {submission.service_type}
+                    </td>
+                    <td className="col-price" data-label="Price">
+                      INR -
+                    </td>
+                    <td className="col-submitted small" data-label="Submission Time">
                       {formatDateTime(submission.submission_timestamp)}
                     </td>
-                    <td>
-                      <div className="d-flex align-items-center gap-2">
+                    <td className="col-actions" data-label="Status/Actions">
+                      <div className="actions-cell">
                         <Badge
                           className={
                             statusColors[
@@ -1039,13 +1046,13 @@ const Sgha_reportsummary = () => {
                                 : submission.client_status || "Pending"
                             ] || "bg-secondary text-white"
                           }
-                          style={{ border: "none", height: "17px" }}
+                          style={{ border: "none", height: "17px", flexShrink: 0 }}
                         >
                           {submission.status === "In Progress"
                             ? "In Progress"
                             : submission.client_status || "Pending"}
                         </Badge>
-                        <div className="d-flex gap-2">
+                        <div className="actions-cell__buttons">
                           <Button
                             icon="pi pi-pencil"
                             className="p-0"
@@ -1501,6 +1508,7 @@ const Sgha_reportsummary = () => {
             )}
           </tbody>
         </Table>
+        </div>
       </Card.Body>
     </Card>
   );

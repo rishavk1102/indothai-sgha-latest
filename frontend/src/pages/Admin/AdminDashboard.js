@@ -208,14 +208,14 @@ const AdminDashboard = () => {
           ) : pendingSubmissions.length === 0 ? (
             <p className="text-muted p-3 mb-0">No pending submissions to preview.</p>
           ) : (
-            <Table responsive hover className="mb-0">
+            <Table responsive hover className="mb-0 submission-inbox-table submission-inbox-table--compact">
               <thead>
                 <tr className="table-primary">
-                  <th>Client</th>
-                  <th>Contact</th>
-                  <th>Service</th>
-                  <th>Submitted</th>
-                  <th>Status</th>
+                  <th className="col-client">Client</th>
+                  <th className="col-contact">Contact</th>
+                  <th className="col-service">Service</th>
+                  <th className="col-submitted">Submitted</th>
+                  <th style={{ width: "110px" }}>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -227,11 +227,13 @@ const AdminDashboard = () => {
                       navigate(`${EMPLOYEE_ROUTES.inbox}?status=Pending`)
                     }
                   >
-                    <td>{row.client_name || "—"}</td>
-                    <td>{row.contact_name || "—"}</td>
-                    <td>{row.service_type || "—"}</td>
-                    <td>{formatWhen(row.submission_timestamp)}</td>
-                    <td>
+                    <td className="col-client" data-label="Client">
+                      <span className="client-cell__name">{row.client_name || "—"}</span>
+                    </td>
+                    <td className="col-contact" data-label="Contact">{row.contact_name || "—"}</td>
+                    <td className="col-service" data-label="Service">{row.service_type || "—"}</td>
+                    <td className="col-submitted" data-label="Submitted">{formatWhen(row.submission_timestamp)}</td>
+                    <td data-label="Status">
                       <Tag value={row.status || "Pending"} severity="warning" />
                     </td>
                   </tr>

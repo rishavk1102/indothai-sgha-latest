@@ -165,73 +165,90 @@ const ClientLinksPage = () => {
                         { label: "Submission inbox", to: EMPLOYEE_ROUTES.inbox },
                     ]}
                 />
-                <Row className="mx-0">
-                    <Col sm={12} lg={12} className="mb-3">
-                        <ul className='justify-content-start taskperform ticketlist'>
-                            <li className='dashboard_card'>
-                                <Card className="shadow-0 h-100">
-                                    <Card.Header>
-                                        <div className="d-flex justify-content-between">
-                                            <div className='repTItle'>
-                                                <span className="d-block">Total Links:</span>
-                                                <span className="d-block h4 mt-3">{counts.totalLinks}</span>
-                                            </div>
-                                            <div className='hrshortdata'>
-                                                <span style={{ color: '#cdf0ff' }}><TbLinkPlus /></span>
-                                            </div>
+                <Row className="mx-0 g-3 mb-3">
+                    <Col xs={12} sm={6} lg={3}>
+                        <div className="dashboard_card h-100">
+                            <Card className="shadow-0 h-100">
+                                <Card.Header>
+                                    <div className="d-flex justify-content-between position-relative">
+                                        <div className="repTItle">
+                                            <span className="d-block">Total Links:</span>
+                                            <span className="d-block h4 mt-3">{counts.totalLinks}</span>
                                         </div>
-                                    </Card.Header>
-                                </Card>
-                            </li>
-                            <li className='dashboard_card'>
-                                <Card className="shadow-0 h-100">
-                                    <Card.Header>
-                                        <div className="d-flex justify-content-between">
-                                            <div className='repTItle'>
-                                                <span className="d-block">Active Registration False:</span>
-                                                <span className="d-block h4 mt-3">{counts.totalActiveRegistrationFalse}</span>
-                                            </div>
-                                            <div className='hrshortdata'>
-                                                <span style={{ color: '#fff3cf' }}><TbUnlink /></span>
-                                            </div>
+                                        <div className="hrshortdata">
+                                            <span style={{ color: "#cdf0ff" }}>
+                                                <TbLinkPlus />
+                                            </span>
                                         </div>
-                                    </Card.Header>
-                                </Card>
-                            </li>
-                            <li className='dashboard_card'>
-                                <Card className="shadow-0 h-100">
-                                    <Card.Header>
-                                        <div className="d-flex justify-content-between">
-                                            <div className='repTItle'>
-                                                <span className="d-block">Registration True:</span>
-                                                <span className="d-block h4 mt-3">{counts.totalRegistrationTrue}</span>
-                                            </div>
-                                            <div className='hrshortdata'>
-                                                <span style={{ color: '#dfffe1' }}><FiLink /></span>
-                                            </div>
-
-                                        </div>
-                                    </Card.Header>
-                                </Card>
-                            </li>
-                            <li className='dashboard_card'>
-                                <Card className="shadow-0 h-100">
-                                    <Card.Header>
-                                        <div className="d-flex justify-content-between">
-                                            <div className='repTItle'>
-                                                <span className="d-block">Inactive Links:</span>
-                                                <span className="d-block h4 mt-3">{counts.totalInactive}</span>
-                                            </div>
-                                            <div className='hrshortdata'>
-                                                <span style={{ color: '#ffeeee' }}><GoUnlink /></span>
-                                            </div>
-                                        </div>
-                                    </Card.Header>
-                                </Card>
-                            </li>
-                        </ul>
+                                    </div>
+                                </Card.Header>
+                            </Card>
+                        </div>
                     </Col>
+                    <Col xs={12} sm={6} lg={3}>
+                        <div className="dashboard_card h-100">
+                            <Card className="shadow-0 h-100">
+                                <Card.Header>
+                                    <div className="d-flex justify-content-between position-relative">
+                                        <div className="repTItle">
+                                            <span className="d-block">Active Registration False:</span>
+                                            <span className="d-block h4 mt-3">
+                                                {counts.totalActiveRegistrationFalse}
+                                            </span>
+                                        </div>
+                                        <div className="hrshortdata">
+                                            <span style={{ color: "#fff3cf" }}>
+                                                <TbUnlink />
+                                            </span>
+                                        </div>
+                                    </div>
+                                </Card.Header>
+                            </Card>
+                        </div>
+                    </Col>
+                    <Col xs={12} sm={6} lg={3}>
+                        <div className="dashboard_card h-100">
+                            <Card className="shadow-0 h-100">
+                                <Card.Header>
+                                    <div className="d-flex justify-content-between position-relative">
+                                        <div className="repTItle">
+                                            <span className="d-block">Registration True:</span>
+                                            <span className="d-block h4 mt-3">
+                                                {counts.totalRegistrationTrue}
+                                            </span>
+                                        </div>
+                                        <div className="hrshortdata">
+                                            <span style={{ color: "#dfffe1" }}>
+                                                <FiLink />
+                                            </span>
+                                        </div>
+                                    </div>
+                                </Card.Header>
+                            </Card>
+                        </div>
+                    </Col>
+                    <Col xs={12} sm={6} lg={3}>
+                        <div className="dashboard_card h-100">
+                            <Card className="shadow-0 h-100">
+                                <Card.Header>
+                                    <div className="d-flex justify-content-between position-relative">
+                                        <div className="repTItle">
+                                            <span className="d-block">Inactive Links:</span>
+                                            <span className="d-block h4 mt-3">{counts.totalInactive}</span>
+                                        </div>
+                                        <div className="hrshortdata">
+                                            <span style={{ color: "#ffeeee" }}>
+                                                <GoUnlink />
+                                            </span>
+                                        </div>
+                                    </div>
+                                </Card.Header>
+                            </Card>
+                        </div>
+                    </Col>
+                </Row>
 
+                <Row className="mx-0">
                     <Col sm={12} lg={12}>
                         <Card>
                             <Card.Body className='gerdatatable_link'>

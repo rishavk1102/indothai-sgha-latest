@@ -179,9 +179,22 @@ module.exports = (io, socket) => {
 
 
 socket.on('fetch-all-airports', async ({ role_id, page_name }) => {
-    const { allowed, error } = await checkSocketPermission(role_id, 'view', page_name);
-    if (!allowed) {
-        return socket.emit('fetch-all-airports-error', { message: error });
+    const Role = require('../../Models/Role');
+    let isClient = false;
+    try {
+        const role = await Role.findByPk(role_id);
+        if (role && role.role_name === 'Client') {
+            isClient = true;
+        }
+    } catch (err) {
+        console.error('Error checking role:', err);
+    }
+
+    if (!isClient) {
+        const { allowed, error } = await checkSocketPermission(role_id, 'view', page_name);
+        if (!allowed) {
+            return socket.emit('fetch-all-airports-error', { message: error });
+        }
     }
 
     try {

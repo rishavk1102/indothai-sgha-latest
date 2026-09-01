@@ -306,9 +306,15 @@ if (unauthorized) {
                   />
                 </Link>
           </Col>
-
-
-          <Col md={6} lg={12} className="mt-4">
+        </Row>
+        <EmployeeRelatedLinks
+          links={[
+            { label: "Templates", to: EMPLOYEE_ROUTES.templates },
+            { label: "Section library", to: EMPLOYEE_ROUTES.sections },
+          ]}
+        />
+        <Row className="mx-0 mt-3">
+          <Col md={12} lg={12}>
             <Card className='border-0 shadow-sm'>
               <Card.Body className='p-0'>
                 {loading ? (
@@ -353,12 +359,6 @@ if (unauthorized) {
             </Card>
           </Col>
         </Row>
-        <EmployeeRelatedLinks
-          links={[
-            { label: "Templates", to: EMPLOYEE_ROUTES.templates },
-            { label: "Section library", to: EMPLOYEE_ROUTES.sections },
-          ]}
-        />
       </Row>
       {/* Dialog to display template details */}
 

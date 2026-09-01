@@ -15,6 +15,14 @@ import { stringLooksLikeHtml } from "../utils/agreementDocFormat";
 import { useAuth } from "../context/AuthContext";
 import { getSocket } from "../context/socket";
 import CustomToast from "./CustomToast";
+import {
+  buildFormDetailsAirportFields,
+  clearClientDraft,
+  getSelectedAirportCity,
+  getSelectedAirportLabel,
+  getSelectedAirportOffice,
+} from "../utils/clientWorkspace";
+import { CLIENT_ROUTES } from "./ClientPageChrome";
 
 const Sgha_annexB = ({
   templateYear = 2025,
@@ -22,7 +30,7 @@ const Sgha_annexB = ({
   formData = {},
   selectedCities = [],
 }) => {
-  const { roleId, role, userId } = useAuth();
+  const { roleId, role, userId, username } = useAuth();
   const agreementYear =
     templateYear >= 2000 && templateYear <= 2100 ? Number(templateYear) : 2025;
   const navigate = useNavigate();
@@ -30,6 +38,26 @@ const Sgha_annexB = ({
   const toastRef = useRef(null);
   const [visibleRight, setVisibleRight] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const firstAirportId = selectedCities[0]?.airport_id;
+  const clientCompanyName =
+    (firstAirportId && formData[firstAirportId]?.company_name) ||
+    username ||
+    "";
+
+  const isClientNameVariable = (variableName) => {
+    const n = String(variableName || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+    return [
+      "company_name",
+      "client_name",
+      "company",
+      "name",
+      "carrier_name",
+    ].includes(n);
+  };
 
   // State for cards
   const [currentCardIndex, setCurrentCardIndex] = useState(0);
@@ -721,6 +749,7 @@ const Sgha_annexB = ({
               template_year: firstData.template_year || null,
               template_name: firstData.template_name || null,
               other_details: firstData.value || null,
+              ...buildFormDetailsAirportFields(selectedCities, formData),
             };
           }
         }
@@ -804,7 +833,14 @@ const Sgha_annexB = ({
           }
         }
 
-        navigate("/dashboard/reportsummary");
+        clearClientDraft({ clearAnnexA: true });
+        navigate(CLIENT_ROUTES.submissions, {
+          replace: true,
+          state: {
+            justSubmitted: true,
+            highlightSubmissionId: submissionId || null,
+          },
+        });
       } catch (error) {
         console.error("Error saving Annex A submission:", error);
 
@@ -1830,6 +1866,9 @@ const Sgha_annexB = ({
           // Keep reserved variables as is
           return match;
         }
+        if (isClientNameVariable(variableName)) {
+          return clientCompanyName || "________";
+        }
         // Replace non-reserved variables with underscores
         return "________";
       },
@@ -1975,7 +2014,7 @@ const Sgha_annexB = ({
         className="d-flex justify-content-center align-items-center flex-column gap-2 mb-2 p-3 sticky-top"
         style={{ background: "#f6e9f7", borderRadius: "10px" }}
       >
-        <h6>IATA STANDARD GROUND HANDLING AGREEMENT ANNEX BX.X-Kolkata</h6>
+        <h6>IATA STANDARD GROUND HANDLING AGREEMENT ANNEX B — {getSelectedAirportCity(selectedCities) || getSelectedAirportLabel(selectedCities) || "Selected airport"}</h6>
         <div className="d-flex gap-4">
           <div className="d-flex align-items-center">
             <Checkbox
@@ -2054,15 +2093,22 @@ const Sgha_annexB = ({
                   <b className="mb-0"></b>
                 </tr>
                 <tr>
-                  <td className="">
+                  <td className="d-flex align-items-center gap-2">
                     <span>and:</span>
-                    <b className="mb-0">INDOTHAI KOLKATA PRIVATE LIMITED</b>
+                    <b className="mb-0">
+                      {clientCompanyName || "INDOTHAI KOLKATA PRIVATE LIMITED"}
+                    </b>
+                    <i
+                      className="pi pi-lock text-muted"
+                      title="This name cannot be changed"
+                      style={{ fontSize: "12px" }}
+                    />
                   </td>
                 </tr>
                 <tr>
                   <td className="">
                     <span>having its principal office at·</span>
-                    <b className="mb-0">Kolkata, IN</b>
+                    <b className="mb-0">{getSelectedAirportOffice(selectedCities, formData) || "Selected airport"}</b>
                   </td>
                 </tr>
                 <tr>
@@ -2186,14 +2232,35 @@ const Sgha_annexB = ({
                                                     )}
                                                   </td>
                                                   <td>
-                                                    <span
-                                                      className="border-bottom d-inline-block"
-                                                      style={{
-                                                        minWidth: "200px",
-                                                      }}
-                                                    >
-                                                      ________________
-                                                    </span>
+                                                    {isClientNameVariable(
+                                                      partObj.variableName,
+                                                    ) ? (
+                                                      <span
+                                                        className="border-bottom d-inline-block"
+                                                        style={{
+                                                          minWidth: "200px",
+                                                        }}
+                                                        title="This name cannot be changed"
+                                                      >
+                                                        {clientCompanyName ||
+                                                          "—"}
+                                                        <i
+                                                          className="pi pi-lock text-muted ms-2"
+                                                          style={{
+                                                            fontSize: "12px",
+                                                          }}
+                                                        />
+                                                      </span>
+                                                    ) : (
+                                                      <span
+                                                        className="border-bottom d-inline-block"
+                                                        style={{
+                                                          minWidth: "200px",
+                                                        }}
+                                                      >
+                                                        ________________
+                                                      </span>
+                                                    )}
                                                   </td>
                                                 </tr>
                                               </tbody>

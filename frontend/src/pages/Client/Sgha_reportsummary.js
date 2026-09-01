@@ -16,28 +16,37 @@ import React, {
 } from "react";
 import {
   Badge,
-  Breadcrumb,
   Card,
   Col,
   Form,
   Row,
   Table,
 } from "react-bootstrap";
-import { IoChevronBackOutline } from "react-icons/io5";
 import { MdFlight } from "react-icons/md";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 import { getSocket } from "../../context/socket";
 import GifLoder from "../../interfaces/GifLoder";
 import { generateSubmissionPDF } from "../../utils/generateSubmissionPDF";
+import {
+  ClientBreadcrumbs,
+  ClientEmptyState,
+  CLIENT_HOME,
+  CLIENT_ROUTES,
+} from "../../components/ClientPageChrome";
 
 const Sgha_reportsummary = () => {
   const { userId, username } = useAuth(); // userId is client_registration_id for clients
   const navigate = useNavigate();
-  const goBack = () => {
-    navigate(-1);
-  };
+  const location = useLocation();
+  const highlightedRowRef = useRef(null);
+  const [showSubmitSuccess, setShowSubmitSuccess] = useState(
+    !!location.state?.justSubmitted,
+  );
+  const [highlightId, setHighlightId] = useState(
+    location.state?.highlightSubmissionId || null,
+  );
 
   const [expandedRow, setExpandedRow] = useState(null);
   const [visible, setVisible] = useState(false);
@@ -626,6 +635,32 @@ const Sgha_reportsummary = () => {
     fetchSubmissions();
   }, [fetchSubmissions]);
 
+  useEffect(() => {
+    if (location.state?.justSubmitted || location.state?.highlightSubmissionId) {
+      setShowSubmitSuccess(!!location.state.justSubmitted);
+      if (location.state.highlightSubmissionId) {
+        setHighlightId(location.state.highlightSubmissionId);
+      }
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.pathname, location.state, navigate]);
+
+  useEffect(() => {
+    if (!highlightId || !submissions.length) return;
+    const match = submissions.find(
+      (item) => String(item.submission_id) === String(highlightId),
+    );
+    if (!match) return;
+    setExpandedRow(match.submission_id);
+    const timer = setTimeout(() => {
+      highlightedRowRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [highlightId, submissions]);
+
   // Filter submissions by search
   useEffect(() => {
     if (!searchValue) {
@@ -676,6 +711,13 @@ const Sgha_reportsummary = () => {
     const fd = submission.form_details;
     if (!fd || typeof fd !== "object") return "—";
     const parts = [];
+    if (fd.airport_city || fd.airport_iata || fd.airport_name) {
+      const airportBits = [
+        fd.airport_city || fd.airport_name,
+        fd.airport_iata ? `(${fd.airport_iata})` : null,
+      ].filter(Boolean);
+      if (airportBits.length) parts.push(airportBits.join(" "));
+    }
     if (fd.company_name) parts.push(fd.company_name);
     if (fd.contact_person) parts.push(`Contact: ${fd.contact_person}`);
     if (fd.applicable_for) parts.push(fd.applicable_for);
@@ -882,33 +924,56 @@ const Sgha_reportsummary = () => {
         </div>
       </Card.Header>
       <Card.Body>
-        <Table bordered>
+        <div className="submission-inbox-table-wrap">
+        <Table bordered className="submission-inbox-table">
           <thead>
             <tr>
-              <th style={{ width: "60px" }}></th>
-              <th>Client Name</th>
-              <th>Contact Name</th>
-              <th style={{ minWidth: "180px" }}>SGHA Details</th>
-              <th>Effective To</th>
-              <th>Effective From</th>
-              <th>Service Type</th>
-              <th style={{ width: "150px" }}>Price</th>
-              <th style={{ width: "160px" }}>Submission Time</th>
-              <th style={{ width: "260px" }}>Status/Actions</th>
+              <th className="col-expand"></th>
+              <th className="col-client">Client Name</th>
+              <th className="col-contact">Contact Name</th>
+              <th className="col-sgha">SGHA Details</th>
+              <th className="col-date">Effective To</th>
+              <th className="col-date">Effective From</th>
+              <th className="col-service">Service Type</th>
+              <th className="col-price">Price</th>
+              <th className="col-submitted">Submission Time</th>
+              <th className="col-actions">Status/Actions</th>
             </tr>
           </thead>
           <tbody>
             {filteredSubmissions.length === 0 ? (
               <tr>
                 <td colSpan="10" className="text-center py-4">
-                  No submissions found
+                  {searchValue ? (
+                    "No submissions match your search"
+                  ) : (
+                    <ClientEmptyState
+                      title="No submissions yet"
+                      message="When you submit an agreement, it will show up here so you can check status, comments, and PDFs."
+                      primaryLabel="Go to Home"
+                      primaryTo={CLIENT_HOME}
+                      secondaryLabel="Start a new SGHA"
+                      secondaryTo={CLIENT_ROUTES.newSgha}
+                    />
+                  )}
                 </td>
               </tr>
             ) : (
               filteredSubmissions.map((submission) => (
                 <React.Fragment key={submission.submission_id}>
-                  <tr>
-                    <td>
+                  <tr
+                    className={
+                      String(submission.submission_id) === String(highlightId)
+                        ? "client-row-highlight"
+                        : undefined
+                    }
+                    ref={
+                      String(submission.submission_id) === String(highlightId)
+                        ? highlightedRowRef
+                        : undefined
+                    }
+                  >
+                    <td className="col-expand" data-label="">
                       <Button
                         icon={
                           expandedRow === submission.submission_id
@@ -921,10 +986,10 @@ const Sgha_reportsummary = () => {
                         onClick={() => toggleRow(submission.submission_id)}
                       />
                     </td>
-                    <td>
-                      <div className="d-flex align-items-center gap-2">
+                    <td className="col-client" data-label="Client Name">
+                      <div className="client-cell">
                         <Avatar
-                          className="me-2"
+                          className="client-cell__avatar"
                           style={{
                             backgroundColor: "rgb(197 197 197 / 27%)",
                             color: "rgb(146 74 151)",
@@ -935,21 +1000,19 @@ const Sgha_reportsummary = () => {
                         >
                           <MdFlight />
                         </Avatar>
-                        <span className="d-flex flex-column gap-1">
+                        <span className="client-cell__name">
                           <b>{submission.client_name}</b>
                         </span>
                       </div>
                     </td>
-                    <td>
-                      {submission.contact_name}
-                      <small className="d-block mt-1 mb-0">
-                        E: {submission.contact_email}
-                      </small>
-                      <small className="d-block mt-1 mb-0">
-                        M: {submission.contact_phone}
-                      </small>
+                    <td className="col-contact" data-label="Contact Name">
+                      <div className="contact-cell">
+                        {submission.contact_name}
+                        <small>E: {submission.contact_email}</small>
+                        <small>M: {submission.contact_phone}</small>
+                      </div>
                     </td>
-                    <td>
+                    <td className="col-sgha" data-label="SGHA Details">
                       <small
                         className="text-muted"
                         style={{ fontSize: "12px", lineHeight: 1.3 }}
@@ -958,15 +1021,23 @@ const Sgha_reportsummary = () => {
                         {getSghaDetailsSummary(submission)}
                       </small>
                     </td>
-                    <td>{formatDate(submission.effective_to)}</td>
-                    <td>{formatDate(submission.effective_from)}</td>
-                    <td>{submission.service_type}</td>
-                    <td>INR -</td>
-                    <td className="small">
+                    <td className="col-date" data-label="Effective To">
+                      {formatDate(submission.effective_to)}
+                    </td>
+                    <td className="col-date" data-label="Effective From">
+                      {formatDate(submission.effective_from)}
+                    </td>
+                    <td className="col-service" data-label="Service Type">
+                      {submission.service_type}
+                    </td>
+                    <td className="col-price" data-label="Price">
+                      INR -
+                    </td>
+                    <td className="col-submitted small" data-label="Submission Time">
                       {formatDateTime(submission.submission_timestamp)}
                     </td>
-                    <td>
-                      <div className="d-flex align-items-center gap-2">
+                    <td className="col-actions" data-label="Status/Actions">
+                      <div className="actions-cell">
                         <Badge
                           className={
                             statusColors[
@@ -975,13 +1046,13 @@ const Sgha_reportsummary = () => {
                                 : submission.client_status || "Pending"
                             ] || "bg-secondary text-white"
                           }
-                          style={{ border: "none", height: "17px" }}
+                          style={{ border: "none", height: "17px", flexShrink: 0 }}
                         >
                           {submission.status === "In Progress"
                             ? "In Progress"
                             : submission.client_status || "Pending"}
                         </Badge>
-                        <div className="d-flex gap-2">
+                        <div className="actions-cell__buttons">
                           <Button
                             icon="pi pi-pencil"
                             className="p-0"
@@ -1437,6 +1508,7 @@ const Sgha_reportsummary = () => {
             )}
           </tbody>
         </Table>
+        </div>
       </Card.Body>
     </Card>
   );
@@ -1444,15 +1516,20 @@ const Sgha_reportsummary = () => {
   return (
     <>
       <Row className="mb-4">
-        <Col md={12} lg={4}>
-          <Breadcrumb>
-            <Breadcrumb.Item onClick={goBack}>
-              <IoChevronBackOutline /> Back
-            </Breadcrumb.Item>
-            <Breadcrumb.Item active>Report Summary</Breadcrumb.Item>
-          </Breadcrumb>
+        <Col md={12} lg={8}>
+          <ClientBreadcrumbs
+            backTo={CLIENT_HOME}
+            backLabel="Home"
+            items={[{ label: "My Submissions" }]}
+          />
         </Col>
       </Row>
+
+      {showSubmitSuccess && (
+        <div className="client-submit-banner">
+          Your agreement was submitted. It is listed below so you can check status, comments, and the PDF.
+        </div>
+      )}
 
       <TabView
         className="mx-0"

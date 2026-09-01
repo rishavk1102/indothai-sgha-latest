@@ -14,6 +14,7 @@ import { getSocket } from "../../context/socket";
 import { useAuth } from "../../context/AuthContext";
 import logoImage from "../../assets/images/logo.png";
 import { stringLooksLikeHtml } from "../../utils/agreementDocFormat";
+import { EMPLOYEE_ROUTES } from "../../utils/employeeWorkspace";
 import "../../assets/css/dashboard.css";
 
 const UPLOADS_API_URL = "https://indothai-ai.72.61.173.50.sslip.io/uploads";
@@ -1857,7 +1858,10 @@ const PdfUploads = () => {
       <Row>
         <Col md={12} lg={6}>
           <Breadcrumb>
-            <Breadcrumb.Item active>PDF Uploads</Breadcrumb.Item>
+            <Breadcrumb.Item onClick={() => navigate(EMPLOYEE_ROUTES.templates)} style={{ cursor: "pointer" }}>
+              Templates
+            </Breadcrumb.Item>
+            <Breadcrumb.Item active>Import PDF</Breadcrumb.Item>
           </Breadcrumb>
         </Col>
         <Col md={12} lg={6} className="d-flex justify-content-end align-items-center">
@@ -1999,7 +2003,7 @@ const PdfUploads = () => {
                         onClick={() => setPreviewVisible(true)}
                       />
                       <Button
-                        label="Open in editor"
+                        label="Continue in builder"
                         icon="pi pi-pencil"
                         severity="secondary"
                         outlined

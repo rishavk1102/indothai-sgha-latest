@@ -17,7 +17,6 @@ import ClientSignup from './pages/AuthPages/ClientSignup';
 import ForgotPassword from './pages/AuthPages/ForgotPassword';
 import Home from './pages/AuthPages/Home';
 import ResetPassword from './pages/AuthPages/ResetPassword';
-import Testpage from './pages/AuthPages/Testpage';
 import Dashboard from './pages/common/Dashboard';
 
 // import 'primeicons/primeicons.css';
@@ -29,7 +28,6 @@ function App() {
       <Router>
         <Routes>
           {/* Public Routes */}
-          <Route path="/test" element={<AuthGuard element={Testpage} />} />
           <Route path="/" element={<AuthGuard element={Home} />} />
           <Route
             path="/Client_signup/:token"

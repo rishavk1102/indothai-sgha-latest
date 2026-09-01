@@ -15,6 +15,7 @@ import { getSocket } from "../../context/socket";
 import { Dialog } from "primereact/dialog";
 import { useAuth } from "../../context/AuthContext";
 import { useDebounce } from 'use-debounce'; // First, install it via npm
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 const Categories = () => {
   const { role, roleId } = useAuth();
   const PAGE_NAME = "Categories";
@@ -226,6 +227,14 @@ const Categories = () => {
             className="py-2"
             onClick={() => setVisibleRight(true)}
             style={{ fontSize: '14px' }}
+          />
+        </Col>
+        <Col md={12} lg={12}>
+          <EmployeeRelatedLinks
+            links={[
+              { label: "Aircraft categories", to: EMPLOYEE_ROUTES.aircraftCategory },
+              { label: "Airlines", to: EMPLOYEE_ROUTES.airlines },
+            ]}
           />
         </Col>
         <Col md={12} lg={12} className="mt-4">

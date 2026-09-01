@@ -18,6 +18,7 @@ import { useAuth } from "../../context/AuthContext.js";
 import api from "../../api/axios.js";
 import Add_Flight_type from "../../components/Add_Flight_type.js";
 import Edit_Flight_type from "../../components/Edit_Flight_type.js";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 
 const FlightType = () => {
     const { role, roleId } = useAuth(); // Get roleId from the context
@@ -177,9 +178,15 @@ const FlightType = () => {
                         className="py-2"
                         onClick={() => setVisible(true)}
                     />
-                </Col>
-            </Row>
-            <Row className="mx-0 mt-3">
+                        </Col>
+                    </Row>
+                    <EmployeeRelatedLinks
+                        links={[
+                            { label: "Services price", to: EMPLOYEE_ROUTES.servicesPrice },
+                            { label: "Aircraft options", to: EMPLOYEE_ROUTES.aircraftOptions },
+                        ]}
+                    />
+                    <Row className="mx-0 mt-3">
                 <Col>
                     <Card className="border-0 shadow-sm">
                         <Card.Header className="pt-3 pb-2 border-0 bg-transparent">

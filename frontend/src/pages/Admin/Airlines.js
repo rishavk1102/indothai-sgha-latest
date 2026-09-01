@@ -21,6 +21,7 @@ import { useAuth } from "../../context/AuthContext.js";
 import api from "../../api/axios.js";
 import { Dialog } from "primereact/dialog";
 import Edit_Airlines from "../../components/Edit_Airlines.js";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 const Airlines = () => {
   const [visibleRight, setVisibleRight] = useState(false);
   const navigate = useNavigate();
@@ -262,6 +263,13 @@ const Airlines = () => {
           />
         </Col>
       </Row>
+      <EmployeeRelatedLinks
+        links={[
+          { label: "Airports", to: EMPLOYEE_ROUTES.airports },
+          { label: "Aircraft options", to: EMPLOYEE_ROUTES.aircraftOptions },
+          { label: "Clients", to: EMPLOYEE_ROUTES.clients },
+        ]}
+      />
       <Row className="mx-0 mt-3">
         <Col>
           <Card className="border-0 shadow-sm">
@@ -389,13 +397,14 @@ const Airlines = () => {
                             onClick={() => handleDuplicate(airline.airline_id)}
                           />
                           <Button
-                            tooltip="View"
+                            tooltip="View aircraft types"
                             icon="pi pi-eye"
                             severity="help"
                             className="p-0 border-0"
                             tooltipOptions={{ position: "top" }}
                             style={{ width: '30px' }}
                             text
+                            onClick={() => navigate(`/dashboard/aircraft-types/${airline.airline_id}`)}
                           />
                           <Button
                             tooltip="Delete"

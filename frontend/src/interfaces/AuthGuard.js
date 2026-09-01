@@ -1,6 +1,8 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { CLIENT_HOME } from '../utils/clientWorkspace';
+import { EMPLOYEE_HOME } from '../utils/employeeWorkspace';
 
 const AuthGuard = ({ element: Component }) => {
   const { isAuthenticated, role } = useAuth();
@@ -9,7 +11,7 @@ const AuthGuard = ({ element: Component }) => {
   const path = location.pathname;
 
   // Publicly accessible routes
-  const publicRoutes = ["/login", "/", "/signup", "/passreset", "/Client_login", "/test", "/Clientpassreset"];
+  const publicRoutes = ["/login", "/", "/signup", "/passreset", "/Client_login", "/Clientpassreset"];
   const isPublic = publicRoutes.includes(path)
     || path.startsWith("/Client_resetpassword/")    // ✅ Client reset password
     || path.startsWith("/resetpassword/") ||
@@ -23,9 +25,9 @@ const AuthGuard = ({ element: Component }) => {
   // If authenticated and trying to access login-related or root routes
   if (isAuthenticated && isPublic) {
     if (role === "Client") {
-      return <Navigate to="/dashboard/ClientDashboard" replace />;
+      return <Navigate to={CLIENT_HOME} replace />;
     }
-    return <Navigate to="/dashboard/Dashcommon" replace />;
+    return <Navigate to={EMPLOYEE_HOME} replace />;
   }
 
   // Else, allow rendering

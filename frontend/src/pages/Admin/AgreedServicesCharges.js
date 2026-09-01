@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { useAuth } from '../../context/AuthContext';
-import { IoChevronBackOutline } from "react-icons/io5";
-import { Row, Col, Card, Form, Badge, Table, Breadcrumb } from "react-bootstrap";
+import { Row, Col, Card, Form, Badge, Table } from "react-bootstrap";
 import { Button } from "primereact/button";
 import { Avatar } from 'primereact/avatar';
 import { Dialog } from 'primereact/dialog';
@@ -25,13 +24,11 @@ import GifLoder from '../../interfaces/GifLoder';
 import { generateSubmissionPDF } from '../../utils/generateSubmissionPDF';
 import { getSocket } from '../../context/socket';
 import CustomEditor from '../../components/CustomEditor';
+import { EmployeePageHeader } from '../../components/EmployeePageChrome';
 
 const AgreedServicesCharges = () => {
    const { role, userId, username } = useAuth();
-   const navigate = useNavigate();
-   const goBack = () => {
-      navigate(-1);
-   };
+   const location = useLocation();
 
    const [expandedRow, setExpandedRow] = useState(null);
    const [visible, setVisible] = useState(false);
@@ -1491,6 +1488,15 @@ const AgreedServicesCharges = () => {
       fetchSubmissions();
    }, [fetchSubmissions]);
 
+   useEffect(() => {
+      const params = new URLSearchParams(location.search);
+      const status = params.get("status");
+      const allowed = ["Pending", "In Progress", "Completed", "Suspended", "Cancelled", "Expired"];
+      if (status && allowed.includes(status)) {
+         setActiveStatus(status);
+      }
+   }, [location.search]);
+
    // Filter submissions by search
    useEffect(() => {
       if (!searchValue) {
@@ -1690,19 +1696,20 @@ const AgreedServicesCharges = () => {
             </div>
          </Card.Header>
          <Card.Body>
-            <Table bordered>
+            <div className="submission-inbox-table-wrap">
+            <Table bordered className="submission-inbox-table">
                <thead>
                   <tr>
-                     <th style={{ width: "60px" }}></th>
-                     <th>Client Name</th>
-                     <th>Contact Name</th>
-                     <th style={{ minWidth: "180px" }}>SGHA Details</th>
-                     <th>Effective To</th>
-                     <th>Effective From</th>
-                     <th>Service Type</th>
-                     <th style={{ width: "150px" }}>Price</th>
-                     <th style={{ width: "160px" }}>Submission Time</th>
-                     <th style={{ width: "340px", minWidth: "340px" }}>Status/Actions</th>
+                     <th className="col-expand"></th>
+                     <th className="col-client">Client Name</th>
+                     <th className="col-contact">Contact Name</th>
+                     <th className="col-sgha">SGHA Details</th>
+                     <th className="col-date">Effective To</th>
+                     <th className="col-date">Effective From</th>
+                     <th className="col-service">Service Type</th>
+                     <th className="col-price">Price</th>
+                     <th className="col-submitted">Submission Time</th>
+                     <th className="col-actions">Status/Actions</th>
                   </tr>
                </thead>
                <tbody>
@@ -1716,7 +1723,7 @@ const AgreedServicesCharges = () => {
                      filteredSubmissions.map((submission) => (
                         <React.Fragment key={submission.submission_id}>
                            <tr>
-                              <td>
+                              <td className="col-expand" data-label="">
                                  <Button
                                     icon={expandedRow === submission.submission_id ? "pi pi-minus-circle" : "pi pi-plus-circle"}
                                     className="p-0 py-2"
@@ -1725,46 +1732,48 @@ const AgreedServicesCharges = () => {
                                     onClick={() => toggleRow(submission.submission_id)}
                                  />
                               </td>
-                              <td>
-                                 <div className="d-flex align-items-center gap-2">
+                              <td className="col-client" data-label="Client Name">
+                                 <div className="client-cell">
                                     <Avatar
-                                       className="me-2"
+                                       className="client-cell__avatar"
                                        style={{ backgroundColor: 'rgb(197 197 197 / 27%)', color: 'rgb(146 74 151)', width: '31px', height: '31px' }}
                                        shape="circle"
                                     >
                                        <MdFlight />
                                     </Avatar>
-                                    <span className="d-flex flex-column gap-1">
+                                    <span className="client-cell__name">
                                        <b>{submission.client_name}</b>
                                     </span>
                                  </div>
                               </td>
-                              <td>
-                                 {submission.contact_name}
-                                 <small className='d-block mt-1 mb-0'>E: {submission.contact_email}</small>
-                                 <small className='d-block mt-1 mb-0'>M: {submission.contact_phone}</small>
+                              <td className="col-contact" data-label="Contact Name">
+                                 <div className="contact-cell">
+                                    {submission.contact_name}
+                                    <small>E: {submission.contact_email}</small>
+                                    <small>M: {submission.contact_phone}</small>
+                                 </div>
                               </td>
-                              <td>
+                              <td className="col-sgha" data-label="SGHA Details">
                                  <small className="text-muted" style={{ fontSize: '12px', lineHeight: 1.3 }} title={getSghaDetailsSummary(submission)}>
                                     {getSghaDetailsSummary(submission)}
                                  </small>
                               </td>
-                              <td>{formatDate(submission.effective_to)}</td>
-                              <td>{formatDate(submission.effective_from)}</td>
-                              <td>{submission.service_type}</td>
-                              <td>INR -</td>
-                              <td className="small">
+                              <td className="col-date" data-label="Effective To">{formatDate(submission.effective_to)}</td>
+                              <td className="col-date" data-label="Effective From">{formatDate(submission.effective_from)}</td>
+                              <td className="col-service" data-label="Service Type">{submission.service_type}</td>
+                              <td className="col-price" data-label="Price">INR -</td>
+                              <td className="col-submitted small" data-label="Submission Time">
                                  <span className="d-block">{formatDateTime(submission.submission_timestamp)}</span>
                                  {submission.last_employee_edit_at && (
                                     <span className="d-block mt-1 text-muted">Employee: {formatDateTime(submission.last_employee_edit_at)}</span>
                                  )}
                               </td>
-                              <td>
-                                 <div className="d-flex align-items-center gap-2 flex-wrap" style={{ minWidth: 0 }}>
+                              <td className="col-actions" data-label="Status/Actions">
+                                 <div className="actions-cell">
                                     <Badge className={statusColors[submission.status] || "bg-secondary text-white"} style={{ border: "none", height: '17px', flexShrink: 0 }}>
                                        {submission.status}
                                     </Badge>
-                                    <div className="d-flex gap-1 flex-wrap" style={{ minWidth: 0 }}>
+                                    <div className="actions-cell__buttons">
                                        {role !== 'Client' && (
                                           <>
                                              <Button
@@ -1977,22 +1986,17 @@ const AgreedServicesCharges = () => {
                   )}
                </tbody>
             </Table>
+            </div>
          </Card.Body>
       </Card>
    );
 
    return (
       <>
-         <Row className='mb-4'>
-            <Col md={12} lg={4}>
-               <Breadcrumb>
-                  <Breadcrumb.Item onClick={goBack}>
-                     <IoChevronBackOutline /> Back
-                  </Breadcrumb.Item>
-                  <Breadcrumb.Item active>Agreed Services and Charges</Breadcrumb.Item>
-               </Breadcrumb>
-            </Col>
-         </Row>
+         <EmployeePageHeader
+            title="Submission inbox"
+            items={[{ label: "Submission inbox" }]}
+         />
          
          <TabView className="mx-0" activeIndex={['Pending', 'In Progress', 'Completed', 'Suspended', 'Cancelled', 'Expired'].indexOf(activeStatus)} onTabChange={(e) => {
             const statuses = ['Pending', 'In Progress', 'Completed', 'Suspended', 'Cancelled', 'Expired'];

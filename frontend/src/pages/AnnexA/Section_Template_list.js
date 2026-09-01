@@ -17,6 +17,7 @@ import { useAuth } from "../../context/AuthContext";
 import { getSocket } from "../../context/socket";
 import GifLoder from '../../interfaces/GifLoder';
 import AgreementBodyHtml from '../../components/AgreementBodyHtml';
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 const Section_Template_list = () => {
     const { roleId } = useAuth(); // Get roleId from the context
     const PAGE_NAME = "Section Template"; // Page name for permission checking
@@ -34,7 +35,7 @@ const Section_Template_list = () => {
     const [selectedSection, setSelectedSection] = useState(null);
 
     const goBack = () => {
-        navigate(-1); // This will take the user back to the previous page in history
+        navigate(EMPLOYEE_ROUTES.templates);
     };
 
     useEffect(() => {
@@ -296,7 +297,7 @@ const Section_Template_list = () => {
                             <Breadcrumb.Item onClick={goBack}>
                                 <IoChevronBackOutline /> Back
                             </Breadcrumb.Item>
-                            <Breadcrumb.Item active>AnnexureA Section List</Breadcrumb.Item>
+                            <Breadcrumb.Item active>Section library</Breadcrumb.Item>
                         </Breadcrumb>
                     </Col>
                     <Col md={12} lg={6} className="text-end">
@@ -309,6 +310,14 @@ const Section_Template_list = () => {
                                 style={{ fontSize: '14px' }}
                             />
                         </Link>
+                    </Col>
+                    <Col md={12} lg={12}>
+                        <EmployeeRelatedLinks
+                            links={[
+                                { label: "Templates", to: EMPLOYEE_ROUTES.templates },
+                                { label: "Main Agreement", to: EMPLOYEE_ROUTES.mainAgreement },
+                            ]}
+                        />
                     </Col>
                     <Col md={12} lg={12} className="text-end mt-2">
                         <div className="d-flex align-items-center gap-1 justify-content-end filterDiv">

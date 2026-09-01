@@ -18,6 +18,7 @@ import { useAuth } from "../../context/AuthContext.js";
 import api from "../../api/axios.js";
 import Add_Aircraft_Charge from "../../components/Add_Aircraft_Charge.js";
 import Edit_Aircraft_Charge from "../../components/Edit_Aircraft_Charge.js";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 
 
 const AdditionalCharges = () => {
@@ -263,6 +264,15 @@ const AdditionalCharges = () => {
                         className="py-2"
                         style={{ fontSize: '14px' }}
                         onClick={() => setVisibleRight(true)}
+                    />
+                </Col>
+                <Col md={12} lg={12}>
+                    <EmployeeRelatedLinks
+                        links={[
+                            { label: "Services price", to: EMPLOYEE_ROUTES.servicesPrice },
+                            { label: "Aircraft options", to: EMPLOYEE_ROUTES.aircraftOptions },
+                            { label: "Airlines", to: EMPLOYEE_ROUTES.airlines },
+                        ]}
                     />
                 </Col>
                 <Col md={12} lg={12} className="text-end">

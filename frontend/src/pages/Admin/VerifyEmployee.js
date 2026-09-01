@@ -13,6 +13,7 @@ import { useAuth } from "../../context/AuthContext.js";
 import { getSocket } from "../../context/socket.js";
 import { MultiSelect } from 'primereact/multiselect';
 import { IoChevronBackOutline } from "react-icons/io5";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 
 
 const VerifyEmployee = () => {
@@ -342,8 +343,16 @@ const VerifyEmployee = () => {
                     <Breadcrumb.Item onClick={goBack}>
                         <IoChevronBackOutline /> Back
                     </Breadcrumb.Item>
-                    <Breadcrumb.Item active>Categories</Breadcrumb.Item>
+                    <Breadcrumb.Item active>Verify employees</Breadcrumb.Item>
                     </Breadcrumb>
+                </Col>
+                <Col md={12} lg={12}>
+                    <EmployeeRelatedLinks
+                        links={[
+                            { label: "Directory", to: EMPLOYEE_ROUTES.directory },
+                            { label: "Roles and permissions", to: EMPLOYEE_ROUTES.roles },
+                        ]}
+                    />
                 </Col>
                 <Row className='mx-0 mt-5'>
                     <Card className='mb-4 p-0 border-0 shadow-sm'>

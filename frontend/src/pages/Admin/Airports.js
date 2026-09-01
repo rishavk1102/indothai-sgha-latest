@@ -20,13 +20,13 @@ import { useDebounce } from 'use-debounce'; // First, install it via npm
 import { useAuth } from "../../context/AuthContext.js";
 import api from "../../api/axios.js";
 import EditAirport from "../../components/EditAirport.js";
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 const Airports = () => {
   const [visibleRight, setVisibleRight] = useState(false);
   const navigate = useNavigate();
 
   const { role, roleId, userId } = useAuth(); // Get roleId from the context
-  const PAGE_NAME = "Airports"; // Page name for permission checking
+  const PAGE_NAME = PAGE_PERMISSION_NAMES.networkAirports;
   const socket = getSocket();
   const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
   const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error

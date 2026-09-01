@@ -11,11 +11,12 @@ import axios from 'axios';
 import config from '../config';
 import { Button } from 'primereact/button';
 import { useAuth } from "../context/AuthContext";
+import { PAGE_PERMISSION_NAMES } from "../utils/employeeWorkspace";
 import api from "../api/axios";
 import GifLoder from '../interfaces/GifLoder';
 import { Dialog } from 'primereact/dialog';
 function Profileinformation({ userId, IdentificationInfo, setVisibleModal2, page_name }) {
-    const PAGE_NAME = "EmployeeEdit"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.peopleEdit;
     const [formData, setFormData] = useState({
         pan_card_no: IdentificationInfo?.pan_card_no || '',
         passport_no: IdentificationInfo?.passport_no || '',

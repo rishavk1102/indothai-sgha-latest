@@ -19,10 +19,11 @@ import api from "../../api/axios.js";
 import Add_Flight_type from "../../components/Add_Flight_type.js";
 import Edit_Flight_type from "../../components/Edit_Flight_type.js";
 import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { PAGE_PERMISSION_NAMES } from "../../utils/employeeWorkspace";
 
 const FlightType = () => {
     const { role, roleId } = useAuth(); // Get roleId from the context
-    const PAGE_NAME = "FlightType"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.networkFlightTypes;
     const socket = getSocket();
     const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
     const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error

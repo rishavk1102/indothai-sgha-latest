@@ -15,6 +15,7 @@ import "primereact/resources/primereact.min.css";
 import "primeicons/primeicons.css";
 import { getSocket } from "../../context/socket";
 import { useAuth } from "../../context/AuthContext";
+import { PAGE_PERMISSION_NAMES } from "../../utils/employeeWorkspace";
 import api from "../../api/axios";
 import GifLoder from '../../interfaces/GifLoder';
 import { Dialog } from "primereact/dialog";
@@ -23,7 +24,7 @@ import { stringLooksLikeHtml } from "../../utils/agreementDocFormat";
 
 const Edit_Section_Template = () => {
     const { roleId } = useAuth(); // Get roleId from the context
-    const PAGE_NAME = "Section Template"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.templatesSections;
     const { SGHA_T_id } = useParams();
     const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error
     const [loading, setLoading] = useState(false);

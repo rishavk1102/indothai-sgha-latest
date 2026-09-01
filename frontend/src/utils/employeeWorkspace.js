@@ -26,6 +26,31 @@ export const EMPLOYEE_ROUTES = {
 
 export const EMPLOYEE_HOME = EMPLOYEE_ROUTES.hub;
 
+/** Must match `pages.name` in the database for socket/API permission checks. */
+export const PAGE_PERMISSION_NAMES = {
+  peopleVerify: "PEOPLE_VERIFY",
+  peopleDirectory: "PEOPLE_DIRECTORY",
+  peopleEdit: "PEOPLE_EDIT",
+  peopleRoles: "PEOPLE_ROLES",
+  networkHeadquarters: "NETWORK_HEADQUARTERS",
+  networkAirports: "NETWORK_AIRPORTS",
+  networkAirlines: "NETWORK_AIRLINES",
+  networkAircraftTypes: "NETWORK_AIRCRAFT_TYPES",
+  networkCategories: "NETWORK_CATEGORIES",
+  networkAircraftCategories: "NETWORK_AIRCRAFT_CATEGORIES",
+  networkFlightTypes: "NETWORK_FLIGHT_TYPES",
+  networkAircraftOptions: "NETWORK_AIRCRAFT_OPTIONS",
+  clientsManage: "CLIENTS_MANAGE",
+  clientsInvite: "CLIENTS_INVITE",
+  templatesMainAgreement: "TEMPLATES_MAIN_AGREEMENT",
+  submissionsInbox: "SUBMISSIONS_INBOX",
+  templatesSections: "TEMPLATES_SECTIONS",
+  templatesBuilder: "TEMPLATES_BUILDER",
+  templatesPdfImport: "TEMPLATES_PDF_IMPORT",
+  pricingServices: "PRICING_SERVICES",
+  pricingAdditional: "PRICING_ADDITIONAL",
+};
+
 export const CLIENT_ONLY_PATHS = [
   "/dashboard/home",
   "/dashboard/agreement",

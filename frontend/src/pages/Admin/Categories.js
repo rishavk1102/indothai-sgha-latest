@@ -15,10 +15,10 @@ import { getSocket } from "../../context/socket";
 import { Dialog } from "primereact/dialog";
 import { useAuth } from "../../context/AuthContext";
 import { useDebounce } from 'use-debounce'; // First, install it via npm
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 const Categories = () => {
   const { role, roleId } = useAuth();
-  const PAGE_NAME = "Categories";
+  const PAGE_NAME = PAGE_PERMISSION_NAMES.networkCategories;
   const socket = getSocket();
   const [loading, setLoading] = useState(true);
   const [unauthorized, setUnauthorized] = useState(false);

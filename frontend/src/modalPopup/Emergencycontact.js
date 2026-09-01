@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Form, Row, Col, Card } from 'react-bootstrap';
 import { Button } from 'primereact/button';
 import api from '../api/axios';
+import { PAGE_PERMISSION_NAMES } from "../utils/employeeWorkspace";
 import GifLoder from '../interfaces/GifLoder';
 import { Dialog } from 'primereact/dialog';
 function Emergencycontact({ userId, emergencyContact, setVisibleModal3, page_name }) {
-    const PAGE_NAME = "EmployeeEdit"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.peopleEdit;
     const [contact, setContact] = useState({ name: '', relationship: '', phone: '' });
     const [errors, setErrors] = useState({ name: '', relationship: '', phone: '' });
     const [unauthorized, setUnauthorized] = useState(false);

@@ -10,10 +10,10 @@ import { useNavigate } from 'react-router-dom';
 import { getSocket, waitForSocketConnection, isSocketConnected } from '../../context/socket';
 import { Dialog } from "primereact/dialog";
 import GifLoder from '../../interfaces/GifLoder';
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 const Employelist = () => {
     const { role, roleId } = useAuth(); // Get roleId from the context
-    const PAGE_NAME = "EmployeeList"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.peopleDirectory;
     const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
     const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error
     const socket = getSocket();

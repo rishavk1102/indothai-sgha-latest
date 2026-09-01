@@ -21,10 +21,10 @@ import { Dialog } from "primereact/dialog";
 import { useDebounce } from 'use-debounce'; // First, install it via npm
 import { useAuth } from "../../context/AuthContext.js";
 import Edit_handling_companies from "../../components/Edit_handling_companies.js";
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 const Headquarters = () => {
   const { role, roleId } = useAuth(); // Get roleId from the context
-  const PAGE_NAME = "Headquarters"; // Page name for permission checking
+  const PAGE_NAME = PAGE_PERMISSION_NAMES.networkHeadquarters;
   const socket = getSocket();
   const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
   const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error

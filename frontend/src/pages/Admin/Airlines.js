@@ -21,13 +21,13 @@ import { useAuth } from "../../context/AuthContext.js";
 import api from "../../api/axios.js";
 import { Dialog } from "primereact/dialog";
 import Edit_Airlines from "../../components/Edit_Airlines.js";
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 const Airlines = () => {
   const [visibleRight, setVisibleRight] = useState(false);
   const navigate = useNavigate();
 
   const { role, roleId, userId } = useAuth(); // Get roleId from the context
-  const PAGE_NAME = "Airlines"; // Page name for permission checking
+  const PAGE_NAME = PAGE_PERMISSION_NAMES.networkAirlines;
   const socket = getSocket();
   const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
   const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error

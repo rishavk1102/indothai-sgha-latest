@@ -14,13 +14,13 @@ import { getSocket } from "../../context/socket";
 import { useAuth } from "../../context/AuthContext";
 import logoImage from "../../assets/images/logo.png";
 import { stringLooksLikeHtml } from "../../utils/agreementDocFormat";
-import { EMPLOYEE_ROUTES } from "../../utils/employeeWorkspace";
+import { EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../utils/employeeWorkspace";
 import "../../assets/css/dashboard.css";
 
 const UPLOADS_API_URL = "https://indothai-ai.72.61.173.50.sslip.io/uploads";
 const INDO_THAI_AI_BASE_URL = UPLOADS_API_URL.replace(/\/uploads\/?$/, "");
-const PAGE_NAME = "Section Template";
-const SAVE_PAGE_NAME = "Section Template";
+const PAGE_NAME = PAGE_PERMISSION_NAMES.templatesPdfImport;
+const SAVE_PAGE_NAME = PAGE_PERMISSION_NAMES.templatesSections;
 
 // Hints to find segregated file paths (MinIO object keys) in upload row JSON
 const SEGREGATED_MAIN_HINTS = [
@@ -789,7 +789,7 @@ function parseSectionTemplateContent(templateData) {
   return sections;
 }
 
-const ADDITIONAL_CHARGES_PAGE_NAME = "Additional Charges";
+const ADDITIONAL_CHARGES_PAGE_NAME = PAGE_PERMISSION_NAMES.pricingAdditional;
 
 const PdfUploads = () => {
   const navigate = useNavigate();
@@ -838,7 +838,7 @@ const PdfUploads = () => {
   const [loadingChargesExtract, setLoadingChargesExtract] = useState(false);
   const [savingToCharges, setSavingToCharges] = useState(false);
   const [extractedAircraft, setExtractedAircraft] = useState([]);
-  const AIRCRAFT_OPTIONS_PAGE_NAME = "Aircraft Options";
+  const AIRCRAFT_OPTIONS_PAGE_NAME = PAGE_PERMISSION_NAMES.networkAircraftOptions;
 
   const showMessage = useCallback((severity, detail) => {
     const summary = severity.charAt(0).toUpperCase() + severity.slice(1);

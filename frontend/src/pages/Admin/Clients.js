@@ -19,10 +19,10 @@ import api from '../../api/axios';
 import { useDebounce } from 'use-debounce'; // First, install it via npm
 import { useAuth } from "../../context/AuthContext.js";
 import EditClient from "../../components/EditClient.js";
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 const Clients = () => {
   const { role, roleId, userId } = useAuth(); // Get roleId from the context
-  const PAGE_NAME = "Clients"; // Page name for permission checking
+  const PAGE_NAME = PAGE_PERMISSION_NAMES.clientsManage;
   const [visibleRight, setVisibleRight] = useState(false);
   const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
   const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error

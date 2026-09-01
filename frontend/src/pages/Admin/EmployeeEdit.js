@@ -14,6 +14,7 @@ import { CgGenderMale } from "react-icons/cg";
 import { TbGenderFemme } from "react-icons/tb";
 import config from '../../config';
 import { useAuth } from '../../context/AuthContext';
+import { PAGE_PERMISSION_NAMES } from "../../utils/employeeWorkspace";
 import { FileUpload } from 'primereact/fileupload';
 import '../../assets/css/dashboard.css';
 import CustomToast from '../../components/CustomToast';
@@ -30,7 +31,7 @@ import EditUserAirports from '../../components/EditUserAirports';
 
 const EmployeeEdit = () => {
     const { role, roleId } = useAuth(); // Get roleId from the context
-    const PAGE_NAME = "EmployeeEdit"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.peopleEdit;
     const navigate = useNavigate();
     const socket = getSocket();
     const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed

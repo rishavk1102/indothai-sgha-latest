@@ -18,12 +18,12 @@ import { useAuth } from "../../context/AuthContext.js";
 import api from "../../api/axios.js";
 import Add_Aircraft_Charge from "../../components/Add_Aircraft_Charge.js";
 import Edit_Aircraft_Charge from "../../components/Edit_Aircraft_Charge.js";
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 
 
 const AdditionalCharges = () => {
     const { roleId, userId } = useAuth();
-    const PAGE_NAME = "Additional Charges"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.pricingAdditional;
     const socket = getSocket();
     const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
     const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error

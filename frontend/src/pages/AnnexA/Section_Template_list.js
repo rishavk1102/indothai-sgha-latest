@@ -17,10 +17,10 @@ import { useAuth } from "../../context/AuthContext";
 import { getSocket } from "../../context/socket";
 import GifLoder from '../../interfaces/GifLoder';
 import AgreementBodyHtml from '../../components/AgreementBodyHtml';
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 const Section_Template_list = () => {
     const { roleId } = useAuth(); // Get roleId from the context
-    const PAGE_NAME = "Section Template"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.templatesSections;
     const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error
     const [loading, setLoading] = useState(false);
     const [sections, setSections] = useState([]);

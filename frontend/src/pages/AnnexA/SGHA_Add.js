@@ -33,7 +33,7 @@ import CustomToast from "../../components/CustomToast";
 import Edit_Aircraft_Charge from "../../components/Edit_Aircraft_Charge.js";
 import EditCompanyAircraft from "../../components/EditCompanyAircraft.js";
 import { ClientFlowStepper } from "../../components/ClientPageChrome";
-import { EMPLOYEE_ROUTES } from "../../utils/employeeWorkspace";
+import { EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../utils/employeeWorkspace";
 import { useAuth } from "../../context/AuthContext";
 import { getSocket } from "../../context/socket";
 
@@ -73,7 +73,7 @@ const SGHA_Add = () => {
   const [selected, setSelected] = useState(null);
   const [fromPdfBanner, setFromPdfBanner] = useState(false);
   const [loading, setLoading] = useState(false);
-  const PAGE_NAME = "Section Template"; // Using existing page name from database (used by other Annex A pages)
+  const PAGE_NAME = PAGE_PERMISSION_NAMES.templatesBuilder;
 
   // store dynamic fields by template key (year + title)
   // Structure: { "2025-Main Agreement": [...fields], "2025-Annex A": [...fields], ... }

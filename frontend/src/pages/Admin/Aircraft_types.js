@@ -19,11 +19,11 @@ import { useAuth } from "../../context/AuthContext.js";
 import api from "../../api/axios.js";
 import Add_Aircraft from "../../components/Add_Aircraft.js";
 import Edit_Aircraft from "../../components/Edit_Aircraft.js";
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 
 const Aircraft_types = () => {
     const { role, roleId } = useAuth(); // Get roleId from the context
-    const PAGE_NAME = "AircraftTypes"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.networkAircraftTypes;
     const socket = getSocket();
     const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
     const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error

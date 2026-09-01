@@ -5,12 +5,12 @@ import Form from 'react-bootstrap/Form';
 import axios from 'axios';
 import { Button } from 'primereact/button';
 import config from '../config';
-import { useAuth } from "../context/AuthContext";
+import { PAGE_PERMISSION_NAMES } from "../utils/employeeWorkspace";
 import api from '../api/axios';
 import GifLoder from '../interfaces/GifLoder';
 import { Dialog } from 'primereact/dialog';
 function PersonalInformations({ userId, personalInfo, setVisibleModal1, page_name }) {
-    const PAGE_NAME = "EmployeeEdit"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.peopleEdit;
     const [formData, setFormData] = useState({
         user_id: '',
         first_name: '',

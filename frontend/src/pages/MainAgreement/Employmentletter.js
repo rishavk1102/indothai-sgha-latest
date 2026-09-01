@@ -4,6 +4,7 @@ import logoImage from '../../assets/images/logo.png';
 import { Button } from 'primereact/button';
 import { Editor } from 'primereact/editor'; // Import PrimeReact Editor
 import { useAuth } from '../../context/AuthContext';
+import { PAGE_PERMISSION_NAMES } from '../../utils/employeeWorkspace';
 import successVideo from '../../assets/video/paperplane.mp4';
 import crossVideo from '../../assets/video/cross.mp4';
 import { Dialog } from "primereact/dialog";
@@ -14,7 +15,7 @@ import AgreementBodyHtml from '../../components/AgreementBodyHtml';
 const Employmentletter = () => {
   const navigate = useNavigate(); // Initialize the navigate function
   const { roleId} = useAuth(); // Get roleId from the context
-  const PAGE_NAME = "Main Agreement Template"; // Page name for permission checking
+  const PAGE_NAME = PAGE_PERMISSION_NAMES.templatesMainAgreement;
   const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error
     const goBack = () => {
     navigate(-1); // This will take the user back to the previous page in history

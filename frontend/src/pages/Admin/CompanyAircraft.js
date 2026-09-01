@@ -21,13 +21,14 @@ import { Dialog } from "primereact/dialog";
 import AddCompanyAircraft from "../../components/AddCompanyAircraft.js";
 import EditCompanyAircraft from "../../components/EditCompanyAircraft.js";
 import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { PAGE_PERMISSION_NAMES } from "../../utils/employeeWorkspace";
 
 
 const CompanyAircraft = () => {
     const [visibleRight, setVisibleRight] = useState(false);
     const navigate = useNavigate();
     const { role, roleId, userId } = useAuth(); // Get roleId from the context
-    const PAGE_NAME = "Aircraft Options"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.networkAircraftOptions;
     const socket = getSocket();
     const [sortOrder, setSortOrder] = useState('ASC');
     const [perPage, setPerPage] = useState(15);

@@ -17,12 +17,12 @@ import { getSocket } from '../../context/socket';
 import GifLoder from '../../interfaces/GifLoder';
 import AgreementBodyHtml from '../../components/AgreementBodyHtml';
 import { Sidebar } from 'primereact/sidebar';
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 
 const Letter_template = () => {
   const navigate = useNavigate(); // Initialize the navigate function
   const {roleId} = useAuth(); // Get roleId from the context
-  const PAGE_NAME = "Main Agreement Template"; // Page name for permission checking
+  const PAGE_NAME = PAGE_PERMISSION_NAMES.templatesMainAgreement;
   const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(false);

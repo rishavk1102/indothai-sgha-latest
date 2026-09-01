@@ -13,11 +13,11 @@ import GifLoder from '../../interfaces/GifLoder';
 import { getSocket } from "../../context/socket";
 import { useAuth } from "../../context/AuthContext";
 import { useDebounce } from 'use-debounce'; // First, install it via npm
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 
 const ClientLinksPage = () => {
     const { role, roleId } = useAuth();
-    const PAGE_NAME = "Client Registratiion Link";
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.clientsInvite;
     const socket = getSocket();
     const [loading, setLoading] = useState(true);
     const [unauthorized, setUnauthorized] = useState(false);

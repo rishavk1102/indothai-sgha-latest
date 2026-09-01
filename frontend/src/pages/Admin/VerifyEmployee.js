@@ -13,11 +13,11 @@ import { useAuth } from "../../context/AuthContext.js";
 import { getSocket } from "../../context/socket.js";
 import { MultiSelect } from 'primereact/multiselect';
 import { IoChevronBackOutline } from "react-icons/io5";
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 
 
 const VerifyEmployee = () => {
-    const PAGE_NAME = "Verification"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.peopleVerify;
     const navigate = useNavigate(); // ⬅️ Step 2
     const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
     const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error

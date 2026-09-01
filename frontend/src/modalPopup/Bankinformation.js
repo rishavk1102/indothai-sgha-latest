@@ -4,10 +4,11 @@ import { Form, Col, Card, Row } from 'react-bootstrap';
 import config from '../config';
 import { Button } from 'primereact/button';
 import api from '../api/axios';
+import { PAGE_PERMISSION_NAMES } from "../utils/employeeWorkspace";
 import GifLoder from '../interfaces/GifLoder';
 import { Dialog } from 'primereact/dialog';
 function Bankinformation({ userId, bankDetails, setVisibleModal4, page_name }) {
-    const PAGE_NAME = "EmployeeEdit"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.peopleEdit;
     const [unauthorized, setUnauthorized] = useState(false);
     const [loading, setLoading] = useState(false);
 

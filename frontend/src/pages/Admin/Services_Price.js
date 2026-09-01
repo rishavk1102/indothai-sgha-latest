@@ -12,11 +12,11 @@ import { useDebounce } from 'use-debounce'; // First, install it via npm
 import { Dialog } from "primereact/dialog";
 import FlightTypeServices from "../../components/FlightTypeServices.js";
 import AddServicePriceSidebar from "../../components/AddServicePriceSidebar.js";
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 const Services_Price = () => {
     const { roleId, userId } = useAuth();
     const socket = getSocket();
-    const PAGE_NAME = "Services Price"; // Page name for permission checking
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.pricingServices;
     const [sidebarVisible, setSidebarVisible] = useState(false);
     const navigate = useNavigate();
     const goBack = () => {

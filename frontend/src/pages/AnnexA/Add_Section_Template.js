@@ -11,6 +11,7 @@ import { Dialog } from "primereact/dialog";
 import { Editor } from "primereact/editor";
 import { getSocket } from "../../context/socket";
 import { useAuth } from "../../context/AuthContext";
+import { PAGE_PERMISSION_NAMES } from "../../utils/employeeWorkspace";
 import api from "../../api/axios";
 import GifLoder from "../../interfaces/GifLoder";
 
@@ -20,7 +21,7 @@ import "primeicons/primeicons.css";
 
 const Add_Section_Template = () => {
     const { roleId } = useAuth();
-    const PAGE_NAME = "Section Template";
+    const PAGE_NAME = PAGE_PERMISSION_NAMES.templatesSections;
 
     const [unauthorized, setUnauthorized] = useState(false);
     const [loading, setLoading] = useState(false);

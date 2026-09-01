@@ -4,7 +4,7 @@ import { Button } from "primereact/button";
 import { Dialog } from "primereact/dialog";
 import { IoChevronBackOutline } from "react-icons/io5";
 import { Link, useNavigate } from "react-router-dom";
-import { EMPLOYEE_HOME, EMPLOYEE_ROUTES } from "../utils/employeeWorkspace";
+import { EMPLOYEE_HOME, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../utils/employeeWorkspace";
 
 export function EmployeeBreadcrumbs({
   backTo = EMPLOYEE_HOME,
@@ -125,4 +125,4 @@ export function EmployeeUnauthorizedDialog({
   );
 }
 
-export { EMPLOYEE_HOME, EMPLOYEE_ROUTES };
+export { EMPLOYEE_HOME, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES };

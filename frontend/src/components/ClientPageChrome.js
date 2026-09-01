@@ -4,7 +4,7 @@ import { Button } from "primereact/button";
 import { Dialog } from "primereact/dialog";
 import { IoChevronBackOutline } from "react-icons/io5";
 import { useNavigate } from "react-router-dom";
-import { CLIENT_HOME, CLIENT_ROUTES } from "../utils/clientWorkspace";
+import { CLIENT_HOME, CLIENT_ROUTES, CLIENT_PAGE_PERMISSION_NAMES } from "../utils/clientWorkspace";
 
 export function ClientBreadcrumbs({
   backTo = CLIENT_HOME,
@@ -145,4 +145,4 @@ export function ClientFlowStepper({ steps, activeIndex, onSelect }) {
   );
 }
 
-export { CLIENT_HOME, CLIENT_ROUTES };
+export { CLIENT_HOME, CLIENT_ROUTES, CLIENT_PAGE_PERMISSION_NAMES };

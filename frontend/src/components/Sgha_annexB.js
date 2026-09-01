@@ -21,7 +21,9 @@ import {
   getSelectedAirportCity,
   getSelectedAirportLabel,
   getSelectedAirportOffice,
+  CLIENT_PAGE_PERMISSION_NAMES,
 } from "../utils/clientWorkspace";
+import { PAGE_PERMISSION_NAMES } from "../utils/employeeWorkspace";
 import { CLIENT_ROUTES } from "./ClientPageChrome";
 
 const Sgha_annexB = ({
@@ -1791,8 +1793,10 @@ const Sgha_annexB = ({
         role,
       );
 
-      // Use "Add New SGHA" page name for clients, "Aircraft Options" for employees
-      const pageName = role === "Client" ? "Add New SGHA" : "Aircraft Options";
+      const pageName =
+        role === "Client"
+          ? CLIENT_PAGE_PERMISSION_NAMES.newSgha
+          : PAGE_PERMISSION_NAMES.networkAircraftOptions;
 
       const payload = {
         role_id: roleId,

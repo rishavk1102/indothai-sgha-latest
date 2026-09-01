@@ -25,11 +25,12 @@ import {
   clearClientDraft,
   loadClientDraft,
   saveClientDraft,
+  CLIENT_PAGE_PERMISSION_NAMES,
 } from "../../utils/clientWorkspace";
 
 const Home = () => {
   const { role, roleId, userId, username } = useAuth(); // Get roleId from the context
-  const PAGE_NAME = "Add New SGHA"; // Page name for permission checking
+  const PAGE_NAME = CLIENT_PAGE_PERMISSION_NAMES.newSgha;
   const socket = getSocket();
   const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
   const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error

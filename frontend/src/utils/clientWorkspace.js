@@ -8,6 +8,15 @@ export const CLIENT_ROUTES = {
 
 export const CLIENT_HOME = CLIENT_ROUTES.hub;
 
+/** Must match `pages.name` in the database for socket/API permission checks. */
+export const CLIENT_PAGE_PERMISSION_NAMES = {
+  hub: "CLIENT_HOME",
+  newSgha: "CLIENT_NEW_SGHA",
+  agreement: "CLIENT_NEW_SGHA",
+  submissions: "CLIENT_SUBMISSIONS",
+  agreements: "CLIENT_AGREEMENTS",
+};
+
 const DRAFT_KEY = "sgha_client_draft";
 const TEMPLATE_YEAR_KEY = "sgha_agreement_template_year";
 const TEMPLATE_NAME_KEY = "sgha_agreement_template_name";

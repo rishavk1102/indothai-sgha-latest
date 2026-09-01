@@ -19,10 +19,11 @@ import {
     ClientEmptyState,
     ClientUnauthorizedDialog,
     CLIENT_HOME,
+    CLIENT_PAGE_PERMISSION_NAMES,
 } from '../../components/ClientPageChrome';
 const ClientSGHA_List = () => {
     const { roleId, userId } = useAuth(); // Get roleId from the context
-    const PAGE_NAME = "SGHA Agreement list"; // Page name for permission checking
+    const PAGE_NAME = CLIENT_PAGE_PERMISSION_NAMES.agreements;
     const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error
     const [loading, setLoading] = useState(false);
     const [templates, setTemplates] = useState([]);
@@ -52,9 +53,9 @@ const ClientSGHA_List = () => {
         // Handle fetch error
         socket.on("fetch-sent-sgha-by-registration-error", ({ message }) => {
             const isPermissionError =
-                message?.includes("Missing") ||
+                message?.includes("Missing role_id") ||
                 message?.includes("Permission denied") ||
-                message?.includes("registration");
+                (message?.includes("Page") && message?.includes("not found"));
 
             if (isPermissionError) {
                 setUnauthorized(true);

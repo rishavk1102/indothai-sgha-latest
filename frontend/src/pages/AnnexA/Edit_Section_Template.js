@@ -15,7 +15,7 @@ import "primereact/resources/primereact.min.css";
 import "primeicons/primeicons.css";
 import { getSocket } from "../../context/socket";
 import { useAuth } from "../../context/AuthContext";
-import { PAGE_PERMISSION_NAMES } from "../../utils/employeeWorkspace";
+import { PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 import api from "../../api/axios";
 import GifLoder from '../../interfaces/GifLoder';
 import { Dialog } from "primereact/dialog";

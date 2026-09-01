@@ -20,8 +20,7 @@ import api from "../../api/axios.js";
 import { Dialog } from "primereact/dialog";
 import AddCompanyAircraft from "../../components/AddCompanyAircraft.js";
 import EditCompanyAircraft from "../../components/EditCompanyAircraft.js";
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
-import { PAGE_PERMISSION_NAMES } from "../../utils/employeeWorkspace";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 
 
 const CompanyAircraft = () => {

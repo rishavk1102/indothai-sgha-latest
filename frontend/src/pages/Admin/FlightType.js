@@ -18,8 +18,7 @@ import { useAuth } from "../../context/AuthContext.js";
 import api from "../../api/axios.js";
 import Add_Flight_type from "../../components/Add_Flight_type.js";
 import Edit_Flight_type from "../../components/Edit_Flight_type.js";
-import { EmployeeRelatedLinks, EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
-import { PAGE_PERMISSION_NAMES } from "../../utils/employeeWorkspace";
+import { EmployeeRelatedLinks, EMPLOYEE_ROUTES, PAGE_PERMISSION_NAMES } from "../../components/EmployeePageChrome";
 
 const FlightType = () => {
     const { role, roleId } = useAuth(); // Get roleId from the context

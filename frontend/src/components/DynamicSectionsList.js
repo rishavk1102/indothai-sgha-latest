@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Accordion, AccordionTab } from 'primereact/accordion';
 import { Checkbox } from 'primereact/checkbox';
-import DOMPurify from 'dompurify';
-import { stringLooksLikeHtml } from '../utils/agreementDocFormat';
+import AgreementBodyHtml from './AgreementBodyHtml';
 import { Card } from 'react-bootstrap';
 
 /**
@@ -323,28 +322,14 @@ const DynamicSectionsList = ({
                                                         {subsection.editor && subsection.editor.value && 
                                                          subsection.editor.value.trim() !== '' && 
                                                          subsection.editor.value !== '<p><br></p>' && (
-                                                            stringLooksLikeHtml(subsection.editor.value) ? (
-                                                            <div
+                                                            <AgreementBodyHtml
+                                                                content={subsection.editor.value}
                                                                 className="editor-content sgha-doc-html"
-                                                                dangerouslySetInnerHTML={{
-                                                                    __html: DOMPurify.sanitize(subsection.editor.value)
-                                                                }}
-                                                                style={{ 
+                                                                style={{
                                                                     marginLeft: subsection.subheadingNo || subsection.subheading ? '20px' : '0',
-                                                                    lineHeight: '1.6'
+                                                                    lineHeight: '1.6',
                                                                 }}
                                                             />
-                                                            ) : (
-                                                            <div
-                                                                className="editor-content sgha-doc-html sgha-doc-plain"
-                                                                style={{ 
-                                                                    marginLeft: subsection.subheadingNo || subsection.subheading ? '20px' : '0',
-                                                                    lineHeight: '1.6'
-                                                                }}
-                                                            >
-                                                                {subsection.editor.value}
-                                                            </div>
-                                                            )
                                                         )}
                                                     </div>
                                                 );

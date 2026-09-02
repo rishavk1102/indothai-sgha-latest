@@ -13,6 +13,7 @@ import React, {
 import { Card, Table } from "react-bootstrap";
 import api from "../api/axios";
 import { stringLooksLikeHtml } from "../utils/agreementDocFormat";
+import AgreementBodyHtml from "./AgreementBodyHtml";
 
 /** Rich text from template editor: keep block/line structure when rendering client-side */
 const AGREEMENT_DOC_PURIFY = {
@@ -53,7 +54,7 @@ const AGREEMENT_DOC_PURIFY = {
 const sanitizeAgreementDocHtml = (html) =>
   DOMPurify.sanitize(html == null ? "" : String(html), AGREEMENT_DOC_PURIFY);
 
-/** Single clause line: HTML from template vs plain text (preserve newlines) */
+/** Single clause line: HTML from template vs plain text (preserve newlines, markdown tables) */
 const AnnexRichLine = ({ value }) => {
   if (value == null || value === "") return null;
   const s = typeof value === "string" ? value : String(value);
@@ -65,7 +66,12 @@ const AnnexRichLine = ({ value }) => {
       />
     );
   }
-  return <span className="sgha-doc-plain">{s}</span>;
+  return (
+    <AgreementBodyHtml
+      content={s}
+      className="sgha-doc-html d-inline-block align-top"
+    />
+  );
 };
 
 const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
@@ -1513,20 +1519,7 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
     });
 
     if (allParsedItems.length === 0) {
-      // Plain text (no <ol>/<ul>): innerHTML collapses newlines — show as text + pre-line
-      if (!stringLooksLikeHtml(htmlContent)) {
-        return (
-          <div className="sgha-doc-html sgha-doc-plain">{htmlContent}</div>
-        );
-      }
-      return (
-        <div
-          className="sgha-doc-html"
-          dangerouslySetInnerHTML={{
-            __html: sanitizeAgreementDocHtml(htmlContent),
-          }}
-        />
-      );
+      return <AgreementBodyHtml content={htmlContent} />;
     }
 
     // Get selected service types from top header
@@ -1775,7 +1768,10 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
                           dangerouslySetInnerHTML={{ __html: item.htmlBody }}
                         />
                       ) : (
-                        <span className="sgha-doc-plain">{item.text}</span>
+                        <AgreementBodyHtml
+                          content={item.text}
+                          className="sgha-doc-html d-inline"
+                        />
                       )}
                     </div>
                   </div>

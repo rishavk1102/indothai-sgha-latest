@@ -11,7 +11,7 @@ import { Table } from "react-bootstrap";
 import { MdFlight } from "react-icons/md";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
-import { stringLooksLikeHtml } from "../utils/agreementDocFormat";
+import AgreementBodyHtml from "./AgreementBodyHtml";
 import { useAuth } from "../context/AuthContext";
 import { getSocket } from "../context/socket";
 import CustomToast from "./CustomToast";
@@ -2270,45 +2270,20 @@ const Sgha_annexB = ({
                                               </tbody>
                                             </Table>
                                           )}
-                                        {partObj.content &&
-                                          partObj.content.trim() &&
-                                          (stringLooksLikeHtml(partObj.content) ? (
-                                            <div
-                                              className="sgha-doc-html"
-                                              dangerouslySetInnerHTML={{
-                                                __html: DOMPurify.sanitize(
-                                                  partObj.content,
-                                                ),
-                                              }}
-                                            />
-                                          ) : (
-                                            <div className="sgha-doc-html sgha-doc-plain">
-                                              {partObj.content}
-                                            </div>
-                                          ))}
+                                        {partObj.content && partObj.content.trim() && (
+                                          <AgreementBodyHtml content={partObj.content} />
+                                        )}
                                       </React.Fragment>
                                     ))}
                                   </div>
                                 );
                               }
-                              const processedContent =
-                                replaceVariablesWithUnderscores(
-                                  section.editor.value,
-                                );
-                              if (!stringLooksLikeHtml(processedContent)) {
-                                return (
-                                  <div className="mt-4 sgha-doc-html sgha-doc-plain">
-                                    {processedContent}
-                                  </div>
-                                );
-                              }
                               return (
-                                <div
+                                <AgreementBodyHtml
+                                  content={replaceVariablesWithUnderscores(
+                                    section.editor.value,
+                                  )}
                                   className="mt-4 sgha-doc-html"
-                                  dangerouslySetInnerHTML={{
-                                    __html:
-                                      DOMPurify.sanitize(processedContent),
-                                  }}
                                 />
                               );
                             })()}

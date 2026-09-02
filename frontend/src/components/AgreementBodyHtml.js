@@ -1,6 +1,6 @@
 import DOMPurify from "dompurify";
 import React from "react";
-import { stringLooksLikeHtml } from "../utils/agreementDocFormat";
+import { formatAgreementBodyForDisplay } from "../utils/agreementDocFormat";
 
 const DEFAULT_TAGS = [
   "p",
@@ -40,28 +40,29 @@ const DEFAULT_ATTR = [
   "class",
   "colspan",
   "rowspan",
+  "style",
 ];
 
 /**
- * Renders stored agreement / section body: plain text keeps newlines (pre-line);
- * HTML is sanitized. Avoids innerHTML-only for plain text (collapsed newlines).
+ * Renders stored agreement / section body: plain text and markdown pipe tables are
+ * converted to structured HTML; existing HTML is sanitized.
  */
 export default function AgreementBodyHtml({
   content,
   className = "sgha-doc-html",
+  style,
 }) {
   if (content == null || content === "") return null;
-  const s = String(content);
-  if (!stringLooksLikeHtml(s)) {
-    return (
-      <div className={`${className} sgha-doc-plain`.trim()}>{s}</div>
-    );
-  }
+
+  const html = formatAgreementBodyForDisplay(String(content));
+  if (!html) return null;
+
   return (
     <div
       className={className}
+      style={style}
       dangerouslySetInnerHTML={{
-        __html: DOMPurify.sanitize(s, {
+        __html: DOMPurify.sanitize(html, {
           ALLOWED_TAGS: DEFAULT_TAGS,
           ALLOWED_ATTR: DEFAULT_ATTR,
         }),

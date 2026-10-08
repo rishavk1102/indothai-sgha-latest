@@ -26,8 +26,8 @@ import { MdFlight } from "react-icons/md";
 import { useNavigate, useLocation } from "react-router-dom";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
-import { getSocket } from "../../context/socket";
 import GifLoder from "../../interfaces/GifLoder";
+import SubmissionCommentThread from "../../components/SubmissionCommentThread";
 import { generateSubmissionPDF } from "../../utils/generateSubmissionPDF";
 import {
   ClientBreadcrumbs,
@@ -78,12 +78,7 @@ const Sgha_reportsummary = () => {
   // Comment state
   const [commentVisible, setCommentVisible] = useState(false);
   const [commentSubmission, setCommentSubmission] = useState(null);
-  const [comments, setComments] = useState([]);
-  const [commentsLoading, setCommentsLoading] = useState(false);
-  const [newMessage, setNewMessage] = useState("");
-  const [replyingTo, setReplyingTo] = useState(null);
-  const [sendingComment, setSendingComment] = useState(false);
-  const commentsEndRef = useRef(null);
+  const [highlightCommentId, setHighlightCommentId] = useState(null);
 
   // Edit history state (client view: see what was updated)
   const [historyDialogVisible, setHistoryDialogVisible] = useState(false);
@@ -95,102 +90,30 @@ const Sgha_reportsummary = () => {
     setExpandedRow(expandedRow === id ? null : id);
   };
 
-  // Fetch comments for a submission
-  const fetchComments = async (submissionId) => {
-    try {
-      setCommentsLoading(true);
-      const res = await api.get(
-        `/api/client/submissions/${submissionId}/comments`,
-      );
-      if (res.data && res.data.data) {
-        setComments(res.data.data);
-      }
-    } catch (err) {
-      console.error("Error fetching comments:", err);
-      setComments([]);
-    } finally {
-      setCommentsLoading(false);
-    }
-  };
-
-  // Open comment dialog
-  const openCommentDialog = (submission) => {
+  const openCommentDialog = (submission, commentId = null) => {
     setCommentSubmission(submission);
+    setHighlightCommentId(commentId ? String(commentId) : null);
     setCommentVisible(true);
-    setReplyingTo(null);
-    setNewMessage("");
-    fetchComments(submission.submission_id);
   };
 
-  // Send comment or reply
-  const handleSendComment = async () => {
-    if (!newMessage.trim() || !commentSubmission) return;
-
-    try {
-      setSendingComment(true);
-      await api.post(
-        `/api/client/submissions/${commentSubmission.submission_id}/comments`,
-        {
-          sender_type: "Client",
-          sender_id: userId,
-          sender_name: username || "Unknown",
-          message: newMessage.trim(),
-          parent_comment_id: replyingTo?.comment_id || null,
-        },
-      );
-      setNewMessage("");
-      setReplyingTo(null);
-      await fetchComments(commentSubmission.submission_id);
-      setTimeout(() => {
-        commentsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      }, 100);
-    } catch (err) {
-      console.error("Error sending comment:", err);
-    } finally {
-      setSendingComment(false);
-    }
-  };
-
-  // Listen for real-time comment events
   useEffect(() => {
-    try {
-      const socket = getSocket();
-      if (socket) {
-        const handler = (data) => {
-          if (
-            commentSubmission &&
-            data.submission_id === commentSubmission.submission_id
-          ) {
-            fetchComments(commentSubmission.submission_id);
-          }
-        };
-        socket.on("submission-comment-added", handler);
-        return () => socket.off("submission-comment-added", handler);
-      }
-    } catch (e) {
-      // Socket not connected yet
-    }
-  }, [commentSubmission]);
-
-  // Format comment time
-  const formatCommentTime = (dateStr) => {
-    if (!dateStr) return "";
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now - date;
-    const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 1) return "Just now";
-    if (diffMins < 60) return `${diffMins}m ago`;
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-    });
-  };
+    const params = new URLSearchParams(location.search);
+    const submissionId = params.get("submission");
+    if (!submissionId) return;
+    const commentId = params.get("comment");
+    const match = submissions.find(
+      (item) => String(item.submission_id) === String(submissionId),
+    );
+    setCommentSubmission(
+      match || {
+        submission_id: Number(submissionId),
+        client_name: `Submission #${submissionId}`,
+      },
+    );
+    setHighlightCommentId(commentId);
+    setCommentVisible(true);
+    navigate(location.pathname, { replace: true });
+  }, [location.pathname, location.search, navigate, submissions]);
 
   const openHistoryDialog = async (submission) => {
     setHistorySubmission(submission);
@@ -1618,7 +1541,7 @@ const Sgha_reportsummary = () => {
       {/* Comment Dialog */}
       <Dialog
         visible={commentVisible}
-        style={{ width: "480px", maxHeight: "85vh" }}
+        style={{ width: "min(560px, 96vw)", maxHeight: "85vh" }}
         header={
           <div className="d-flex align-items-center gap-2">
             <i
@@ -1635,299 +1558,18 @@ const Sgha_reportsummary = () => {
           if (!commentVisible) return;
           setCommentVisible(false);
           setCommentSubmission(null);
-          setComments([]);
-          setNewMessage("");
-          setReplyingTo(null);
+          setHighlightCommentId(null);
         }}
         className="p-fluid"
       >
-        {/* Comments list */}
-        <div
-          style={{
-            maxHeight: "400px",
-            overflowY: "auto",
-            minHeight: "200px",
-            padding: "0.5rem 0",
-          }}
-        >
-          {commentsLoading ? (
-            <div className="text-center py-4">
-              <i className="pi pi-spin pi-spinner me-2"></i>
-              <p className="mt-2 mb-0" style={{ color: "#808080" }}>
-                Loading comments...
-              </p>
-            </div>
-          ) : comments.length === 0 ? (
-            <div className="text-center py-4">
-              <i
-                className="pi pi-inbox"
-                style={{ fontSize: "2rem", color: "#bdbdbd" }}
-              ></i>
-              <p className="mt-2 mb-0" style={{ color: "#808080" }}>
-                No comments yet. Start a conversation!
-              </p>
-            </div>
-          ) : (
-            [...comments]
-              .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-              .map((comment) => (
-                <div key={comment.comment_id} className="mb-3">
-                  {/* Top-level comment */}
-                  <div
-                    className="d-flex gap-2 p-2 rounded"
-                    style={{
-                      backgroundColor:
-                        comment.sender_type === "Client"
-                          ? "#ffead5"
-                          : "#9e52a30f",
-                      border: "1px solid",
-                      borderColor:
-                        comment.sender_type === "Client"
-                          ? "#ff983347"
-                          : "rgba(146, 74, 151, 0.25)",
-                    }}
-                  >
-                    <Avatar
-                      label={comment.sender_name?.charAt(0)?.toUpperCase()}
-                      shape="circle"
-                      style={{
-                        backgroundColor:
-                          comment.sender_type === "Client"
-                            ? "#ff9832"
-                            : "rgb(146 74 151)",
-                        color: "#fff",
-                        width: "32px",
-                        height: "32px",
-                        minWidth: "32px",
-                        fontSize: "14px",
-                      }}
-                    />
-                    <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                      <div className="d-flex justify-content-between align-items-center">
-                        <span
-                          style={{
-                            fontWeight: 600,
-                            fontSize: "13px",
-                            color: "#2a2a2a",
-                          }}
-                        >
-                          {comment.sender_name}
-                          <Badge
-                            className="ms-2"
-                            style={{
-                              fontSize: "10px",
-                              fontWeight: 500,
-                              backgroundColor:
-                                comment.sender_type === "Client"
-                                  ? "#ff9832"
-                                  : "rgb(146 74 151)",
-                              color: "#fff",
-                              border: "none",
-                            }}
-                          >
-                            {comment.sender_type}
-                          </Badge>
-                        </span>
-                        <small
-                          style={{
-                            color: "#808080",
-                            fontSize: "11px",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {formatCommentTime(comment.created_at)}
-                        </small>
-                      </div>
-                      <p
-                        className="mb-1 mt-1"
-                        style={{
-                          fontSize: "13px",
-                          wordBreak: "break-word",
-                          color: "#424242",
-                        }}
-                      >
-                        {comment.message}
-                      </p>
-                      <Button
-                        label="Reply"
-                        icon="pi pi-reply"
-                        className="p-0"
-                        text
-                        style={{
-                          fontSize: "11px",
-                          height: "20px",
-                          color: "#808080",
-                        }}
-                        onClick={() => setReplyingTo(comment)}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Replies */}
-                  {comment.replies && comment.replies.length > 0 && (
-                    <div className="ms-4 mt-1">
-                      {[...comment.replies]
-                        .sort(
-                          (a, b) =>
-                            new Date(a.created_at) - new Date(b.created_at),
-                        )
-                        .map((reply) => (
-                          <div
-                            key={reply.comment_id}
-                            className="d-flex gap-2 p-2 rounded mt-1"
-                            style={{
-                              backgroundColor:
-                                reply.sender_type === "Client"
-                                  ? "#ffead5"
-                                  : "#9e52a30f",
-                              border: "1px solid",
-                              borderColor:
-                                reply.sender_type === "Client"
-                                  ? "#ff983347"
-                                  : "rgba(146, 74, 151, 0.25)",
-                              borderLeft: `3px solid ${reply.sender_type === "Client" ? "#ff9832" : "rgb(146 74 151)"}`,
-                            }}
-                          >
-                            <Avatar
-                              label={reply.sender_name
-                                ?.charAt(0)
-                                ?.toUpperCase()}
-                              shape="circle"
-                              style={{
-                                backgroundColor:
-                                  reply.sender_type === "Client"
-                                    ? "#ff9832"
-                                    : "rgb(146 74 151)",
-                                color: "#fff",
-                                width: "26px",
-                                height: "26px",
-                                minWidth: "26px",
-                                fontSize: "12px",
-                              }}
-                            />
-                            <div
-                              className="flex-grow-1"
-                              style={{ minWidth: 0 }}
-                            >
-                              <div className="d-flex justify-content-between align-items-center">
-                                <span
-                                  style={{
-                                    fontWeight: 600,
-                                    fontSize: "12px",
-                                    color: "#2a2a2a",
-                                  }}
-                                >
-                                  {reply.sender_name}
-                                  <Badge
-                                    className="ms-2"
-                                    style={{
-                                      fontSize: "9px",
-                                      fontWeight: 500,
-                                      backgroundColor:
-                                        reply.sender_type === "Client"
-                                          ? "#ff9832"
-                                          : "rgb(146 74 151)",
-                                      color: "#fff",
-                                      border: "none",
-                                    }}
-                                  >
-                                    {reply.sender_type}
-                                  </Badge>
-                                </span>
-                                <small
-                                  style={{
-                                    color: "#808080",
-                                    fontSize: "10px",
-                                    whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  {formatCommentTime(reply.created_at)}
-                                </small>
-                              </div>
-                              <p
-                                className="mb-0 mt-1"
-                                style={{
-                                  fontSize: "12px",
-                                  wordBreak: "break-word",
-                                  color: "#424242",
-                                }}
-                              >
-                                {reply.message}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              ))
-          )}
-          <div ref={commentsEndRef} />
-        </div>
-
-        {/* Reply indicator */}
-        {replyingTo && (
-          <div
-            className="d-flex align-items-center gap-2 px-2 py-1 mt-2 rounded"
-            style={{
-              backgroundColor: "#9e52a30f",
-              fontSize: "12px",
-              color: "#424242",
-              border: "1px solid rgba(146, 74, 151, 0.2)",
-            }}
-          >
-            <i
-              className="pi pi-reply"
-              style={{ fontSize: "11px", color: "rgb(146 74 151)" }}
-            ></i>
-            <span>
-              Replying to <b>{replyingTo.sender_name}</b>
-            </span>
-            <Button
-              icon="pi pi-times"
-              className="p-0 ms-auto"
-              text
-              style={{
-                width: "20px",
-                height: "20px",
-                fontSize: "10px",
-                color: "#808080",
-              }}
-              onClick={() => setReplyingTo(null)}
-            />
-          </div>
-        )}
-
-        {/* Message input */}
-        <div className="d-flex gap-2 mt-2 align-items-end">
-          <InputText
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSendComment();
-              }
-            }}
-            placeholder={replyingTo ? "Write a reply..." : "Write a comment..."}
-            className="flex-grow-1"
-            style={{ fontSize: "13px" }}
-            disabled={sendingComment}
-          />
-          <Button
-            icon={sendingComment ? "pi pi-spin pi-spinner" : "pi pi-send"}
-            className="p-0"
-            style={{
-              width: "38px",
-              height: "38px",
-              backgroundColor: "rgb(146 74 151)",
-              borderColor: "rgb(146 74 151)",
-              color: "#fff",
-            }}
-            onClick={handleSendComment}
-            disabled={!newMessage.trim() || sendingComment}
-          />
-        </div>
+        <SubmissionCommentThread
+          active={commentVisible}
+          submissionId={commentSubmission?.submission_id}
+          senderType="Client"
+          senderId={userId}
+          senderName={username || "Unknown"}
+          highlightCommentId={highlightCommentId}
+        />
       </Dialog>
 
       {/* Edit history dialog - client can see what was updated */}

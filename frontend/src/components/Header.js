@@ -7,6 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { Link, useNavigate, useLocation, NavLink } from 'react-router-dom';
 import { CLIENT_HOME } from "../utils/clientWorkspace";
 import { EMPLOYEE_HOME } from "../utils/employeeWorkspace";
+import CommentNotificationBell from "./CommentNotificationBell";
 const Header = () => {
     const { isAuthenticated, username, role, logout, imgUrl } = useAuth();
     const navigate = useNavigate();
@@ -57,8 +58,8 @@ const Header = () => {
                                     <small className="d-block" style={{ fontSize: '12px', color: '#ff8104', fontWeight: '500' }}>{role}</small>
                                 </h6>
                             </div>
-                            {/* <Button icon="pi pi-bell" rounded text severity="info" aria-label="Notification" tooltip="Notifications" tooltipOptions={{ position: 'bottom' }} /> */}
-                            <Button icon="pi pi-sign-out" rounded text severity="danger" aria-label="Cancel" tooltip="Logout" tooltipOptions={{ position: 'bottom' }} onClick={handleLogout} />
+                            <CommentNotificationBell />
+                            <Button icon="pi pi-sign-out" rounded text severity="danger" aria-label="Logout" tooltip="Logout" tooltipOptions={{ position: 'bottom' }} onClick={handleLogout} />
                         </div>
                     </Col>
                 </Row>

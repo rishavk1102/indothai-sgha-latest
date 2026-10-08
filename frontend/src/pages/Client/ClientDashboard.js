@@ -6,6 +6,7 @@ import { Carousel } from "primereact/carousel";
 import Marquee from "react-fast-marquee";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
+import ClientCatalogSections from "../../components/ClientCatalogSections";
 import {
   CLIENT_ROUTES,
   getDraftContinuePath,
@@ -270,6 +271,8 @@ const ClientDashboard = () => {
           onClick={() => navigate(CLIENT_ROUTES.agreements)}
         />
       </div>
+
+      <ClientCatalogSections />
 
       <div className="client-hub-secondary">
         <h6 className="mb-3">Airports we serve</h6>

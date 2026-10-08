@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { Op } = require('sequelize');
 const sequelize = require('../config/database');
 const Business = require('../Models/Business');
 const Airport = require('../Models/Airport');

@@ -1,8 +1,199 @@
 import DOMPurify from "dompurify";
-import jsPDF from "jspdf";
 import api from "../api/axios";
 import logoImage from "../assets/images/logo.png";
-import { getPrincipalOfficeLabel } from "./clientWorkspace";
+import { SDA_PDF } from "./sdaPdfConfig";
+import {
+  applyLetterhead,
+  collapseRepeatedArticleBlocks,
+  drawAgreementBlocks,
+  drawClauseRow,
+  drawCover,
+  drawDataTable,
+  drawParagraphBanner,
+  drawSectionHeading,
+  drawSubsectionRow,
+  drawWrappedText,
+  newSdaDocument,
+  resolveCoverModel,
+  subsectionLabel,
+} from "./sdaPdfLayout";
+import {
+  createNumberingContext,
+  parseAgreementDocument,
+  parseClauseLines,
+  prefixKeyMarker,
+  renumberRepeatedParagraphs,
+  selectHandlingCompany,
+  splitClauseNumber,
+} from "./sghaClauseParser";
+
+/** Set to true to log the raw stored HTML of Annex B articles 9+ (to inspect list shapes). */
+const DEBUG_RAW_ANNEX_B = false;
+
+/** Natural sort so 2.1.2 comes before 2.1.10. */
+const naturalSort = (a, b) =>
+  String(a).localeCompare(String(b), undefined, { numeric: true });
+
+/** Annex A section titles that were stored as extra Annex B articles. */
+function isAnnexASectionTitle(title) {
+  const text = String(title || "").trim().toLowerCase();
+  return (
+    /management functions/.test(text) ||
+    /passenger services/.test(text) ||
+    /ramp services/.test(text) ||
+    /load control/.test(text) ||
+    /cargo and mail/.test(text) ||
+    /support services/.test(text) ||
+    /^security\b/.test(text) ||
+    /aircraft maintenance/.test(text)
+  );
+}
+
+function sectionContentKey(section) {
+  return [
+    section?.sectionNumber || "",
+    section?.sectionTitle || "",
+    String(section?.content || "").replace(/\s+/g, " ").trim(),
+  ].join("|");
+}
+
+const hasContent = (section) =>
+  !!(section && section.content && String(section.content).trim().length > 0);
+
+function numericPath(value) {
+  const raw = String(value || "").trim();
+  if (!/^\d/.test(raw)) return null;
+  return raw.split(".").map((part) => {
+    const n = parseInt(part, 10);
+    return Number.isFinite(n) ? n : 0;
+  });
+}
+
+function compareNumericPaths(a, b) {
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i += 1) {
+    const av = a[i] ?? -1;
+    const bv = b[i] ?? -1;
+    if (av !== bv) return av - bv;
+  }
+  return 0;
+}
+
+/** Numbered sections stay in 1, 2, 3… order. Unnumbered paragraphs keep their place. */
+function orderNumberedSections(list) {
+  const sections = Array.isArray(list) ? list : [];
+  const numbered = sections.filter((section) => numericPath(section?.sectionNumber));
+  if (numbered.length < 2) return sections;
+  numbered.sort((a, b) =>
+    compareNumericPaths(numericPath(a.sectionNumber), numericPath(b.sectionNumber)),
+  );
+  let index = 0;
+  return sections.map((section) =>
+    numericPath(section?.sectionNumber) ? numbered[index++] : section,
+  );
+}
+
+function isClauseSelected(item, serviceTypes) {
+  if (item === true) return true;
+  if (!item || typeof item !== "object") return false;
+  if (item.checked === true) return true;
+  const hasServiceType =
+    item.ramp !== undefined ||
+    item.comp !== undefined ||
+    item.cargo !== undefined;
+  if (!hasServiceType) return false;
+  if (serviceTypes.ramp && item.ramp !== false) return true;
+  if (serviceTypes.comp && item.comp !== false) return true;
+  if (serviceTypes.cargo && item.cargo !== false) return true;
+  return false;
+}
+
+/**
+ * Checkbox state is stored as { "1.1": { "1.1.2": { ramp: true } } },
+ * not as { "1": { "1.1": { "1.1.2": true } } }. Fold both shapes into
+ * article -> section -> selected clause keys.
+ */
+function collectAnnexASelections(selections) {
+  const grouped = {};
+  if (!selections || typeof selections !== "object") return grouped;
+  const serviceTypes = selections.serviceTypes || {
+    comp: false,
+    ramp: false,
+    cargo: false,
+  };
+  const add = (sectionKey, clauseKey) => {
+    const main = String(sectionKey || "").split(".")[0];
+    if (!/^\d+$/.test(main) || !clauseKey) return;
+    if (!grouped[main]) grouped[main] = {};
+    if (!grouped[main][sectionKey]) grouped[main][sectionKey] = {};
+    grouped[main][sectionKey][clauseKey] = true;
+  };
+  const takeClause = (sectionKey, clauseKey, clause) => {
+    if (!isClauseSelected(clause, serviceTypes)) return;
+    add(sectionKey, clauseKey);
+    const subs = clause && typeof clause === "object" ? clause.subItems : null;
+    if (!subs || typeof subs !== "object") return;
+    Object.keys(subs).forEach((subKey) => {
+      if (isClauseSelected(subs[subKey], serviceTypes)) add(sectionKey, subKey);
+    });
+  };
+
+  Object.keys(selections).forEach((key) => {
+    if (key === "serviceTypes" || key.startsWith("_")) return;
+    const node = selections[key];
+    if (!node || typeof node !== "object") return;
+
+    if (/^\d+\.\d+$/.test(key)) {
+      Object.keys(node).forEach((clauseKey) => {
+        takeClause(key, clauseKey, node[clauseKey]);
+      });
+      return;
+    }
+
+    if (/^\d+$/.test(key)) {
+      Object.keys(node).forEach((sectionKey) => {
+        const section = node[sectionKey];
+        if (/^\d+\.\d+$/.test(sectionKey) && section && typeof section === "object") {
+          Object.keys(section).forEach((clauseKey) => {
+            const clause = section[clauseKey];
+            if (clause === true) add(sectionKey, clauseKey);
+            else takeClause(sectionKey, clauseKey, clause);
+          });
+          return;
+        }
+        if (section === true) add(key, sectionKey);
+        else takeClause(key, sectionKey, section);
+      });
+    }
+  });
+  return grouped;
+}
+
+/** A run of Annex A sections (2, then 4, then 3) is drawn as 2, 3, 4. */
+function orderAnnexASectionRun(list) {
+  const result = [];
+  let index = 0;
+  while (index < list.length) {
+    if (!list[index].annexASection) {
+      result.push(list[index]);
+      index += 1;
+      continue;
+    }
+    const run = [];
+    while (index < list.length && list[index].annexASection) {
+      run.push(list[index]);
+      index += 1;
+    }
+    run.sort((a, b) =>
+      compareNumericPaths(
+        numericPath(a.articleNumber) || [0],
+        numericPath(b.articleNumber) || [0],
+      ),
+    );
+    result.push(...run);
+  }
+  return result;
+}
 
 /**
  * Parse HTML content to extract items with their text and numbers
@@ -15,7 +206,7 @@ const parseHTMLContent = (htmlString) => {
   try {
     const tempDiv = document.createElement("div");
     tempDiv.innerHTML = DOMPurify.sanitize(htmlString, {
-      ALLOWED_TAGS: ["ol", "ul", "li"],
+      ALLOWED_TAGS: ["ol", "ul", "li", "p", "br"],
     });
 
     const allLists = Array.from(tempDiv.querySelectorAll("ol, ul"));
@@ -30,6 +221,11 @@ const parseHTMLContent = (htmlString) => {
       }
       return true;
     });
+
+    // Direct child lists only. querySelectorAll would also return deeper
+    // descendants, which are processed again by the recursive call.
+    const childLists = (el) =>
+      Array.from(el.children).filter((c) => c.tagName === "OL" || c.tagName === "UL");
 
     let globalItemCounter = 1;
     let topLevelIndex = 0;
@@ -60,12 +256,10 @@ const parseHTMLContent = (htmlString) => {
           currentItemIndex++;
 
           const itemClone = item.cloneNode(true);
-          const nestedListsInClone = itemClone.querySelectorAll("ol, ul");
-          nestedListsInClone.forEach((nestedList) => nestedList.remove());
-
-          const textContent =
-            itemClone.textContent || itemClone.innerText || "";
-          const cleanText = textContent.trim();
+          itemClone.querySelectorAll("ol, ul").forEach((nested) => nested.remove());
+          itemClone.querySelectorAll("br").forEach((br) => br.replaceWith(" "));
+          itemClone.querySelectorAll("p").forEach((p) => p.append(" "));
+          const cleanText = (itemClone.textContent || "").replace(/\s+/g, " ").trim();
 
           let currentIndexPath;
           if (isTopLevelList && parentIndexPath.length === 0) {
@@ -80,7 +274,7 @@ const parseHTMLContent = (htmlString) => {
           globalItemCounter++;
 
           let subItems = null;
-          const nestedLists = item.querySelectorAll("ol, ul");
+          const nestedLists = childLists(item);
           if (nestedLists.length > 0) {
             subItems = [];
             nestedLists.forEach((nestedList) => {
@@ -125,6 +319,7 @@ const parseHTMLContent = (htmlString) => {
  * Parse template data to create a map of item numbers to text
  */
 const parseTemplateData = async (templateData, agreementYear = 2025) => {
+  void agreementYear;
   if (!templateData || !Array.isArray(templateData)) {
     return { itemTextMap: {}, sectionTitles: {} };
   }
@@ -139,13 +334,14 @@ const parseTemplateData = async (templateData, agreementYear = 2025) => {
     if (field.type === "heading_no") {
       const sectionNum = String(field.value);
 
-      if (["1", "2", "3", "4", "5", "6", "7", "8"].includes(sectionNum)) {
+      if (/^\d{1,2}$/.test(sectionNum)) {
         if (
           index + 1 < templateData.length &&
           templateData[index + 1].type === "heading"
         ) {
           currentMainSection = sectionNum;
           mainSectionHeading = templateData[index + 1].value;
+          titlesMap[sectionNum] = mainSectionHeading || "";
           return;
         }
       }
@@ -238,13 +434,112 @@ const parseTemplateData = async (templateData, agreementYear = 2025) => {
   return { itemTextMap: textMap, sectionTitles: titlesMap };
 };
 
+/* ------------------------------------------------------------------ */
+/* One article builder for Main Agreement, Annex A and Annex B         */
+/* ------------------------------------------------------------------ */
+
+// Any 1-2 digit number followed by a heading starts an article (no 1-9 limit).
+const ARTICLE_NO = /^\d{1,2}$/;
+const norm = (s) => String(s || "").trim().toLowerCase();
+
+/**
+ * @param {Array} fields  stored template fields (heading_no, heading, subheading_no, subheading, editor)
+ * @param {{ annexAAware?: boolean, sort?: boolean }} options
+ *   annexAAware: keep Annex A section titles stored inside Annex B as separate
+ *                "annexASection" articles even when the article number repeats.
+ *   sort:        order articles by number (not for Annex B, where Article 1 and
+ *                Annex A Section 1 share a number).
+ */
+function buildArticlesFromTemplate(fields, { annexAAware = false, sort = false } = {}) {
+  const articles = [];
+  if (!Array.isArray(fields)) return articles;
+  let article = null;
+  let section = null;
+
+  fields.forEach((field, index) => {
+    if (!field || !field.type) return;
+    const next = fields[index + 1];
+
+    if (field.type === "heading_no") {
+      const no = String(field.value ?? "").trim();
+
+      if (
+        ARTICLE_NO.test(no) &&
+        next &&
+        (next.type === "heading" || next.type === "subheading")
+      ) {
+        const title = next.value ?? "";
+        const annexASection = annexAAware && isAnnexASectionTitle(title);
+        section = null; // editors that follow attach to the article, not the old section
+        const existing = articles.find(
+          (a) =>
+            a.articleNumber === no &&
+            (annexASection
+              ? a.annexASection
+              : !a.annexASection && norm(a.articleTitle) === norm(title)),
+        );
+        if (existing) {
+          article = existing;
+          return;
+        }
+        article = { articleNumber: no, articleTitle: title, sections: [], annexASection };
+        articles.push(article);
+        return;
+      }
+
+      if (no.includes(".") && article && next && next.type === "subheading") {
+        section = { sectionNumber: no, sectionTitle: next.value || "", content: null };
+        article.sections.push(section);
+        return;
+      }
+    }
+
+    if (field.type === "subheading_no" && article) {
+      const no = String(field.value ?? "").trim();
+      if (no.includes(".")) {
+        section = {
+          sectionNumber: no,
+          sectionTitle: next && next.type === "subheading" ? next.value || "" : "",
+          content: null,
+        };
+        article.sections.push(section);
+        return;
+      }
+    }
+
+    if (field.type === "editor" && article) {
+      const html = field.value ?? field.content ?? "";
+      if (!html) return;
+      if (section) {
+        section.content = section.content ? `${section.content}<br/>${html}` : html;
+      } else {
+        article.sections.push({ sectionNumber: null, sectionTitle: null, content: html });
+      }
+    }
+  });
+
+  return sort
+    ? articles.sort((a, b) =>
+        compareNumericPaths(
+          numericPath(a.articleNumber) || [0],
+          numericPath(b.articleNumber) || [0],
+        ),
+      )
+    : articles;
+}
+
 /**
  * Fetch Annex A template data if not provided
  */
-const fetchAnnexATemplateData = async (agreementYear = 2025) => {
+const fetchAnnexATemplateData = async (agreementYear = 2025, templateName = null) => {
   try {
+    const params =
+      templateName != null && String(templateName).trim() !== ""
+        ? { template_name: String(templateName).trim() }
+        : {};
     const response = await api.get(
       `/sgha_template_content/get/${agreementYear}/Annex A/Section Template`,
+      { params },
     );
 
     if (response.data?.data?.content) {
@@ -255,16 +550,17 @@ const fetchAnnexATemplateData = async (agreementYear = 2025) => {
           typeof content === "string" ? JSON.parse(content) : content;
       } catch (parseError) {
         console.error("Error parsing Annex A content:", parseError);
-        return { itemTextMap: {}, sectionTitles: {} };
+        return { itemTextMap: {}, sectionTitles: {}, fields: [] };
       }
 
-      return await parseTemplateData(parsedContent, agreementYear);
+      const parsed = await parseTemplateData(parsedContent, agreementYear);
+      return { ...parsed, fields: parsedContent };
     }
   } catch (error) {
     console.error("Error fetching Annex A template data:", error);
   }
 
-  return { itemTextMap: {}, sectionTitles: {} };
+  return { itemTextMap: {}, sectionTitles: {}, fields: [] };
 };
 
 /**
@@ -301,34 +597,15 @@ export const generateSubmissionPDF = async (
       }
     }
 
-    // Debug: Log itemTextMap info
-    console.log("[PDF] ItemTextMap loaded:", {
-      size: Object.keys(finalItemTextMap).length,
-      sampleKeys: Object.keys(finalItemTextMap).slice(0, 10),
-      sampleValues: Object.keys(finalItemTextMap)
-        .slice(0, 3)
-        .map((k) => ({ key: k, text: finalItemTextMap[k]?.substring(0, 50) })),
-    });
+    const doc = newSdaDocument();
 
-    const doc = new jsPDF({
-      orientation: "portrait",
-      unit: "mm",
-      format: "a4",
-    });
-
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 15;
-    const footerPadding = 15; // Padding from bottom edge for footer text baseline (moved higher to avoid overlap)
-    const footerTextHeight = 4; // Approximate height of footer text (8pt font)
-    const footerBuffer = 5; // Additional buffer space above footer
-    const footerTotalHeight = footerPadding + footerTextHeight + footerBuffer; // Total space needed for footer area (19mm)
-    const logoHeight = 30; // Space reserved for logo at top
-    const topMargin = margin + logoHeight + 5; // Start content below logo
-    // Increase bottom margin so content never touches the footer
-    const bottomMargin = footerTotalHeight + 5; // Extra buffer to avoid any overlap with footer
-    const maxWidth = pageWidth - margin * 2;
-    let yPos = topMargin; // Start below logo area
+    const pageWidth = SDA_PDF.page.width;
+    const pageHeight = SDA_PDF.page.height;
+    const margin = SDA_PDF.margin.left;
+    const topMargin = SDA_PDF.contentTop;
+    const bottomMargin = SDA_PDF.margin.bottom;
+    const maxWidth = pageWidth - SDA_PDF.margin.left - SDA_PDF.margin.right;
+    let yPos = topMargin;
 
     // Helper function to add a new page if needed
     const checkPageBreak = (requiredHeight = 20) => {
@@ -340,65 +617,17 @@ export const generateSubmissionPDF = async (
       return false;
     };
 
-    // Helper function to add text with word wrapping.
-    // Renders line-by-line so individual lines never overflow the footer.
-    // Returns the new Y position after the last line.
-    const addText = (text, x, y, options = {}) => {
-      const {
-        fontSize = 10,
-        fontStyle = "normal",
-        color = [0, 0, 0],
-        maxWidth: textMaxWidth = maxWidth,
-        align = "left",
-      } = options;
-
-      doc.setFontSize(fontSize);
-      doc.setFont("helvetica", fontStyle);
-      doc.setTextColor(...color);
-
-      const lines = doc.splitTextToSize(String(text ?? ""), textMaxWidth);
-      const lineHeight = fontSize * 0.45; // Line height in mm
-
-      let currentY = y;
-      lines.forEach((line) => {
-        // Page break before each line so content never overflows the footer
-        if (currentY + lineHeight > pageHeight - bottomMargin) {
-          doc.addPage();
-          currentY = topMargin;
-          // Re-apply font/size after page add
-          doc.setFontSize(fontSize);
-          doc.setFont("helvetica", fontStyle);
-          doc.setTextColor(...color);
-        }
-        doc.text(line, x, currentY, { align });
-        currentY += lineHeight;
+    // Word-wrapped body text. Emails are painted as mailto links.
+    const addText = (text, x, y, opts = {}) => {
+      return drawWrappedText(doc, text, x, y, {
+        fontSize: opts.fontSize || SDA_PDF.font.body,
+        fontStyle: opts.fontStyle || "normal",
+        color: opts.color || SDA_PDF.color.black,
+        maxWidth: opts.maxWidth || maxWidth,
+        align: opts.align || "left",
+        bottom: pageHeight - bottomMargin,
+        top: topMargin,
       });
-
-      return currentY; // Return the Y position after the last line
-    };
-
-    // Helper function to add text with inline formatting support
-    const addFormattedText = (text, x, y, options = {}) => {
-      const {
-        fontSize = 10,
-        color = [0, 0, 0],
-        maxWidth: textMaxWidth = maxWidth,
-        align = "left",
-      } = options;
-
-      doc.setFontSize(fontSize);
-      doc.setTextColor(...color);
-
-      // Split text into lines first
-      const lines = doc.splitTextToSize(text, textMaxWidth);
-      let currentY = y;
-
-      lines.forEach((line, index) => {
-        doc.text(line, x, currentY, { align });
-        currentY += fontSize * 0.4;
-      });
-
-      return lines.length * fontSize * 0.4;
     };
 
     // Helper function to strip HTML and get plain text with basic list/line structure preserved
@@ -419,6 +648,16 @@ export const generateSubmissionPDF = async (
       const plain = tempDiv.textContent || tempDiv.innerText || "";
       // Collapse excessive blank lines
       return plain.replace(/\n{3,}/g, "\n\n").trim();
+    };
+
+    /** Parse stored editor HTML and draw it. `numbering` carries list numbers across one article. */
+    const renderHtmlBody = (html, numbering) => {
+      const blocks = parseAgreementDocument(html, numbering ? { numbering } : {});
+      yPos = blocks.length
+        ? drawAgreementBlocks(doc, yPos, blocks)
+        : drawAgreementBlocks(doc, yPos, [
+            { type: "paragraph", lines: parseClauseLines(stripHTML(html)) },
+          ]);
     };
 
     // Split Annex B editor HTML by {{ variable }} placeholders (same logic as Sgha_annexB)
@@ -458,7 +697,7 @@ export const generateSubmissionPDF = async (
       return result;
     };
 
-    // Draw a simple table and return new y position
+    // Grey-header table. Long cells wrap and the header repeats on the next page.
     const drawSimpleTable = (
       startX,
       startY,
@@ -467,73 +706,8 @@ export const generateSubmissionPDF = async (
       colWidths,
       opts = {},
     ) => {
-      const fontSize = opts.fontSize || 9;
-      const rowHeight = opts.rowHeight || 7;
-      doc.setFontSize(fontSize);
-      const tableWidth = colWidths.reduce((a, b) => a + b, 0);
-      let currentY = startY;
-      // Header
-      doc.setFont("helvetica", "bold");
-      doc.line(startX, currentY, startX + tableWidth, currentY);
-      currentY += 2;
-      let x = startX;
-      headers.forEach((h, i) => {
-        doc.text(String(h).substring(0, 28), x + 2, currentY + rowHeight * 0.5);
-        if (i < colWidths.length - 1) {
-          doc.line(
-            x + colWidths[i],
-            startY,
-            x + colWidths[i],
-            currentY + rowHeight,
-          );
-        }
-        x += colWidths[i];
-      });
-      doc.line(
-        startX + tableWidth,
-        startY,
-        startX + tableWidth,
-        currentY + rowHeight,
-      );
-      currentY += rowHeight;
-      doc.line(startX, currentY, startX + tableWidth, currentY);
-      doc.setFont("helvetica", "normal");
-      // Data rows
-      rows.forEach((row) => {
-        if (currentY + rowHeight > pageHeight - bottomMargin) {
-          doc.addPage();
-          currentY = topMargin;
-        }
-        const cells = Array.isArray(row)
-          ? row
-          : headers.map((_, i) => row[headers[i]] ?? "-");
-        x = startX;
-        cells.forEach((cell, i) => {
-          doc.text(
-            String(cell ?? "-").substring(0, 32),
-            x + 2,
-            currentY + rowHeight * 0.5,
-          );
-          if (i < colWidths.length - 1)
-            doc.line(
-              x + colWidths[i],
-              currentY,
-              x + colWidths[i],
-              currentY + rowHeight,
-            );
-          x += colWidths[i];
-        });
-        doc.line(
-          startX + tableWidth,
-          currentY,
-          startX + tableWidth,
-          currentY + rowHeight,
-        );
-        currentY += rowHeight;
-        doc.line(startX, currentY, startX + tableWidth, currentY);
-      });
-      doc.line(startX, startY, startX, currentY);
-      return currentY + 4;
+      void startX;
+      return drawDataTable(doc, startY, headers, rows, colWidths, opts);
     };
 
     // Normalize stored keys to template keys: 1.1.0.1 -> 1.1.1, 1.1.0.1.a -> 1.1.1.a, 0.0.1 + section 1.3 -> 1.3.1
@@ -623,90 +797,10 @@ export const generateSubmissionPDF = async (
         }
       }
 
-      // Try matching with section prefix (e.g., if itemNumber is "1.1.1" and we're in section "1", try "1.1.1")
-      // This is already handled by the base number check above
-
       return null;
     };
 
-    // Header - logo will be added to each page later, so we start content below logo area
-    doc.setFontSize(16);
-    doc.setFont("helvetica", "bold");
-    doc.text("SGHA Agreement Document", pageWidth / 2, yPos, {
-      align: "center",
-    });
-    yPos += 10;
-
-    // Client Information
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold");
-    doc.text("Client Information", margin, yPos);
-    yPos += 8;
-
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    yPos = addText(
-      `Client Name: ${submission.client_name || "N/A"}`,
-      margin,
-      yPos,
-      { fontSize: 10 },
-    );
-    yPos = addText(
-      `Contact Name: ${submission.contact_name || "N/A"}`,
-      margin,
-      yPos,
-      { fontSize: 10 },
-    );
-    yPos = addText(
-      `Contact Email: ${submission.contact_email || "N/A"}`,
-      margin,
-      yPos,
-      { fontSize: 10 },
-    );
-    yPos = addText(
-      `Contact Phone: ${submission.contact_phone || "N/A"}`,
-      margin,
-      yPos,
-      { fontSize: 10 },
-    );
-    yPos = addText(
-      `Service Type: ${submission.service_type || "N/A"}`,
-      margin,
-      yPos,
-      { fontSize: 10 },
-    );
-    yPos = addText(
-      `Agreement Year: ${submission.agreement_year || "N/A"}`,
-      margin,
-      yPos,
-      { fontSize: 10 },
-    );
-    yPos = addText(
-      `Effective From: ${submission.effective_from ? new Date(submission.effective_from).toLocaleDateString() : "N/A"}`,
-      margin,
-      yPos,
-      { fontSize: 10 },
-    );
-    yPos = addText(
-      `Effective To: ${submission.effective_to ? new Date(submission.effective_to).toLocaleDateString() : "N/A"}`,
-      margin,
-      yPos,
-      { fontSize: 10 },
-    );
-    yPos = addText(`Status: ${submission.status || "N/A"}`, margin, yPos, {
-      fontSize: 10,
-    });
-    yPos += 10;
-
-    checkPageBreak(30);
-
-    // Main Agreement Section
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Main Agreement", pageWidth / 2, yPos, { align: "center" });
-    yPos += 10;
-
-    // Fetch client registration details for dynamic agreement header
+    // Cover uses the Annex B1.0 letterhead. Client fields fill the party tables.
     let clientDetails = null;
     try {
       const clientResponse = await api.get(
@@ -717,86 +811,34 @@ export const generateSubmissionPDF = async (
       }
     } catch (error) {
       console.error("Error fetching client details:", error);
-      // Fallback to submission data if available
       if (submission.client_name) {
         clientDetails = {
           name: submission.client_name,
-          city: submission.city || "N/A",
-          state: submission.state || "N/A",
-          country: submission.country || "N/A",
+          city: submission.city || "",
+          state: submission.state || "",
+          country: submission.country || "",
         };
       }
     }
 
-    // Add the automatically generated agreement header content (same as frontend)
-    checkPageBreak(40);
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
+    let handlingCompany = null;
+    try {
+      const businessResponse = await api.get("/business/fetch_businesses_test", {
+        params: { limit: 100 },
+      });
+      handlingCompany = selectHandlingCompany(
+        businessResponse.data?.data || [],
+        submission,
+      );
+    } catch (error) {
+      console.error("Error fetching handling company:", error);
+    }
 
-    // Agreement header content - Carrier (fixed)
-    // Line 1: "An Agreement made between :" and company name on same line
-    const line1Text = "An Agreement made between :";
-    const carrierName = "Malindo Airways SDN BHD";
-    doc.text(line1Text, margin, yPos);
-    const line1Width = doc.getTextWidth(line1Text);
-    doc.setFont("helvetica", "bold");
-    doc.text(carrierName, margin + line1Width + 3, yPos);
-    yPos += 6;
-
-    // Line 2: "having its principal office at·" and address on same line
-    doc.setFont("helvetica", "normal");
-    const line2Text = "having its principal office at·";
-    const carrierAddress = "Petaling Jaya, Malaysia";
-    doc.text(line2Text, margin, yPos);
-    const line2Width = doc.getTextWidth(line2Text);
-    doc.setFont("helvetica", "bold");
-    doc.text(carrierAddress, margin + line2Width + 3, yPos);
-    yPos += 6;
-
-    // Line 3: Full text on its own line
-    doc.setFont("helvetica", "normal");
-    yPos = addText(
-      "hereinafter referred to as the 'Carrier' or the 'Handling Company' as the case may be,",
-      margin,
+    yPos = drawCover(
+      doc,
       yPos,
-      { fontSize: 10 },
+      resolveCoverModel(submission, clientDetails, handlingCompany),
     );
-    yPos += 5;
-
-    // Handling Company (dynamic - based on client)
-    // Line 4: "and:" and company name on same line
-    doc.setFont("helvetica", "normal");
-    const line4Text = "and:";
-    const handlingCompanyName =
-      clientDetails?.name ||
-      submission.client_name ||
-      "INDOTHAI KOLKATA PRIVATE LIMITED";
-    doc.text(line4Text, margin, yPos);
-    const line4Width = doc.getTextWidth(line4Text);
-    doc.setFont("helvetica", "bold");
-    doc.text(handlingCompanyName, margin + line4Width + 3, yPos);
-    yPos += 6;
-
-    // Line 5: "having its principal office at·" and address on same line
-    doc.setFont("helvetica", "normal");
-    const line5Text = "having its principal office at·";
-    // Build address from client details
-    let principalOffice = getPrincipalOfficeLabel(clientDetails, submission) || "—";
-    doc.text(line5Text, margin, yPos);
-    const line5Width = doc.getTextWidth(line5Text);
-    doc.setFont("helvetica", "bold");
-    doc.text(principalOffice, margin + line5Width + 3, yPos);
-    yPos += 6;
-
-    // Line 6: Full text on its own line
-    doc.setFont("helvetica", "normal");
-    yPos = addText(
-      "hereinafter referred to as the 'Handling Company' or the 'Carrier', as the case may be, the Carrier and/or the Handling Company may hereinafter be referred to as the \"Party(ies)\" Whereby all the parties agree as follows:",
-      margin,
-      yPos,
-      { fontSize: 10 },
-    );
-    yPos += 10;
 
     // Use the same template year + name that the submission used (if available)
     const templateYear = submission.agreement_year || 2025;
@@ -808,6 +850,7 @@ export const generateSubmissionPDF = async (
         ? String(submission.form_details.template_name).trim()
         : null;
 
+    /* -------------------------- MAIN AGREEMENT -------------------------- */
     try {
       // Fetch Main Agreement template (matching client's chosen template when templateName is set)
       const mainUrl = `/sgha_template_content/get/${templateYear}/Main Agreement/Section Template`;
@@ -816,498 +859,47 @@ export const generateSubmissionPDF = async (
         params: mainParams,
       });
 
-      console.log("[PDF Main] Fetch Main Agreement template:", {
-        url: mainUrl,
-        params: mainParams,
-        status: mainAgreementResponse.status,
-      });
-
       if (mainAgreementResponse.data?.data?.content) {
         const content = mainAgreementResponse.data.data.content;
-        let parsedContent =
+        const parsedContent =
           typeof content === "string" ? JSON.parse(content) : content;
 
-        // Parse Main Agreement sections (mirror Sgha_mainagreemment logic)
-        const sections = [];
-        let currentArticle = null;
-        let currentSection = null;
-        let currentMainSection = null;
+        const renderable = buildArticlesFromTemplate(parsedContent)
+          .map((article) => ({
+            article,
+            sections: orderNumberedSections(article.sections).filter(hasContent),
+          }))
+          .filter((entry) => entry.sections.length > 0);
 
-        console.log(
-          "[PDF Main] Raw parsedContent length:",
-          Array.isArray(parsedContent) ? parsedContent.length : "n/a",
-        );
-        if (Array.isArray(parsedContent)) {
-          console.log(
-            "[PDF Main] First 40 fields:",
-            parsedContent.slice(0, 40).map((f, idx) => ({
-              idx,
-              type: f?.type,
-              value:
-                typeof f?.value === "string" ? f.value.slice(0, 80) : f?.value,
-            })),
-          );
+        // Draw the banner only when there is something to put under it.
+        if (renderable.length) {
+          yPos = drawParagraphBanner(doc, yPos, "MAIN AGREEMENT");
         }
 
-        parsedContent.forEach((field, index) => {
-          if (!field || typeof field !== "object" || !field.type) return;
-
-          if (field.type === "heading_no") {
-            const sectionNum = String(field.value);
-
-            // Main article numbers (1,2,3...) – heading or subheading
-            if (
-              !sectionNum.includes(".") &&
-              ["1", "2", "3", "4", "5", "6", "7", "8", "9"].includes(sectionNum)
-            ) {
-              const nextField = parsedContent[index + 1];
-              if (
-                nextField &&
-                (nextField.type === "heading" ||
-                  nextField.type === "subheading")
-              ) {
-                currentMainSection = sectionNum;
-                currentSection = null;
-                currentArticle = {
-                  articleNumber: sectionNum,
-                  articleTitle: nextField.value || "",
-                  sections: [],
-                };
-                sections.push(currentArticle);
-                console.log("[PDF Main] Created article", {
-                  articleNumber: currentArticle.articleNumber,
-                  articleTitle: currentArticle.articleTitle,
-                });
-                return;
-              }
-            }
-
-            // Subsection numbers like 1.1, 1.2, etc.
-            if (sectionNum.includes(".") && currentMainSection) {
-              const nextField = parsedContent[index + 1];
-              if (nextField && nextField.type === "subheading") {
-                currentSection = {
-                  sectionNumber: sectionNum,
-                  sectionTitle: nextField.value || "",
-                  content: null,
-                };
-                if (currentArticle) {
-                  currentArticle.sections.push(currentSection);
-                }
-                console.log("[PDF Main] Created subsection via heading_no", {
-                  article: currentArticle?.articleNumber,
-                  sectionNumber: currentSection.sectionNumber,
-                  sectionTitle: currentSection.sectionTitle,
-                });
-                return;
-              }
-            }
-          }
-
-          if (field.type === "subheading_no" && currentMainSection) {
-            const headingNo = String(field.value);
-            if (headingNo.includes(".")) {
-              const nextField = parsedContent[index + 1];
-              const subheadingText =
-                nextField && nextField.type === "subheading"
-                  ? nextField.value || ""
-                  : "";
-              currentSection = {
-                sectionNumber: headingNo,
-                sectionTitle: subheadingText,
-                content: null,
-              };
-              if (currentArticle) {
-                currentArticle.sections.push(currentSection);
-              }
-              console.log("[PDF Main] Created subsection via subheading_no", {
-                article: currentArticle?.articleNumber,
-                sectionNumber: currentSection.sectionNumber,
-                sectionTitle: currentSection.sectionTitle,
-              });
-              return;
-            }
-          }
-
-          // Editor content for sections or whole article
-          if (field.type === "editor" && currentArticle) {
-            const html = field.value;
-            if (currentSection) {
-              // Append or set content for current subsection
-              if (!currentSection.content) {
-                currentSection.content = html;
-              } else if (html) {
-                currentSection.content += "<br/>" + html;
-              }
-              console.log("[PDF Main] Added editor content to subsection", {
-                article: currentArticle.articleNumber,
-                sectionNumber: currentSection.sectionNumber,
-                contentLen: (currentSection.content || "").length,
-              });
-            } else if (html) {
-              // Editor directly under article – create a default section
-              const defaultSection = {
-                sectionNumber: null,
-                sectionTitle: null,
-                content: html,
-              };
-              currentArticle.sections.push(defaultSection);
-              console.log(
-                "[PDF Main] Added default section with editor content to article",
-                {
-                  article: currentArticle.articleNumber,
-                  contentLen: (html || "").length,
-                },
-              );
-            }
-          }
-        });
-
-        console.log(
-          "[PDF Main] Final sections summary:",
-          sections.map((a) => ({
-            articleNumber: a.articleNumber,
-            articleTitle: a.articleTitle,
-            sectionsCount: a.sections.length,
-          })),
-        );
-
-        // Render Main Agreement sections
-        sections.forEach((article) => {
-          // Skip articles that have no real content (all sections empty) to avoid blank pages
-          const nonEmptySections = (article.sections || []).filter(
-            (s) => s && s.content && String(s.content).trim().length > 0,
+        renderable.forEach(({ article, sections }) => {
+          yPos = drawParagraphBanner(
+            doc,
+            yPos,
+            `ARTICLE ${article.articleNumber}: ${(article.articleTitle || "").toUpperCase()}`,
           );
-          if (nonEmptySections.length === 0) {
-            console.log("[PDF Main] Skipping article with no content", {
-              articleNumber: article.articleNumber,
-              articleTitle: article.articleTitle,
-            });
-            return;
-          }
 
-          console.log("[PDF Main] Rendering article", {
-            articleNumber: article.articleNumber,
-            articleTitle: article.articleTitle,
-            sectionsCount: Array.isArray(article.sections)
-              ? article.sections.length
-              : 0,
-          });
-
-          checkPageBreak(30);
-
-          // Article heading - styled prominently (like UI)
-          doc.setFontSize(14);
-          doc.setFont("helvetica", "bold");
-          const articleTitle = `Article ${article.articleNumber}: ${article.articleTitle.toUpperCase()}`;
-          doc.text(articleTitle, pageWidth / 2, yPos, { align: "center" });
-          yPos += 10;
-
-          nonEmptySections.forEach((section) => {
-            // Reserve extra space so section heading and at least part of its content stay on the same page
-            checkPageBreak(50);
-
-            // Section heading (e.g., "1.1 General") - bold, like h6 in UI
+          sections.forEach((section) => {
             if (section.sectionNumber && section.sectionTitle) {
-              doc.setFontSize(11);
-              doc.setFont("helvetica", "bold");
-              doc.text(
-                `${section.sectionNumber} ${section.sectionTitle}`,
-                margin,
+              yPos = drawSubsectionRow(
+                doc,
                 yPos,
+                section.sectionNumber,
+                section.sectionTitle,
               );
-              yPos += 7;
             }
-
-            if (section.content) {
-              doc.setFontSize(10);
-              doc.setFont("helvetica", "normal");
-
-              // Parse HTML content to preserve formatting (lists, paragraphs, etc.)
-              const tempDiv = document.createElement("div");
-              tempDiv.innerHTML = DOMPurify.sanitize(section.content, {
-                ALLOWED_TAGS: [
-                  "p",
-                  "ul",
-                  "ol",
-                  "li",
-                  "strong",
-                  "em",
-                  "b",
-                  "i",
-                  "br",
-                  "div",
-                  "span",
-                ],
-                ALLOWED_ATTR: [],
-              });
-
-              // Process HTML content maintaining structure with proper bold handling
-              const processNode = (node, indent = 0, isBold = false) => {
-                if (!node) return;
-
-                // Handle text nodes
-                if (node.nodeType === 3) {
-                  // Text node
-                  const text = node.textContent?.trim();
-                  if (text) {
-                    checkPageBreak(8);
-                    if (isBold) {
-                      doc.setFont("helvetica", "bold");
-                    } else {
-                      doc.setFont("helvetica", "normal");
-                    }
-                    yPos = addText(text, margin + indent, yPos, {
-                      fontSize: 10,
-                    });
-                  }
-                  return;
-                }
-
-                // Handle element nodes
-                if (node.nodeType === 1) {
-                  // Element node
-                  const tagName = node.tagName?.toLowerCase();
-                  const shouldBeBold =
-                    isBold || tagName === "strong" || tagName === "b";
-
-                  if (tagName === "p") {
-                    checkPageBreak(10);
-                    // Process paragraph content - render as plain text first, then handle inline formatting if needed
-                    // For now, render full text to ensure nothing is missed
-                    const pText =
-                      node.textContent?.trim() || node.innerText?.trim();
-                    if (pText) {
-                      doc.setFont("helvetica", "normal");
-                      yPos = addText(pText, margin + indent, yPos, {
-                        fontSize: 10,
-                      });
-                      yPos += 5; // Paragraph spacing
-                    }
-                  } else if (tagName === "ul") {
-                    // Unordered list
-                    const listItems = node.querySelectorAll(":scope > li");
-                    listItems.forEach((li, index) => {
-                      checkPageBreak(8);
-                      doc.setFont("helvetica", "normal");
-
-                      // Process list item with potential inline formatting
-                      const processListItem = (liNode) => {
-                        let hasContent = false;
-                        Array.from(liNode.childNodes).forEach((child) => {
-                          if (child.nodeType === 3) {
-                            const text = child.textContent?.trim();
-                            if (text) {
-                              doc.setFont("helvetica", "normal");
-                              yPos = addText(
-                                `• ${text}`,
-                                margin + indent + 5,
-                                yPos,
-                                { fontSize: 10 },
-                              );
-                              hasContent = true;
-                            }
-                          } else if (child.nodeType === 1) {
-                            const childTag = child.tagName?.toLowerCase();
-                            if (childTag === "strong" || childTag === "b") {
-                              doc.setFont("helvetica", "bold");
-                              const boldText = child.textContent?.trim();
-                              if (boldText) {
-                                yPos = addText(
-                                  `• ${boldText}`,
-                                  margin + indent + 5,
-                                  yPos,
-                                  { fontSize: 10 },
-                                );
-                                hasContent = true;
-                              }
-                              doc.setFont("helvetica", "normal");
-                            } else if (childTag === "ul" || childTag === "ol") {
-                              // Nested list
-                              processNode(child, indent + 10, false);
-                            } else {
-                              const text = child.textContent?.trim();
-                              if (text) {
-                                yPos = addText(
-                                  `• ${text}`,
-                                  margin + indent + 5,
-                                  yPos,
-                                  { fontSize: 10 },
-                                );
-                                hasContent = true;
-                              }
-                            }
-                          }
-                        });
-                        if (hasContent) {
-                          yPos += 4;
-                        }
-                      };
-
-                      processListItem(li);
-                    });
-                  } else if (tagName === "ol") {
-                    // Ordered list
-                    const listItems = node.querySelectorAll(":scope > li");
-                    listItems.forEach((li, index) => {
-                      checkPageBreak(8);
-                      doc.setFont("helvetica", "normal");
-
-                      // Process list item with potential inline formatting
-                      const processListItem = (liNode) => {
-                        let hasContent = false;
-                        Array.from(liNode.childNodes).forEach((child) => {
-                          if (child.nodeType === 3) {
-                            const text = child.textContent?.trim();
-                            if (text) {
-                              doc.setFont("helvetica", "normal");
-                              yPos = addText(
-                                `${index + 1}. ${text}`,
-                                margin + indent + 5,
-                                yPos,
-                                { fontSize: 10 },
-                              );
-                              hasContent = true;
-                            }
-                          } else if (child.nodeType === 1) {
-                            const childTag = child.tagName?.toLowerCase();
-                            if (childTag === "strong" || childTag === "b") {
-                              doc.setFont("helvetica", "bold");
-                              const boldText = child.textContent?.trim();
-                              if (boldText) {
-                                yPos = addText(
-                                  `${index + 1}. ${boldText}`,
-                                  margin + indent + 5,
-                                  yPos,
-                                  { fontSize: 10 },
-                                );
-                                hasContent = true;
-                              }
-                              doc.setFont("helvetica", "normal");
-                            } else if (childTag === "ul" || childTag === "ol") {
-                              // Nested list
-                              processNode(child, indent + 10, false);
-                            } else {
-                              const text = child.textContent?.trim();
-                              if (text) {
-                                yPos = addText(
-                                  `${index + 1}. ${text}`,
-                                  margin + indent + 5,
-                                  yPos,
-                                  { fontSize: 10 },
-                                );
-                                hasContent = true;
-                              }
-                            }
-                          }
-                        });
-                        if (hasContent) {
-                          yPos += 4;
-                        }
-                      };
-
-                      processListItem(li);
-                    });
-                  } else if (tagName === "br") {
-                    yPos += 4; // Line break spacing
-                  } else if (tagName === "strong" || tagName === "b") {
-                    doc.setFont("helvetica", "bold");
-                    const boldText = node.textContent?.trim();
-                    if (boldText) {
-                      yPos = addText(boldText, margin + indent, yPos, {
-                        fontSize: 10,
-                      });
-                    }
-                    doc.setFont("helvetica", "normal");
-                  } else if (tagName === "em" || tagName === "i") {
-                    doc.setFont("helvetica", "italic");
-                    const italicText = node.textContent?.trim();
-                    if (italicText) {
-                      yPos = addText(italicText, margin + indent, yPos, {
-                        fontSize: 10,
-                      });
-                    }
-                    doc.setFont("helvetica", "normal");
-                  } else if (tagName === "div" || tagName === "span") {
-                    // Process children for div/span elements
-                    if (node.childNodes.length > 0) {
-                      Array.from(node.childNodes).forEach((child) => {
-                        processNode(child, indent, shouldBeBold);
-                      });
-                    } else {
-                      // If no children, render text content
-                      const text = node.textContent?.trim();
-                      if (text) {
-                        checkPageBreak(8);
-                        if (shouldBeBold) {
-                          doc.setFont("helvetica", "bold");
-                        } else {
-                          doc.setFont("helvetica", "normal");
-                        }
-                        yPos = addText(text, margin + indent, yPos, {
-                          fontSize: 10,
-                        });
-                      }
-                    }
-                  } else {
-                    // For any other elements, try to render their text content
-                    const text = node.textContent?.trim();
-                    if (text) {
-                      checkPageBreak(8);
-                      if (shouldBeBold) {
-                        doc.setFont("helvetica", "bold");
-                      } else {
-                        doc.setFont("helvetica", "normal");
-                      }
-                      yPos = addText(text, margin + indent, yPos, {
-                        fontSize: 10,
-                      });
-                    }
-                    // Also process children if any
-                    if (node.childNodes.length > 0) {
-                      Array.from(node.childNodes).forEach((child) => {
-                        processNode(child, indent, shouldBeBold);
-                      });
-                    }
-                  }
-                }
-              };
-
-              // Track if any content was rendered
-              let contentRendered = false;
-
-              // Process all top-level nodes - ensure we get ALL content
-              if (tempDiv.childNodes.length > 0) {
-                Array.from(tempDiv.childNodes).forEach((node) => {
-                  const yPosBefore = yPos;
-                  processNode(node);
-                  // Check if yPos changed, indicating content was rendered
-                  if (yPos > yPosBefore) {
-                    contentRendered = true;
-                  }
-                });
-              }
-
-              // Only use fallback if NO content was rendered
-              if (!contentRendered) {
-                // Fallback: if no structured content was rendered, render as plain text
-                const plainText = stripHTML(section.content);
-                if (plainText && plainText.trim().length > 0) {
-                  checkPageBreak(10);
-                  doc.setFont("helvetica", "normal");
-                  yPos = addText(plainText, margin, yPos, { fontSize: 10 });
-                  yPos += 5;
-                }
-              }
-
-              yPos += 5; // Extra spacing after section content
-            }
+            renderHtmlBody(section.content);
           });
-          yPos += 8; // Extra spacing between articles
+          yPos += 2;
         });
       }
     } catch (error) {
       console.error("Error fetching Main Agreement:", error);
+      yPos = drawParagraphBanner(doc, yPos, "MAIN AGREEMENT");
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
       yPos = addText(
@@ -1319,116 +911,8 @@ export const generateSubmissionPDF = async (
       yPos += 5;
     }
 
-    checkPageBreak(30);
-
-    // Annex A Section
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Annex A - Selected Services", pageWidth / 2, yPos, {
-      align: "center",
-    });
-    yPos += 10;
-
-    // Add Annex A header content (same as frontend) before dynamic content
-    checkPageBreak(50);
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-
-    // "Ground Handling Services" heading
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "bold");
-    doc.text("Ground Handling Services", margin, yPos);
-    yPos += 6;
-
-    // "to the Standard Ground Handling Agreement (SGHA) of January 2023"
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    yPos = addText(
-      "to the Standard Ground Handling Agreement (SGHA) of January 2023",
-      margin,
-      yPos,
-      { fontSize: 10 },
-    );
-    yPos += 6;
-
-    // "between: " and company name on same line
-    const annexLine1Text = "between: ";
-    const annexCarrierName = "Malindo Airways SDN BHD";
-    doc.text(annexLine1Text, margin, yPos);
-    const annexLine1Width = doc.getTextWidth(annexLine1Text);
-    doc.setFont("helvetica", "bold");
-    doc.text(annexCarrierName, margin + annexLine1Width + 3, yPos);
-    yPos += 6;
-
-    // "having its principal office at·" and address on same line
-    doc.setFont("helvetica", "normal");
-    const annexLine2Text = "having its principal office at·";
-    const annexCarrierAddress = "Petaling Jaya, Malaysia";
-    doc.text(annexLine2Text, margin, yPos);
-    const annexLine2Width = doc.getTextWidth(annexLine2Text);
-    doc.setFont("helvetica", "bold");
-    doc.text(annexCarrierAddress, margin + annexLine2Width + 3, yPos);
-    yPos += 6;
-
-    // "hereinafter referred to as the 'Carrier'"
-    doc.setFont("helvetica", "normal");
-    yPos = addText("hereinafter referred to as the 'Carrier'", margin, yPos, {
-      fontSize: 10,
-    });
-    yPos += 6;
-
-    // "and:" and handling company name on same line (dynamic)
-    const annexLine3Text = "and:";
-    const annexHandlingCompanyName =
-      clientDetails?.name ||
-      submission.client_name ||
-      "INDOTHAI KOLKATA PRIVATE LIMITED";
-    doc.text(annexLine3Text, margin, yPos);
-    const annexLine3Width = doc.getTextWidth(annexLine3Text);
-    doc.setFont("helvetica", "bold");
-    doc.text(annexHandlingCompanyName, margin + annexLine3Width + 3, yPos);
-    yPos += 6;
-
-    // "having its principal office at·" and address on same line (dynamic)
-    doc.setFont("helvetica", "normal");
-    const annexLine4Text = "having its principal office at·";
-    // Build address from client details
-    let annexPrincipalOffice = getPrincipalOfficeLabel(clientDetails, submission) || "—";
-    doc.text(annexLine4Text, margin, yPos);
-    const annexLine4Width = doc.getTextWidth(annexLine4Text);
-    doc.setFont("helvetica", "bold");
-    doc.text(annexPrincipalOffice, margin + annexLine4Width + 3, yPos);
-    yPos += 6;
-
-    // "the Carrier and/or the Handling Company may hereinafter be referred to as the "Party(ies)" effective from:"
-    doc.setFont("helvetica", "normal");
-    yPos = addText(
-      'the Carrier and/or the Handling Company may hereinafter be referred to as the "Party(ies)" effective from:',
-      margin,
-      yPos,
-      { fontSize: 10 },
-    );
-    yPos += 6;
-
-    // "This Annex BX.X for"
-    const annexLine5Text = "This Annex BX.X for";
-    doc.text(annexLine5Text, margin, yPos);
-    yPos += 6;
-
-    // "the location(s):"
-    const annexLine6Text = "the location(s):";
-    doc.text(annexLine6Text, margin, yPos);
-    yPos += 6;
-
-    // "is valid from:"
-    const annexLine7Text = "is valid from:";
-    doc.text(annexLine7Text, margin, yPos);
-    yPos += 6;
-
-    // "and replaces:"
-    const annexLine8Text = "and replaces:";
-    doc.text(annexLine8Text, margin, yPos);
-    yPos += 10;
+    /* ------------------------------ ANNEX A ------------------------------ */
+    yPos = drawParagraphBanner(doc, yPos, "ANNEX A — SELECTED SERVICES");
 
     if (submission.checkbox_selections) {
       const serviceTypes = submission.checkbox_selections.serviceTypes || {};
@@ -1438,39 +922,51 @@ export const generateSubmissionPDF = async (
       if (serviceTypes.cargo) serviceTypeNames.push("Cargo");
 
       if (serviceTypeNames.length > 0) {
-        doc.setFontSize(11);
-        doc.setFont("helvetica", "bold");
-        doc.text(`Service Types: ${serviceTypeNames.join(", ")}`, margin, yPos);
-        yPos += 8;
+        yPos = addText(
+          `Service types: ${serviceTypeNames.join(", ")}`,
+          margin,
+          yPos,
+          { fontSize: 10, fontStyle: "bold" },
+        );
+        yPos += 3;
       }
 
-      // Process Annex A sections
-      Object.keys(submission.checkbox_selections)
-        .filter(
-          (mainKey) => mainKey !== "serviceTypes" && /^\d+$/.test(mainKey),
-        )
-        .sort((a, b) => parseInt(a) - parseInt(b))
+      // Process Annex A sections. Selections live on "1.1" / "2.1" keys.
+      const annexAByArticle = collectAnnexASelections(
+        submission.checkbox_selections,
+      );
+      Object.keys(annexAByArticle)
+        .sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
         .forEach((mainSectionNum) => {
-          const mainSection = submission.checkbox_selections[mainSectionNum];
+          const mainSection = annexAByArticle[mainSectionNum];
           if (!mainSection || typeof mainSection !== "object") return;
 
+          const mainTitle = finalSectionTitles[mainSectionNum] || "";
+          yPos = drawSectionHeading(
+            doc,
+            yPos,
+            `SECTION ${mainSectionNum}. ${mainTitle}`.trim(),
+          );
+
           Object.keys(mainSection)
-            .sort()
+            .sort(naturalSort)
             .forEach((sectionKey) => {
               const sectionData = mainSection[sectionKey];
               if (!sectionData || Object.keys(sectionData).length === 0) return;
 
-              checkPageBreak(30);
-              const sectionTitle =
-                finalSectionTitles[sectionKey] || `Section ${sectionKey}`;
-              doc.setFontSize(11);
-              doc.setFont("helvetica", "bold");
-              doc.text(sectionTitle, margin, yPos);
-              yPos += 6;
+              const sectionTitle = finalSectionTitles[sectionKey] || "";
+              yPos = drawSubsectionRow(
+                doc,
+                yPos,
+                sectionKey,
+                subsectionLabel(sectionKey, sectionTitle) ||
+                  sectionTitle ||
+                  sectionKey,
+              );
 
               const items = Object.keys(sectionData)
                 .filter((key) => sectionData[key] === true)
-                .sort();
+                .sort(naturalSort);
 
               const mainItems = [];
               const groupedSubItems = {};
@@ -1522,103 +1018,153 @@ export const generateSubmissionPDF = async (
                 groupedSubItems[item] = [];
               });
 
-              mainItems.sort();
+              Object.keys(groupedSubItems).forEach((parent) => {
+                if (!mainItems.includes(parent)) mainItems.push(parent);
+              });
+              mainItems.sort(naturalSort);
+
+              const markerForKey = (key) => {
+                const letter = String(key).match(/\.([a-z])$/i);
+                if (letter) return `(${letter[1].toLowerCase()})`;
+                const num = String(key).match(/\.(\d+)$/);
+                if (num) return `${num[1]}.`;
+                return "";
+              };
+
+              // Rows with the same base clause number are merged into one row.
+              const clauseRows = new Map();
 
               mainItems.forEach((itemKey) => {
-                checkPageBreak(15);
                 const subItems = groupedSubItems[itemKey] || [];
 
-                // Construct full item key: itemKey in checkbox_selections is relative to section
-                // e.g., sectionKey="1.1", itemKey="1" -> fullKey="1.1.1"
-                // But if itemKey already contains dots (like "1.1.1"), use it directly
+                // itemKey in checkbox_selections is relative to the section
+                // (sectionKey="1.1", itemKey="1" -> "1.1.1"), unless it already
+                // contains dots (like "1.1.1"), then it is used directly.
                 let fullItemKey =
                   itemKey.includes(".") && itemKey.split(".").length >= 3
                     ? itemKey
                     : `${sectionKey}.${itemKey}`;
                 fullItemKey = normalizeKeyForTemplate(fullItemKey, sectionKey);
 
-                // Try to get item text using the full key (normalized to match template keys)
                 let itemText = getItemText(fullItemKey);
-                // Fallback: try direct lookup if full key didn't work
                 if (!itemText) {
                   itemText = getItemText(
                     normalizeKeyForTemplate(itemKey, sectionKey),
                   );
                 }
 
-                // Debug logging
                 if (!itemText) {
                   console.warn(
                     `[PDF] No text found for item: ${itemKey} (fullKey: ${fullItemKey})`,
-                    {
-                      itemTextMapSize: Object.keys(finalItemTextMap).length,
-                      sampleKeys: Object.keys(finalItemTextMap).slice(0, 10),
-                      sectionKey: sectionKey,
-                      triedKeys: [fullItemKey, itemKey],
-                    },
                   );
                 }
 
-                // Display the item with its original key (as shown in frontend) and text
-                doc.setFontSize(10);
-                doc.setFont("helvetica", "normal");
-                const itemLine = `• ${itemKey}${itemText ? ": " + itemText : ""}`;
-                yPos = addText(itemLine, margin + 5, yPos, { fontSize: 10 });
+                const lines = parseClauseLines(itemText || "");
+                subItems.sort(naturalSort).forEach((subItem) => {
+                  let fullSubItemKey =
+                    subItem.includes(".") && subItem.split(".").length >= 4
+                      ? subItem
+                      : `${fullItemKey}.${subItem.split(".").pop()}`;
+                  fullSubItemKey = normalizeKeyForTemplate(
+                    fullSubItemKey,
+                    sectionKey,
+                  );
 
-                if (subItems.length > 0) {
-                  subItems.sort().forEach((subItem) => {
-                    checkPageBreak(10);
-                    // Construct full sub-item key
-                    // If subItem is like "1.1" relative to section "1.1", it becomes "1.1.1.1"
-                    // If subItem is already full like "1.1.1.1", use it directly
-                    let fullSubItemKey =
-                      subItem.includes(".") && subItem.split(".").length >= 4
-                        ? subItem
-                        : `${fullItemKey}.${subItem.split(".").pop()}`;
-                    fullSubItemKey = normalizeKeyForTemplate(
-                      fullSubItemKey,
-                      sectionKey,
+                  let subItemText = getItemText(fullSubItemKey);
+                  if (!subItemText) {
+                    subItemText = getItemText(
+                      normalizeKeyForTemplate(
+                        `${fullItemKey}.${subItem.split(".").pop()}`,
+                        sectionKey,
+                      ),
                     );
+                  }
+                  if (!subItemText) {
+                    subItemText = getItemText(
+                      normalizeKeyForTemplate(subItem, sectionKey),
+                    );
+                  }
 
-                    let subItemText = getItemText(fullSubItemKey);
-                    // Fallback: try with parent + sub suffix
-                    if (!subItemText) {
-                      subItemText = getItemText(
-                        normalizeKeyForTemplate(
-                          `${fullItemKey}.${subItem.split(".").pop()}`,
-                          sectionKey,
-                        ),
-                      );
+                  const marker = markerForKey(fullSubItemKey);
+                  const parsed = parseClauseLines(subItemText || "");
+                  if (!parsed.length) {
+                    if (marker) {
+                      lines.push({
+                        indent: /^\d+\.$/.test(marker) ? 2 : 1,
+                        text: marker,
+                      });
                     }
-                    // Fallback: try direct lookup (normalized)
-                    if (!subItemText) {
-                      subItemText = getItemText(
-                        normalizeKeyForTemplate(subItem, sectionKey),
-                      );
+                    return;
+                  }
+                  parsed.forEach((line, index) => {
+                    let value = line.text;
+                    const hasMarker =
+                      /^\([a-z]\)(?:\s|$)/i.test(value) ||
+                      /^(?:[1-9]|1\d|20)\.\s/.test(value);
+                    if (index === 0 && marker && !hasMarker) {
+                      value = `${marker} ${value}`.trim();
                     }
-
-                    const subItemLine = `  - ${subItem}${subItemText ? ": " + subItemText : ""}`;
-                    yPos = addText(subItemLine, margin + 10, yPos, {
-                      fontSize: 9,
-                    });
+                    const indent = /^(?:[1-9]|1\d|20)\.\s/.test(value)
+                      ? 2
+                      : Math.max(line.indent || 0, 1);
+                    lines.push({ indent, text: value });
                   });
+                });
+
+                // Keep only the clean number in the left column; move any
+                // glued marker such as "(a)" into the text.
+                const { number: baseNumber, markers } =
+                  splitClauseNumber(fullItemKey);
+                prefixKeyMarker(lines, markers);
+                if (clauseRows.has(baseNumber)) {
+                  clauseRows.get(baseNumber).push(...lines);
+                } else {
+                  clauseRows.set(baseNumber, lines);
                 }
               });
 
-              yPos += 5;
+              clauseRows.forEach((rowLines, num) => {
+                yPos = drawClauseRow(doc, yPos, num, rowLines);
+              });
             });
         });
     }
 
-    checkPageBreak(30);
+    try {
+      const annexATemplate = await fetchAnnexATemplateData(
+        templateYear,
+        templateName,
+      );
+      const annexAArticles = buildArticlesFromTemplate(annexATemplate.fields, {
+        sort: true,
+      });
+      annexAArticles.forEach((article) => {
+        const nonEmptySections = orderNumberedSections(article.sections).filter(hasContent);
+        if (!nonEmptySections.length) return;
+        yPos = drawParagraphBanner(
+          doc,
+          yPos,
+          `SECTION ${article.articleNumber}. ${(article.articleTitle || "").toUpperCase()}`.trim(),
+        );
+        nonEmptySections.forEach((section) => {
+          if (section.sectionNumber && section.sectionTitle) {
+            yPos = drawSubsectionRow(
+              doc,
+              yPos,
+              section.sectionNumber,
+              section.sectionTitle,
+            );
+          }
+          renderHtmlBody(section.content);
+        });
+        yPos += 2;
+      });
+    } catch (error) {
+      console.error("Error rendering Annex A template:", error);
+    }
 
-    // Annex B Section
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "bold");
-    doc.text("Annex B - Additional Information", pageWidth / 2, yPos, {
-      align: "center",
-    });
-    yPos += 10;
+    /* ------------------------------ ANNEX B ------------------------------ */
+    yPos = drawParagraphBanner(doc, yPos, "ANNEX B — AGREED TERMS");
 
     try {
       // Fetch Annex B variables first (needed for substitution in template)
@@ -1629,31 +1175,8 @@ export const generateSubmissionPDF = async (
       const templateVariables =
         variablesResponse.data?.data?.templateVariables || [];
 
-      // [PDF Annex B] Debug: log variables available for tables
-      console.log("[PDF Annex B] Variables keys:", Object.keys(variables));
-      console.log(
-        "[PDF Annex B] aircraft_options present:",
-        !!variables.aircraft_options,
-        typeof variables.aircraft_options,
-        variables.aircraft_options
-          ? typeof variables.aircraft_options === "string"
-            ? variables.aircraft_options.substring(0, 80)
-            : JSON.stringify(variables.aircraft_options).substring(0, 80)
-          : "",
-      );
-      console.log(
-        "[PDF Annex B] additional_charges present:",
-        !!variables.additional_charges,
-        typeof variables.additional_charges,
-        variables.additional_charges
-          ? typeof variables.additional_charges === "string"
-            ? variables.additional_charges.substring(0, 80)
-            : JSON.stringify(variables.additional_charges).substring(0, 80)
-          : "",
-      );
-      console.log("[PDF Annex B] templateVariables:", templateVariables);
-
       // Fetch Annex B Section Template and render content with tables (like Add New SGHA Annex B step)
+      let annexBBodyRendered = false;
       try {
         const annexBUrl = `/sgha_template_content/get/${templateYear}/Annex B/Section Template`;
         const annexBParams = templateName
@@ -1666,206 +1189,86 @@ export const generateSubmissionPDF = async (
           const content = annexBTemplateRes.data.data.content;
           const parsedContent =
             typeof content === "string" ? JSON.parse(content) : content;
-          console.log(
-            "[PDF Annex B] Template field count:",
-            parsedContent.length,
-            "field types:",
-            parsedContent
-              .map((f) => f && f.type)
-              .filter(Boolean)
-              .slice(0, 20),
-          );
-          const editors = parsedContent.filter((f) => f && f.type === "editor");
-          editors.forEach((ed, i) => {
-            const html = (ed.value ?? ed.content ?? "").substring(0, 400);
-            console.log(
-              `[PDF Annex B] Editor ${i} length=${(ed.value || ed.content || "").length} contains {{ =${(ed.value || ed.content || "").includes("{{")} snippet=`,
-              html,
-            );
-          });
-          const sections = [];
-          let currentArticle = null;
-          let currentSection = null;
-          let currentMainSection = null;
 
-          parsedContent.forEach((field, index) => {
-            if (!field || !field.type) return;
-
-            if (field.type === "heading_no") {
-              const sectionNum = String(field.value ?? "");
-
-              // Top-level article (1,2,3...) – followed by heading OR subheading
-              if (
-                !sectionNum.includes(".") &&
-                ["1", "2", "3", "4", "5", "6", "7", "8", "9"].includes(
-                  sectionNum,
-                )
-              ) {
-                const nextF = parsedContent[index + 1];
-                if (
-                  nextF &&
-                  (nextF.type === "heading" || nextF.type === "subheading")
-                ) {
-                  currentMainSection = sectionNum;
-                  currentSection = null; // CRITICAL: reset so editors attach to new article
-                  currentArticle = {
-                    articleNumber: sectionNum,
-                    articleTitle: nextF.value ?? "",
-                    sections: [],
-                  };
-                  sections.push(currentArticle);
-                  console.log("[PDF Annex B] Created article", {
-                    articleNumber: sectionNum,
-                    articleTitle: currentArticle.articleTitle,
-                  });
-                  return;
-                }
-              }
-
-              // Subsection (e.g. 1.1, 2.3)
-              if (sectionNum.includes(".") && currentMainSection) {
-                const nextF = parsedContent[index + 1];
-                if (nextF && nextF.type === "subheading") {
-                  currentSection = {
-                    sectionNumber: sectionNum,
-                    sectionTitle: nextF.value ?? "",
-                    content: null,
-                  };
-                  if (currentArticle)
-                    currentArticle.sections.push(currentSection);
-                  return;
-                }
-              }
-            }
-
-            if (field.type === "subheading_no" && currentMainSection) {
-              const headingNo = String(field.value ?? "");
-              if (headingNo.includes(".")) {
-                const nextF = parsedContent[index + 1];
-                const sectionTitle =
-                  nextF && nextF.type === "subheading"
-                    ? (nextF.value ?? "")
-                    : "";
-                currentSection = {
-                  sectionNumber: headingNo,
-                  sectionTitle,
-                  content: null,
-                };
-                if (currentArticle)
-                  currentArticle.sections.push(currentSection);
-                return;
-              }
-            }
-
-            if (field.type === "editor" && currentArticle) {
-              const html = field.value ?? field.content ?? "";
-              if (!html) return;
-              if (currentSection) {
-                // Append to existing section content
-                currentSection.content = currentSection.content
-                  ? currentSection.content + "<br/>" + html
-                  : html;
-              } else {
-                // Editor directly under article with no subsection – create a default section
-                currentArticle.sections.push({
-                  sectionNumber: null,
-                  sectionTitle: null,
-                  content: html,
-                });
-              }
-            }
+          const sections = buildArticlesFromTemplate(parsedContent, {
+            annexAAware: true,
           });
 
-          // [PDF Annex B] Debug: log parsed sections and whether content has {{ placeholders
-          console.log("[PDF Annex B] Parsed sections count:", sections.length);
-          sections.forEach((art) => {
-            art.sections.forEach((sec) => {
-              const content = sec.content || "";
-              const hasPlaceholders =
-                typeof content === "string" && content.includes("{{");
-              const hasAircraft =
-                typeof content === "string" && content.includes("aircraft");
-              const hasAdditional =
-                typeof content === "string" && content.includes("additional");
-              console.log(
-                `[PDF Annex B] Section ${art.articleNumber}.${sec.sectionNumber || "?"} contentLength=${content.length} has{{=${hasPlaceholders} hasAircraft=${hasAircraft} hasAdditional=${hasAdditional}`,
+          if (DEBUG_RAW_ANNEX_B) {
+            sections
+              .filter((a) => Number(a.articleNumber) >= 9)
+              .forEach((a) =>
+                a.sections.forEach((s) =>
+                  console.log("[RAW]", a.articleNumber, s.sectionNumber, s.content),
+                ),
               );
-              if (content.length > 0 && content.length < 500) {
-                console.log("[PDF Annex B] Full content:", content);
-              } else if (content.length >= 500) {
-                console.log(
-                  "[PDF Annex B] Content snippet (first 500):",
-                  content.substring(0, 500),
-                );
-              }
-            });
-          });
+          }
 
           const colWidthsAircraft = [55, 35, 30, 35];
           const colWidthsCharges = [25, 55, 45, 40];
 
-          // Render Annex B sections: split each section content by variables and render text + tables
-          sections.forEach((article) => {
-            // Skip Annex B articles that have no actual text/table content to avoid heading-only pages
-            const nonEmptySections = (article.sections || []).filter(
-              (s) => s && s.content && String(s.content).trim().length > 0,
-            );
-            if (nonEmptySections.length === 0) {
-              console.log("[PDF Annex B] Skipping article with no content", {
-                articleNumber: article.articleNumber,
-                articleTitle: article.articleTitle,
-              });
-              return;
+          // List numbering carries across all sections of one article, so a plain
+          // <ol> in Article 14 is drawn 14.1, 14.2 ... and Annex A sections that
+          // follow Article 1 continue Article 1's counter (1.2, 1.3 ...).
+          let bodyNumbering = createNumberingContext("");
+
+          // Annex A sections inside an article are drawn 1, 2, 3… rather than in stored order.
+          orderAnnexASectionRun(sections).forEach((article) => {
+            if (!article.annexASection) {
+              bodyNumbering = createNumberingContext(article.articleNumber);
             }
 
-            checkPageBreak(30);
-            doc.setFontSize(14);
-            doc.setFont("helvetica", "bold");
-            const articleTitleText = `Article ${article.articleNumber}: ${(article.articleTitle || "").toUpperCase()}`;
-            doc.text(articleTitleText, pageWidth / 2, yPos, {
-              align: "center",
-            });
-            yPos += 10;
+            // Skip Annex B articles that have no actual text/table content to avoid heading-only pages
+            const nonEmptySections = orderNumberedSections(article.sections).filter(hasContent);
+            if (nonEmptySections.length === 0) return;
 
+            annexBBodyRendered = true;
+            if (article.annexASection) {
+              yPos = drawSectionHeading(
+                doc,
+                yPos,
+                `SECTION ${article.articleNumber}. ${article.articleTitle || ""}`.trim(),
+              );
+            } else {
+              yPos = drawParagraphBanner(
+                doc,
+                yPos,
+                `ARTICLE ${article.articleNumber}: ${(article.articleTitle || "").toUpperCase()}`,
+              );
+            }
+
+            const seenSectionContent = new Set();
             nonEmptySections.forEach((section) => {
-              // Reserve more space so section heading and first lines of content don't split across pages
-              checkPageBreak(50);
+              const contentKey = sectionContentKey(section);
+              if (seenSectionContent.has(contentKey)) return;
+              seenSectionContent.add(contentKey);
               if (section.sectionNumber && section.sectionTitle) {
-                doc.setFontSize(11);
-                doc.setFont("helvetica", "bold");
-                doc.text(
-                  `${section.sectionNumber} ${section.sectionTitle}`,
-                  margin,
+                yPos = drawSubsectionRow(
+                  doc,
                   yPos,
+                  section.sectionNumber,
+                  section.sectionTitle,
                 );
-                yPos += 7;
               }
               if (section.content) {
                 const parts = splitAnnexBContentByVariables(section.content);
-                console.log(
-                  `[PDF Annex B] Section ${section.sectionNumber || "n/a"} parts count=${parts.length}`,
-                  parts.map((p) => ({
-                    isTable: p.isTable,
-                    tableType: p.tableType,
-                    variableName: p.variableName,
-                    contentLen: (p.content || "").length,
-                  })),
-                );
                 doc.setFontSize(10);
                 doc.setFont("helvetica", "normal");
-                parts.forEach((part, partIndex) => {
+                parts.forEach((part) => {
                   if (!part.isTable) {
-                    const plainText = stripHTML(part.content || "");
-                    if (plainText.trim()) {
-                      yPos = addText(plainText, margin, yPos, { fontSize: 10 });
-                      yPos += 5;
+                    const blocks = collapseRepeatedArticleBlocks(
+                      renumberRepeatedParagraphs(
+                        parseAgreementDocument(part.content || "", {
+                          numbering: bodyNumbering,
+                        }),
+                      ),
+                    );
+                    if (blocks.length) {
+                      yPos = drawAgreementBlocks(doc, yPos, blocks);
                     }
                     return;
                   }
                   if (part.tableType === "annex_a_selection") {
-                    console.log(
-                      "[PDF Annex B] Rendering annex_a_selection text",
-                    );
                     yPos = addText(
                       "(See Annex A - Selected Services above)",
                       margin,
@@ -1876,33 +1279,9 @@ export const generateSubmissionPDF = async (
                     return;
                   }
                   if (part.tableType === "aircraft_options") {
-                    console.log(
-                      "[PDF Annex B] Rendering aircraft_options table, data=",
-                      variables.aircraft_options != null,
-                    );
                     try {
                       let data = variables.aircraft_options;
-                      // Even if no variable data was saved, still render an empty table so structure matches Annex B UI.
-                      if (data == null) {
-                        console.log(
-                          "[PDF Annex B] aircraft_options is null/undefined, drawing empty table structure",
-                        );
-                        checkPageBreak(25);
-                        yPos = drawSimpleTable(
-                          margin,
-                          yPos,
-                          [
-                            "Aircraft Company",
-                            "Region",
-                            "MOTW",
-                            "Limit Per Incident",
-                          ],
-                          [],
-                          colWidthsAircraft,
-                          { fontSize: 9, rowHeight: 7 },
-                        );
-                        return;
-                      }
+                      if (data == null) return;
                       data = typeof data === "string" ? JSON.parse(data) : data;
                       const rows = Array.isArray(data)
                         ? data.map((a) => [
@@ -1919,45 +1298,21 @@ export const generateSubmissionPDF = async (
                               data.Limit_per_incident || "-",
                             ],
                           ];
-                      if (rows.length === 0) {
-                        console.log(
-                          "[PDF Annex B] aircraft_options rows empty, drawing empty table",
-                        );
-                        checkPageBreak(25);
-                        yPos = drawSimpleTable(
-                          margin,
-                          yPos,
-                          [
-                            "Aircraft Company",
-                            "Region",
-                            "MOTW",
-                            "Limit Per Incident",
-                          ],
-                          [],
-                          colWidthsAircraft,
-                          { fontSize: 9, rowHeight: 7 },
-                        );
-                      } else {
-                        console.log(
-                          "[PDF Annex B] drawSimpleTable aircraft_options rows=",
-                          rows.length,
-                          rows,
-                        );
-                        checkPageBreak(40);
-                        yPos = drawSimpleTable(
-                          margin,
-                          yPos,
-                          [
-                            "Aircraft Company",
-                            "Region",
-                            "MOTW",
-                            "Limit Per Incident",
-                          ],
-                          rows,
-                          colWidthsAircraft,
-                          { fontSize: 9, rowHeight: 7 },
-                        );
-                      }
+                      if (rows.length === 0) return;
+                      checkPageBreak(40);
+                      yPos = drawSimpleTable(
+                        margin,
+                        yPos,
+                        [
+                          "Aircraft Company",
+                          "Region",
+                          "MOTW",
+                          "Limit Per Incident",
+                        ],
+                        rows,
+                        colWidthsAircraft,
+                        { fontSize: 9, rowHeight: 7 },
+                      );
                     } catch (e) {
                       console.error(
                         "[PDF Annex B] Failed to render aircraft_options table, falling back to text:",
@@ -1974,33 +1329,9 @@ export const generateSubmissionPDF = async (
                     return;
                   }
                   if (part.tableType === "additional_charges") {
-                    console.log(
-                      "[PDF Annex B] Rendering additional_charges table, data=",
-                      variables.additional_charges != null,
-                    );
                     try {
                       let data = variables.additional_charges;
-                      // Even if no variable data was saved, still render an empty table so structure matches Annex B UI.
-                      if (data == null) {
-                        console.log(
-                          "[PDF Annex B] additional_charges is null/undefined, drawing empty table structure",
-                        );
-                        checkPageBreak(25);
-                        yPos = drawSimpleTable(
-                          margin,
-                          yPos,
-                          [
-                            "Serial No.",
-                            "Service",
-                            "Applicable for",
-                            "Unit of Measure",
-                          ],
-                          [],
-                          colWidthsCharges,
-                          { fontSize: 9, rowHeight: 7 },
-                        );
-                        return;
-                      }
+                      if (data == null) return;
                       data = typeof data === "string" ? JSON.parse(data) : data;
                       const arr = Array.isArray(data)
                         ? data
@@ -2013,44 +1344,21 @@ export const generateSubmissionPDF = async (
                         c.Charge_type || "-",
                         c.unit_or_measure || "-",
                       ]);
-                      if (rows.length === 0) {
-                        console.log(
-                          "[PDF Annex B] additional_charges rows empty, drawing empty table",
-                        );
-                        checkPageBreak(25);
-                        yPos = drawSimpleTable(
-                          margin,
-                          yPos,
-                          [
-                            "Serial No.",
-                            "Service",
-                            "Applicable for",
-                            "Unit of Measure",
-                          ],
-                          [],
-                          colWidthsCharges,
-                          { fontSize: 9, rowHeight: 7 },
-                        );
-                      } else {
-                        console.log(
-                          "[PDF Annex B] drawSimpleTable additional_charges rows=",
-                          rows.length,
-                        );
-                        checkPageBreak(15 + rows.length * 7);
-                        yPos = drawSimpleTable(
-                          margin,
-                          yPos,
-                          [
-                            "Serial No.",
-                            "Service",
-                            "Applicable for",
-                            "Unit of Measure",
-                          ],
-                          rows,
-                          colWidthsCharges,
-                          { fontSize: 9, rowHeight: 7 },
-                        );
-                      }
+                      if (rows.length === 0) return;
+                      checkPageBreak(15 + rows.length * 7);
+                      yPos = drawSimpleTable(
+                        margin,
+                        yPos,
+                        [
+                          "Serial No.",
+                          "Service",
+                          "Applicable for",
+                          "Unit of Measure",
+                        ],
+                        rows,
+                        colWidthsCharges,
+                        { fontSize: 9, rowHeight: 7 },
+                      );
                     } catch (e) {
                       console.error(
                         "[PDF Annex B] Failed to render additional_charges table, falling back to text:",
@@ -2068,6 +1376,7 @@ export const generateSubmissionPDF = async (
                   }
                   if (part.tableType === "variable" && part.variableName) {
                     const val = variables[part.variableName];
+                    if (val === undefined || val === null || val === "") return;
                     const displayName = part.variableName
                       .replace(/_/g, " ")
                       .replace(/\b\w/g, (l) => l.toUpperCase());
@@ -2075,20 +1384,16 @@ export const generateSubmissionPDF = async (
                     doc.text(`${displayName}:`, margin, yPos);
                     doc.setFont("helvetica", "normal");
                     const valueStr =
-                      val === undefined || val === null
-                        ? "N/A"
-                        : typeof val === "object"
-                          ? JSON.stringify(val)
-                          : String(val);
+                      typeof val === "object" ? JSON.stringify(val) : String(val);
                     yPos += 4;
                     yPos = addText(valueStr, margin, yPos, { fontSize: 10 });
-                    yPos += 5;
+                    yPos += 3;
                   }
                 });
                 yPos += 3;
               }
             });
-            yPos += 8;
+            yPos += 2;
           });
         }
       } catch (annexBErr) {
@@ -2108,15 +1413,15 @@ export const generateSubmissionPDF = async (
         const customVars = templateVariables.filter(
           (v) => !reservedVariables.includes(v),
         );
-        if (customVars.length > 0) {
-          checkPageBreak(15);
-          doc.setFontSize(11);
-          doc.setFont("helvetica", "bold");
-          doc.text("Additional details", margin, yPos);
-          yPos += 6;
-          customVars.forEach((varName) => {
+        const filledCustomVars = customVars.filter((varName) => {
+          const varValue = variables[varName];
+          return varValue !== undefined && varValue !== null && varValue !== "";
+        });
+        if (filledCustomVars.length > 0) {
+          yPos = drawParagraphBanner(doc, yPos, "ADDITIONAL DETAILS");
+          filledCustomVars.forEach((varName) => {
             checkPageBreak(10);
-            const varValue = variables[varName] || "";
+            const varValue = variables[varName];
             const displayName = varName
               .replace(/_/g, " ")
               .replace(/\b\w/g, (l) => l.toUpperCase());
@@ -2127,18 +1432,18 @@ export const generateSubmissionPDF = async (
             const valueStr =
               typeof varValue === "object"
                 ? JSON.stringify(varValue)
-                : String(varValue || "N/A");
+                : String(varValue);
             yPos = addText(valueStr, margin + 40, yPos, {
               fontSize: 10,
               maxWidth: maxWidth - 40,
             });
-            yPos += 5;
+            yPos += 3;
           });
-          yPos += 5;
+          yPos += 2;
         }
 
-        // Display aircraft options if available
-        if (variables.aircraft_options) {
+        // Bullet lists only when the Annex B template did not already draw these tables.
+        if (!annexBBodyRendered && variables.aircraft_options) {
           checkPageBreak(20);
           doc.setFontSize(11);
           doc.setFont("helvetica", "bold");
@@ -2182,7 +1487,7 @@ export const generateSubmissionPDF = async (
         }
 
         // Display additional charges if available
-        if (variables.additional_charges) {
+        if (!annexBBodyRendered && variables.additional_charges) {
           checkPageBreak(20);
           doc.setFontSize(11);
           doc.setFont("helvetica", "bold");
@@ -2245,135 +1550,23 @@ export const generateSubmissionPDF = async (
       });
     }
 
-    // Load logo image (before calculating total pages)
-    const loadLogo = () => {
-      return new Promise((resolve, reject) => {
-        // First, try to fetch the image as a blob and convert to data URL
-        // This works better with webpack-processed imports
-        const tryFetch = (imagePath) => {
-          return fetch(imagePath)
-            .then((response) => {
-              if (!response.ok) throw new Error("Failed to fetch");
-              return response.blob();
-            })
-            .then((blob) => {
-              return new Promise((resolveBlob, rejectBlob) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolveBlob(reader.result);
-                reader.onerror = rejectBlob;
-                reader.readAsDataURL(blob);
-              });
-            });
-        };
-
-        // Try loading via Image first (for CORS issues)
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.onload = () => {
-          try {
-            // Convert image to base64 data URL
-            const canvas = document.createElement("canvas");
-            canvas.width = img.width;
-            canvas.height = img.height;
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(img, 0, 0);
-            const dataURL = canvas.toDataURL("image/png");
-            resolve(dataURL);
-          } catch (error) {
-            // If canvas conversion fails, try fetch
-            tryFetch(logoImage)
-              .then(resolve)
-              .catch(() => {
-                // Final fallback: try public path
-                tryFetch("/logo192.png").then(resolve).catch(reject);
-              });
-          }
-        };
-        img.onerror = () => {
-          // If Image load fails, try fetch
-          tryFetch(logoImage)
-            .then(resolve)
-            .catch(() => {
-              // Final fallback: try public path
-              tryFetch("/logo192.png").then(resolve).catch(reject);
-            });
-        };
-        // Try to load from the imported path
-        img.src = logoImage;
-      });
-    };
-
-    // Add logo and footer to all pages
+    // Letterhead (logo, top right) and page number on every page.
+    let logoDataURL = null;
     try {
-      const logoDataURL = await loadLogo();
-      const maxLogoSize = 30; // Maximum width/height in mm
-
-      // Get image dimensions to calculate aspect ratio
-      const getImageDimensions = (dataURL) => {
-        return new Promise((resolve) => {
-          const img = new Image();
-          img.onload = () => {
-            resolve({ width: img.width, height: img.height });
-          };
-          img.onerror = () => {
-            // Default dimensions if image fails to load
-            resolve({ width: 1, height: 1 });
-          };
-          img.src = dataURL;
-        });
-      };
-
-      const imgDims = await getImageDimensions(logoDataURL);
-      const aspectRatio = imgDims.width / imgDims.height;
-
-      // Calculate dimensions that fit within maxLogoSize while maintaining aspect ratio
-      let logoWidth, logoHeight;
-      if (aspectRatio >= 1) {
-        // Width is greater or equal to height (landscape or square)
-        logoWidth = maxLogoSize;
-        logoHeight = maxLogoSize / aspectRatio;
-      } else {
-        // Height is greater than width (portrait)
-        logoHeight = maxLogoSize;
-        logoWidth = maxLogoSize * aspectRatio;
-      }
-
-      const logoX = margin;
-      const logoY = margin;
-
-      // Get final page count after all content is added
-      const finalTotalPages = doc.internal.pages.length - 1;
-
-      for (let i = 1; i <= finalTotalPages; i++) {
-        doc.setPage(i);
-
-        // Add logo to top-left with proper aspect ratio (contain mode)
-        doc.addImage(logoDataURL, "PNG", logoX, logoY, logoWidth, logoHeight);
-
-        // Add page number at bottom center with proper padding
-        // Position footer text baseline at pageHeight - footerPadding
-        // This ensures footer text is visible and content doesn't overlap
-        doc.setFontSize(8);
-        doc.setFont("helvetica", "normal");
-        const footerY = pageHeight - footerPadding;
-        doc.text(`Page ${i} of ${finalTotalPages}`, pageWidth / 2, footerY, {
-          align: "center",
+      const response = await fetch(logoImage);
+      if (response.ok) {
+        const blob = await response.blob();
+        logoDataURL = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
         });
       }
     } catch (error) {
-      console.error("Error loading logo:", error);
-      // If logo fails to load, just add page numbers
-      const finalTotalPages = doc.internal.pages.length - 1;
-      for (let i = 1; i <= finalTotalPages; i++) {
-        doc.setPage(i);
-        doc.setFontSize(8);
-        doc.setFont("helvetica", "normal");
-        const footerY = pageHeight - footerPadding;
-        doc.text(`Page ${i} of ${finalTotalPages}`, pageWidth / 2, footerY, {
-          align: "center",
-        });
-      }
+      console.error("Error loading letterhead logo:", error);
     }
+    applyLetterhead(doc, logoDataURL);
 
     const pdfBlob = doc.output("blob");
     if (openInNewTab) {

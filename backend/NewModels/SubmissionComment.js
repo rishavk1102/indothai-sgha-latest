@@ -17,6 +17,11 @@ const SubmissionComment = sequelize.define('SubmissionComment', {
     },
     onDelete: 'CASCADE',
   },
+  session_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    comment: 'Null for comments written before discussion sessions existed',
+  },
   parent_comment_id: {
     type: DataTypes.INTEGER,
     allowNull: true,

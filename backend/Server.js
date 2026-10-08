@@ -34,10 +34,15 @@ const SghaTemplateContentRoutes = require("./Routes/SghaTemplateContentRoutes");
 const TemplateYearsRoutes = require("./Routes/TemplateYearsRoutes");
 const ClientAnnexASubmissionRoutes = require("./Routes/ClientAnnexASubmissionRoutes");
 const ClientAnnexBSubmissionRoutes = require("./Routes/ClientAnnexBSubmissionRoutes");
+const ClientCatalogRoutes = require("./Routes/ClientCatalogRoutes");
+const CommentNotificationRoutes = require("./Routes/CommentNotificationRoutes");
 const PdfUploadsRoutes = require("./Routes/PdfUploadsRoutes");
+const ensureCommentSchema = require("./services/ensureCommentSchema");
 
-// Import SubmissionEditHistory model so it is registered with Sequelize for sync
+// Import models so they are registered with Sequelize for sync
 require("./NewModels/SubmissionEditHistory");
+require("./NewModels/CommentSession");
+require("./NewModels/CommentNotification");
 
 // Import association initializer
 const createUserAssociations = require("./Flow/UserAssociations");
@@ -116,6 +121,8 @@ app.use("/sgha_template_content", SghaTemplateContentRoutes);
 app.use("/template_years", TemplateYearsRoutes);
 app.use("/api/client", ClientAnnexASubmissionRoutes);
 app.use("/api/client", ClientAnnexBSubmissionRoutes);
+app.use("/api/client", ClientCatalogRoutes);
+app.use("/api/client", CommentNotificationRoutes);
 app.use("/api/pdf-uploads", PdfUploadsRoutes);
 
 // Test DB connection
@@ -278,6 +285,15 @@ async function connectDatabase(maxRetries = 3, retryDelay = 5000) {
     };
     
     await sequelize.sync();
+
+    try {
+      await ensureCommentSchema();
+    } catch (schemaError) {
+      console.error(
+        "Comment session column was not added. Discussion sessions need SubmissionComments.session_id:",
+        schemaError.message
+      );
+    }
     
     // Restore original logging
     sequelize.options.logging = originalLogging;

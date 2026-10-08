@@ -8,6 +8,13 @@ const SubmissionVariables = require("../NewModels/SubmissionVariables");
 const Template = require("../NewModels/Template");
 const SubmissionComment = require("../NewModels/SubmissionComment");
 const SubmissionEditHistory = require("../NewModels/SubmissionEditHistory");
+const {
+  assignSessionForNewComment,
+  buildSessionView,
+  closeCommentSession,
+  getOrCreateOpenSession,
+  notifyCommentParticipants,
+} = require("../services/commentThread");
 const { submissionThrottle } = require("../middleware/submissionThrottle");
 const { getIO } = require("../sockets/socketHandler");
 
@@ -1288,8 +1295,9 @@ router.post("/submissions/:submission_id/comments", async (req, res) => {
       return res.status(404).json({ message: "Submission not found" });
     }
 
+    let parentComment = null;
     if (parent_comment_id) {
-      const parentComment = await SubmissionComment.findOne({
+      parentComment = await SubmissionComment.findOne({
         where: { comment_id: parent_comment_id, submission_id },
       });
       if (!parentComment) {
@@ -1299,14 +1307,38 @@ router.post("/submissions/:submission_id/comments", async (req, res) => {
       }
     }
 
+    let sessionId;
+    try {
+      sessionId = await assignSessionForNewComment({
+        submissionId: submission_id,
+        parentComment,
+        actor: { sender_type, sender_id, sender_name },
+      });
+    } catch (sessionError) {
+      if (sessionError.status) {
+        return res.status(sessionError.status).json({
+          message: sessionError.publicMessage,
+          error: "Validation error",
+        });
+      }
+      throw sessionError;
+    }
+
     const comment = await SubmissionComment.create({
       submission_id: parseInt(submission_id, 10),
+      session_id: sessionId,
       parent_comment_id: parent_comment_id || null,
       sender_type,
       sender_id,
       sender_name,
       message,
     });
+
+    try {
+      await notifyCommentParticipants({ submission, comment });
+    } catch (notifyError) {
+      console.error("Failed to create comment notifications:", notifyError);
+    }
 
     const io = getIO();
     if (io) {
@@ -1315,6 +1347,9 @@ router.post("/submissions/:submission_id/comments", async (req, res) => {
         comment_id: comment.comment_id,
         sender_type,
         sender_name,
+        sender_id,
+        session_id: sessionId,
+        message: String(message).slice(0, 140),
       });
     }
 
@@ -1339,30 +1374,13 @@ router.get("/submissions/:submission_id/comments", async (req, res) => {
   try {
     const { submission_id } = req.params;
 
-    const comments = await SubmissionComment.findAll({
-      where: {
-        submission_id,
-        parent_comment_id: null,
-      },
-      include: [
-        {
-          model: SubmissionComment,
-          as: "replies",
-          separate: true,
-          order: [["created_at", "ASC"]],
-        },
-      ],
-      order: [["created_at", "ASC"]],
-    });
-
-    const totalCount = await SubmissionComment.count({
-      where: { submission_id },
-    });
+    const view = await buildSessionView(submission_id);
 
     return res.status(200).json({
       message: "Comments retrieved successfully",
-      data: comments,
-      total: totalCount,
+      data: view.data,
+      total: view.total,
+      sessions: view.sessions,
     });
   } catch (error) {
     console.error("Failed to retrieve comments:", error);
@@ -1372,6 +1390,83 @@ router.get("/submissions/:submission_id/comments", async (req, res) => {
     });
   }
 });
+
+/**
+ * POST /api/client/submissions/:submission_id/comment-sessions
+ * Open a discussion. Returns the existing open session when one is already active.
+ * Body: { sender_type, sender_id, sender_name }
+ */
+router.post("/submissions/:submission_id/comment-sessions", async (req, res) => {
+  try {
+    const { submission_id } = req.params;
+    const { sender_type, sender_id, sender_name } = req.body;
+
+    if (!sender_type || !sender_id || !sender_name) {
+      return res.status(400).json({
+        message: "sender_type, sender_id, and sender_name are required",
+        error: "Validation error",
+      });
+    }
+    if (!["Client", "Employee"].includes(sender_type)) {
+      return res.status(400).json({
+        message: "sender_type must be Client or Employee",
+        error: "Validation error",
+      });
+    }
+
+    const submission = await ClientAnnexASubmission.findByPk(submission_id);
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found" });
+    }
+
+    const session = await getOrCreateOpenSession(submission_id, {
+      sender_type,
+      sender_id,
+      sender_name,
+    });
+
+    return res.status(200).json({
+      message: "Discussion ready",
+      data: session,
+    });
+  } catch (error) {
+    console.error("Failed to start comment session:", error);
+    return res.status(500).json({
+      message: "Failed to start discussion",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * PUT /api/client/submissions/:submission_id/comment-sessions/:session_id/close
+ * Close the open discussion. Past sessions stay readable.
+ */
+router.put(
+  "/submissions/:submission_id/comment-sessions/:session_id/close",
+  async (req, res) => {
+    try {
+      const { submission_id, session_id } = req.params;
+      const session = await closeCommentSession(submission_id, session_id);
+      return res.status(200).json({
+        message: "Discussion closed",
+        data: session,
+      });
+    } catch (error) {
+      if (error.status) {
+        return res.status(error.status).json({
+          message: error.publicMessage,
+          error: "Validation error",
+        });
+      }
+      console.error("Failed to close comment session:", error);
+      return res.status(500).json({
+        message: "Failed to close discussion",
+        error: error.message,
+      });
+    }
+  },
+);
 
 /**
  * PUT /api/client/annex-a-submissions/:submission_id/edit

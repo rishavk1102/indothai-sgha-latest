@@ -497,17 +497,29 @@ export function drawBodyLines(doc, y, lines) {
 /* Signature block ("Signed on date", "For & on behalf of", ...)      */
 /* ------------------------------------------------------------------ */
 
-const SIG_START = /^(?:for\s*&\s*on\s+behalf\s+of|signed\s+on)/i;
+const SIG_START =
+  /^(?:for\s*(?:&|and)\s*on\s+behalf\s+of|signed\s+on|signed\s+the)\b/i;
 const SIG_MARK = /^\[?\s*signature\s*\]?/i;
-const SIG_PLACE = /^At\s+[A-Z]/;
+const SIG_PLACE = /^at\b/i;
 
 function signatureKind(text) {
   const t = String(text || "").trim();
   if (!t) return null;
   if (SIG_START.test(t)) return "start";
   if (SIG_MARK.test(t)) return "mark";
-  if (SIG_PLACE.test(t) && t.length < 60) return "place";
+  if (SIG_PLACE.test(t) && t.length < 160) return "place";
   return null;
+}
+
+function signaturePieces(doc, line) {
+  const text = String(line?.text || "").trim();
+  if (!text) return [];
+  const fontSize = font.body;
+  setFont(doc, "normal", fontSize);
+  const indent = line.indent ? clauseIndent(line.indent) : 0;
+  const width = Math.max(20, contentWidth - indent);
+  const pieces = doc.splitTextToSize(text, width);
+  return pieces.length ? pieces : [text];
 }
 
 /**
@@ -516,35 +528,104 @@ function signatureKind(text) {
  * - blank room under "[Signature]" so there is space to sign
  * - slightly looser line spacing for names, titles and places
  */
+function measureSignatureHeight(doc, lines) {
+  const lh = lineHeight(font.body);
+  let height = 0;
+  let started = false;
+  (lines || []).forEach((line) => {
+    const text = String(line?.text || "").trim();
+    if (!text) return;
+    const kind = signatureKind(text);
+    signaturePieces(doc, line).forEach((_, index) => {
+      if (index === 0 && kind === "start") {
+        height += started ? 8 : 10;
+        started = true;
+      }
+      height += lh;
+    });
+    height += kind === "mark" ? 10 : 1.6;
+  });
+  return height + 0.8;
+}
+
 function drawSignatureLines(doc, y, lines, state) {
   const fontSize = font.body;
   const lh = lineHeight(fontSize);
   let currentY = y;
+  const keepTogether = !!state.keepTogether;
 
   (lines || []).forEach((line) => {
     const text = String(line.text || "").trim();
     if (!text) return;
     const kind = signatureKind(text);
+    const pieces = signaturePieces(doc, line);
+    const x = margin.left + (line.indent ? clauseIndent(line.indent) : 0);
 
-    if (kind === "start") {
-      // Keep the whole group together on one page.
-      currentY += state.started ? 8 : 10;
-      currentY = ensureSpace(doc, currentY, 42);
-      state.started = true;
-    } else {
-      currentY = ensureSpace(doc, currentY, lh + 2);
-    }
-
-    setFont(doc, "normal", fontSize);
-    rgb(doc, color.black);
-    doc.text(text, margin.left + (line.indent ? clauseIndent(line.indent) : 0), currentY + lh * 0.75);
-    currentY += lh;
+    pieces.forEach((part, index) => {
+      if (index === 0 && kind === "start") {
+        // Gap before each "Signed on / For & on behalf of" group.
+        currentY += state.started ? 8 : 10;
+        currentY = ensureSpace(doc, currentY, keepTogether ? lh + 2 : 42);
+        state.started = true;
+      } else {
+        currentY = ensureSpace(doc, currentY, lh + 2);
+      }
+      setFont(doc, "normal", fontSize);
+      rgb(doc, color.black);
+      doc.text(part, x, currentY + lh * 0.75);
+      currentY += lh;
+    });
 
     if (kind === "mark") currentY += 10;
     else currentY += 1.6;
   });
 
   return currentY + 0.8;
+}
+
+function closingPartyLines(name, office) {
+  const lines = [{ indent: 0, text: "Signed on date" }];
+  const place = String(office || "").replace(/\s+/g, " ").trim();
+  if (place) lines.push({ indent: 0, text: `At ${place}` });
+  lines.push({ indent: 0, text: "For & on behalf of" });
+  const party = String(name || "").replace(/\s+/g, " ").trim();
+  if (party) lines.push({ indent: 0, text: party });
+  lines.push({ indent: 0, text: "[Signature]" });
+  return lines;
+}
+
+/** Blank closing block in the same labels the signature renderer already draws. */
+export function defaultClosingSignatureLines(model = {}) {
+  return [
+    ...closingPartyLines(model.carrierName, model.carrierOffice),
+    ...closingPartyLines(model.handlingName, model.handlingOffice),
+  ];
+}
+
+/**
+ * Draws one signature section. When the whole section does not fit on the
+ * current page, it moves to the next page instead of splitting or clipping.
+ */
+export function drawSignatureSection(doc, y, lines) {
+  const clean = (lines || []).filter((line) => String(line?.text || "").trim());
+  if (!clean.length) return y;
+
+  const height = measureSignatureHeight(doc, clean);
+  const pageRoom = contentBottom - contentTop;
+  const fitsPage = height <= pageRoom;
+  let currentY = y;
+  if (fitsPage && currentY + height > contentBottom) {
+    doc.addPage();
+    currentY = contentTop;
+  } else if (!fitsPage && currentY + 42 > contentBottom) {
+    doc.addPage();
+    currentY = contentTop;
+  }
+
+  return drawSignatureLines(doc, currentY, clean, {
+    started: false,
+    keepTogether: fitsPage,
+  });
 }
 
 const ARTICLE_HEADING = /^ARTICLE\s+(\d+)\s*[:.\-–—]\s+(.+)$/i;
@@ -642,9 +723,41 @@ function autoColWidths(headers, rows) {
   );
 }
 
-export function drawAgreementBlocks(doc, y, blocks) {
+function isSignatureStart(text) {
+  const t = String(text || "").trim();
+  const match = t.match(SIG_START);
+  if (!match) return false;
+  const rest = t.slice(match[0].length).trim();
+  if (!rest) return true;
+  if ((rest.match(/\./g) || []).length >= 3) return true;
+  const words = rest.replace(/[.\s\u2026]+/g, " ").trim();
+  if (!words) return true;
+  if (SIG_START.test(words)) return true;
+  if (/^date\b/i.test(words) && words.length < 48) return true;
+  if (/^\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}/.test(words)) return true;
+  return false;
+}
+
+function signatureStartIndex(lines) {
+  return (lines || []).findIndex((line) => isSignatureStart(line?.text));
+}
+
+export function drawAgreementBlocks(doc, y, blocks, options = {}) {
   let currentY = y;
   const sigState = { started: false };
+  const run = [];
+  const deferSignature = Array.isArray(options.signatureRuns);
+
+  const takeSignature = (lines) => {
+    if (!lines.length) return;
+    if (deferSignature) {
+      run.push(...lines);
+      sigState.started = true;
+      return;
+    }
+    currentY = drawSignatureLines(doc, currentY, lines, sigState);
+  };
+
   (blocks || []).forEach((block) => {
     if (!block) return;
     if (block.type === "clause") {
@@ -677,19 +790,21 @@ export function drawAgreementBlocks(doc, y, blocks) {
       return;
     }
     if (block.lines && block.lines.length) {
-      const hasSignatureLine = block.lines.some((l) => signatureKind(l.text));
-      const startsHere = block.lines.some((l) => signatureKind(l.text) === "start");
-      if (sigState.started || startsHere || hasSignatureLine) {
-        // Only treat "At ..." / "[Signature]" lines as signature content once a
-        // "Signed on / For & on behalf of" line has been seen, or the block itself starts one.
-        if (sigState.started || startsHere) {
-          currentY = drawSignatureLines(doc, currentY, block.lines, sigState);
-          return;
+      const startAt = sigState.started ? 0 : signatureStartIndex(block.lines);
+      if (startAt >= 0) {
+        // Keep any clause text that shares the paragraph, and hold the
+        // signature lines so the caller can place one block at the end.
+        if (startAt > 0) {
+          currentY = drawBodyLines(doc, currentY, block.lines.slice(0, startAt));
         }
+        takeSignature(block.lines.slice(startAt));
+        return;
       }
       currentY = drawBodyLines(doc, currentY, block.lines);
     }
   });
+
+  if (run.length && deferSignature) options.signatureRuns.push(run);
   return currentY;
 }
 

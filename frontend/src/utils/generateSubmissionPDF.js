@@ -5,12 +5,14 @@ import { SDA_PDF } from "./sdaPdfConfig";
 import {
   applyLetterhead,
   collapseRepeatedArticleBlocks,
+  defaultClosingSignatureLines,
   drawAgreementBlocks,
   drawClauseRow,
   drawCover,
   drawDataTable,
   drawParagraphBanner,
   drawSectionHeading,
+  drawSignatureSection,
   drawSubsectionRow,
   drawWrappedText,
   newSdaDocument,
@@ -650,14 +652,21 @@ export const generateSubmissionPDF = async (
       return plain.replace(/\n{3,}/g, "\n\n").trim();
     };
 
+    // Signature lines found in template text are held here and drawn once,
+    // after every article, table, and total.
+    const signatureRuns = [];
+
     /** Parse stored editor HTML and draw it. `numbering` carries list numbers across one article. */
     const renderHtmlBody = (html, numbering) => {
       const blocks = parseAgreementDocument(html, numbering ? { numbering } : {});
       yPos = blocks.length
-        ? drawAgreementBlocks(doc, yPos, blocks)
-        : drawAgreementBlocks(doc, yPos, [
-            { type: "paragraph", lines: parseClauseLines(stripHTML(html)) },
-          ]);
+        ? drawAgreementBlocks(doc, yPos, blocks, { signatureRuns })
+        : drawAgreementBlocks(
+            doc,
+            yPos,
+            [{ type: "paragraph", lines: parseClauseLines(stripHTML(html)) }],
+            { signatureRuns },
+          );
     };
 
     // Split Annex B editor HTML by {{ variable }} placeholders (same logic as Sgha_annexB)
@@ -834,11 +843,12 @@ export const generateSubmissionPDF = async (
       console.error("Error fetching handling company:", error);
     }
 
-    yPos = drawCover(
-      doc,
-      yPos,
-      resolveCoverModel(submission, clientDetails, handlingCompany),
+    const coverModel = resolveCoverModel(
+      submission,
+      clientDetails,
+      handlingCompany,
     );
+    yPos = drawCover(doc, yPos, coverModel);
 
     // Use the same template year + name that the submission used (if available)
     const templateYear = submission.agreement_year || 2025;
@@ -1264,7 +1274,9 @@ export const generateSubmissionPDF = async (
                       ),
                     );
                     if (blocks.length) {
-                      yPos = drawAgreementBlocks(doc, yPos, blocks);
+                      yPos = drawAgreementBlocks(doc, yPos, blocks, {
+                        signatureRuns,
+                      });
                     }
                     return;
                   }
@@ -1549,6 +1561,13 @@ export const generateSubmissionPDF = async (
         fontSize: 10,
       });
     }
+
+    // One signature section at the end. Template text is reused when a
+    // document already contains it; otherwise the standard closing block is added.
+    const signatureLines = signatureRuns.length
+      ? signatureRuns[signatureRuns.length - 1]
+      : defaultClosingSignatureLines(coverModel);
+    yPos = drawSignatureSection(doc, yPos, signatureLines);
 
     // Letterhead (logo, top right) and page number on every page.
     let logoDataURL = null;

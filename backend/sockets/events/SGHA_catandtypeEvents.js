@@ -74,13 +74,10 @@ module.exports = (io, socket) => {
                 where: whereClause
             });
 
-            if (!categories || categories.length === 0) {
-                return socket.emit('get-aircraft-categories-error', {
-                    message: 'No Aircraft Categories found.',
-                });
-            }
-
-            socket.emit('get-aircraft-categories-success', categories);
+            socket.emit(
+                'get-aircraft-categories-success',
+                categories && categories.length ? categories : [],
+            );
         } catch (err) {
             console.error('❌ Failed to fetch Aircraft Categories:', err);
             socket.emit('get-aircraft-categories-error', {

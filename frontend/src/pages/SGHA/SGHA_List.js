@@ -17,8 +17,10 @@ import { useAuth } from "../../context/AuthContext";
 import { getSocket } from "../../context/socket";
 import GifLoder from '../../interfaces/GifLoder';
 import AgreementBodyHtml from '../../components/AgreementBodyHtml';
+import { useAppMessageDialog } from '../../hooks/useAppMessageDialog';
 const SGHA_List = () => {
     const navigate = useNavigate(); // Initialize the navigate function
+    const { showWarn, messageDialog } = useAppMessageDialog();
     const { roleId, userId } = useAuth(); // Get roleId from the context
     const PAGE_NAME = "SGHA Agreement"; // Page name for permission checking
     const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error
@@ -549,7 +551,7 @@ const SGHA_List = () => {
 
     const handleSubmit = () => {
         if (!templateName || !selectedLetter?.value) {
-            alert('Please fill all fields');
+            showWarn('Please fill all fields');
             return;
         }
 
@@ -759,7 +761,7 @@ const SGHA_List = () => {
                     />
                 </div>
             </Dialog>
-
+            {messageDialog}
         </>
     );
 };

@@ -10,8 +10,10 @@ import { getSocket } from "../context/socket";
 import GifLoder from "../interfaces/GifLoder";
 import { Dialog } from "primereact/dialog";
 import { useDebounce } from "use-debounce"; // First, install it via npm
+import { useAppMessageDialog } from "../hooks/useAppMessageDialog";
 const AddServicePriceSidebar = ({ visible, onHide, pageName }) => {
   const { roleId, userId } = useAuth();
+  const { showWarn, showError, messageDialog } = useAppMessageDialog();
   const socket = getSocket();
   const [loading, setLoading] = useState(false);
   const [businesses, setBusinesses] = useState([]);
@@ -260,7 +262,8 @@ const AddServicePriceSidebar = ({ visible, onHide, pageName }) => {
       !selectedCatId ||
       !price
     ) {
-      return alert("Please fill all fields");
+      showWarn("Please fill all fields");
+      return;
     }
 
     setLoading(true);
@@ -283,7 +286,7 @@ const AddServicePriceSidebar = ({ visible, onHide, pageName }) => {
       onHide(); // close after success
     } catch (err) {
       console.error("❌ Failed to add service price:", err);
-      alert(err.response?.data?.message || "Failed to add service price");
+      showError(err.response?.data?.message || "Failed to add service price");
     } finally {
       setLoading(false);
     }
@@ -331,6 +334,8 @@ const AddServicePriceSidebar = ({ visible, onHide, pageName }) => {
   }
 
   return (
+    <>
+    {messageDialog}
     <Card className="border-0 shadow-0 pt-3">
       <Card.Header className="bg-white border-0 shadow-0">
         <h5>Add New Charges</h5>
@@ -444,6 +449,7 @@ const AddServicePriceSidebar = ({ visible, onHide, pageName }) => {
         </div>    
       </Card.Body>
     </Card>
+    </>
   );
 };
 

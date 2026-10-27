@@ -26,6 +26,10 @@ import {
   loadClientDraft,
   saveClientDraft,
   CLIENT_PAGE_PERMISSION_NAMES,
+  OTHER_AIRCRAFT_SELECT_VALUE,
+  isOtherAircraftSelection,
+  hasValidAircraftForAirport,
+  formatCatalogAircraftOptionLabel,
 } from "../../utils/clientWorkspace";
 
 const Home = () => {
@@ -44,6 +48,8 @@ const Home = () => {
   const [airports, setAirports] = useState([]);
   const [yearsWithStatus, setYearsWithStatus] = useState([]); // Same as employee side: years with templates[] per year
   const [missingDraft, setMissingDraft] = useState(!!location.state?.missingDraft);
+  const [aircraftOptions, setAircraftOptions] = useState([]);
+  const [loadingAircraftOptions, setLoadingAircraftOptions] = useState(false);
 
   // ✅ Fetch template years with individual templates per year (same as employee side)
   useEffect(() => {
@@ -145,6 +151,51 @@ const Home = () => {
     };
   }, [socket, roleId, PAGE_NAME]);
 
+  // Company Aircraft list (Pricing → Aircraft options)
+  useEffect(() => {
+    if (!socket || !roleId) return;
+
+    const handleSuccess = (data) => {
+      setAircraftOptions(Array.isArray(data) ? data : []);
+      setLoadingAircraftOptions(false);
+    };
+    const handleError = () => {
+      setAircraftOptions([]);
+      setLoadingAircraftOptions(false);
+    };
+
+    const fetchAircraftOptions = () => {
+      setLoadingAircraftOptions(true);
+      socket.emit("view-company-aircrafts", {
+        role_id: roleId,
+        page_name: PAGE_NAME,
+        sortOrder: "ASC",
+        limit: 1000,
+        searchTerm: "",
+      });
+    };
+
+    socket.on("view-company-aircrafts-success", handleSuccess);
+    socket.on("view-company-aircrafts-error", handleError);
+
+    if (socket.connected) {
+      fetchAircraftOptions();
+    } else {
+      const onConnect = () => fetchAircraftOptions();
+      socket.on("connect", onConnect);
+      return () => {
+        socket.off("connect", onConnect);
+        socket.off("view-company-aircrafts-success", handleSuccess);
+        socket.off("view-company-aircrafts-error", handleError);
+      };
+    }
+
+    return () => {
+      socket.off("view-company-aircrafts-success", handleSuccess);
+      socket.off("view-company-aircrafts-error", handleError);
+    };
+  }, [socket, roleId, PAGE_NAME]);
+
   useEffect(() => {
     if (!restoredRef.current) return;
     if (!selectedCities.length && (!formData || Object.keys(formData).length === 0)) return;
@@ -153,8 +204,9 @@ const Home = () => {
       formData,
       wizardStep: step,
       stage: step === 2 ? "wizard-details" : "wizard-airport",
+      aircraftOptionsCount: aircraftOptions.length,
     });
-  }, [selectedCities, formData, step]);
+  }, [selectedCities, formData, step, aircraftOptions.length]);
 
 
   const handleCitySelect = (airport) => {
@@ -188,6 +240,8 @@ const Home = () => {
       wizardStep: 2,
       stage: "agreement",
       agreementIndex: 0,
+      aircraftOptionsCount: aircraftOptions.length,
+      editingSubmissionId: null,
     });
     navigate(CLIENT_ROUTES.agreement, { state: { selectedCities, templateYear, templateName, formData } });
   };
@@ -211,6 +265,51 @@ const Home = () => {
         [field]: value,
       },
     }));
+  };
+
+  const handleAircraftSelect = (airport_id, aircraft, index) => {
+    const rowId = aircraft.aircraft_id ?? `aircraft-${index}`;
+    setFormData((prev) => ({
+      ...prev,
+      [airport_id]: {
+        ...prev[airport_id],
+        selected_aircraft_id: rowId,
+        selected_aircraft: {
+          aircraft_id: aircraft.aircraft_id ?? rowId,
+          Company_name: aircraft.Company_name,
+          Aircraft_name: aircraft.Aircraft_name,
+          Aircraft_model: aircraft.Aircraft_model,
+          Flight_type: aircraft.Flight_type,
+          MTOW: aircraft.MTOW,
+          Limit_per_incident: aircraft.Limit_per_incident,
+        },
+        custom_aircraft_text: "",
+      },
+    }));
+  };
+
+  const handleAircraftOtherSelect = (airport_id) => {
+    setFormData((prev) => ({
+      ...prev,
+      [airport_id]: {
+        ...prev[airport_id],
+        selected_aircraft_id: OTHER_AIRCRAFT_SELECT_VALUE,
+        selected_aircraft: null,
+      },
+    }));
+  };
+
+  const handleCustomAircraftTextChange = (airport_id, text) => {
+    setFormData((prev) => {
+      if (!isOtherAircraftSelection(prev[airport_id])) return prev;
+      return {
+        ...prev,
+        [airport_id]: {
+          ...prev[airport_id],
+          custom_aircraft_text: text,
+        },
+      };
+    });
   };
 
   // Company name is the logged-in client's registered name and cannot be edited.
@@ -332,9 +431,95 @@ const Home = () => {
   };
 
 
+  const renderAircraftTypeSelect = (airportId, data, selectHeight = "50px") => {
+    const isOther = isOtherAircraftSelection(data);
+
+    const aircraftSelect = (
+      <Form.Select
+        style={{
+          height: selectHeight,
+          width: "100%",
+          ...(isOther ? { minWidth: 0 } : {}),
+        }}
+        value={
+          data.selected_aircraft_id != null && data.selected_aircraft_id !== ""
+            ? String(data.selected_aircraft_id)
+            : ""
+        }
+        onChange={(e) => {
+          const v = e.target.value;
+          if (!v) return;
+          if (v === OTHER_AIRCRAFT_SELECT_VALUE) {
+            handleAircraftOtherSelect(airportId);
+            return;
+          }
+          const index = aircraftOptions.findIndex(
+            (a, i) => String(a.aircraft_id ?? `aircraft-${i}`) === v,
+          );
+          if (index < 0) return;
+          handleAircraftSelect(airportId, aircraftOptions[index], index);
+        }}
+      >
+        <option value="" disabled>
+          Please select
+        </option>
+        {aircraftOptions.map((aircraft, index) => {
+          const rowId = aircraft.aircraft_id ?? `aircraft-${index}`;
+          return (
+            <option key={rowId} value={String(rowId)}>
+              {formatCatalogAircraftOptionLabel(aircraft)}
+            </option>
+          );
+        })}
+        <option value={OTHER_AIRCRAFT_SELECT_VALUE}>Others</option>
+      </Form.Select>
+    );
+
+    return (
+      <>
+        <Form.Label>
+          Aircraft type <sup className="text-danger">*</sup>
+        </Form.Label>
+        {loadingAircraftOptions ? (
+          <Form.Select style={{ height: selectHeight }} disabled>
+            <option>Loading aircraft options…</option>
+          </Form.Select>
+        ) : isOther ? (
+          <Row className="g-2 mx-0">
+            <Col xs={6} className="ps-0">
+              {aircraftSelect}
+            </Col>
+            <Col xs={6} className="pe-0">
+              <Form.Control
+                type="text"
+                style={{ height: selectHeight }}
+                placeholder="Enter aircraft type / model"
+                value={data.custom_aircraft_text || ""}
+                onChange={(e) =>
+                  handleCustomAircraftTextChange(airportId, e.target.value)
+                }
+              />
+            </Col>
+          </Row>
+        ) : (
+          aircraftSelect
+        )}
+      </>
+    );
+  };
+
   const isTabValid = (airportId) => {
     const data = formData[airportId] || {};
     if (!data.applicable_for?.trim()) return false;
+    if (
+      !hasValidAircraftForAirport(
+        formData,
+        airportId,
+        aircraftOptions.length,
+      )
+    ) {
+      return false;
+    }
     if (!data.showCompanyDetail) return true; // Only "Applicable for" required when company section hidden
     return !!(
       data.company_name?.trim() &&
@@ -483,7 +668,7 @@ const Home = () => {
         <Row className="mx-0 mb-3">
           <div className="add_business ueselect">
             <h5 className="mb-2">Agreement details</h5>
-            <p className="text-muted mb-3">Enter flight type, services, and company details for the selected airport.</p>
+            <p className="text-muted mb-3">Enter flight type, services, aircraft type, and company details for the selected airport.</p>
             <div className="my-3">
               <TabView>
                 {selectedCities.map((airport) => {
@@ -606,6 +791,15 @@ const Home = () => {
                               <option value="International">International</option>
                             </Form.Select>
                         </Col>
+                        {!data.showCompanyDetail && (
+                          <Col md={12} lg={4} className="d-flex flex-column gap-1">
+                            {renderAircraftTypeSelect(
+                              airport.airport_id,
+                              data,
+                              "58px",
+                            )}
+                          </Col>
+                        )}
                         {/* Company Details */}
                         {data.showCompanyDetail && (
                           <Col md={12} lg={12} className="mt-3 companyDetai">
@@ -771,6 +965,12 @@ const Home = () => {
                                           </option>
                                         ))}
                                       </Form.Select>
+                                  </Col>
+                                  <Col md={6} lg={6} className="d-flex flex-column gap-1">
+                                    {renderAircraftTypeSelect(
+                                      airport.airport_id,
+                                      data,
+                                    )}
                                   </Col>
                                 </Row>
                               </Col>

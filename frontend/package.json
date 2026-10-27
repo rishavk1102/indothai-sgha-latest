@@ -46,9 +46,9 @@
     "start": "react-app-rewired start",
     "start:dev": "env-cmd -f .env.dev react-app-rewired start",
     "start:prod": "env-cmd -f .env.prod react-app-rewired start",
-    "build": "react-app-rewired build",
-    "build:production": "react-app-rewired build",
-    "build:local": "REACT_APP_API_BASE_URL=http://localhost:7072 react-app-rewired build",
+    "build": "node --max-old-space-size=8192 ./node_modules/react-app-rewired/bin/index.js build",
+    "build:production": "node --max-old-space-size=8192 ./node_modules/react-app-rewired/bin/index.js build",
+    "build:local": "env-cmd -f .env node --max-old-space-size=8192 ./node_modules/react-app-rewired/bin/index.js build",
     "test": "react-app-rewired test",
     "eject": "react-scripts eject"
   },

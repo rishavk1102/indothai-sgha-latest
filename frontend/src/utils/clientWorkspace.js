@@ -101,6 +101,12 @@ export function saveClientDraft(partial) {
       ...partial,
       updatedAt: new Date().toISOString(),
     };
+    if (
+      Object.prototype.hasOwnProperty.call(partial, "editingSubmissionId") &&
+      (partial.editingSubmissionId == null || partial.editingSubmissionId === "")
+    ) {
+      delete next.editingSubmissionId;
+    }
     sessionStorage.setItem(DRAFT_KEY, JSON.stringify(next));
 
     if (next.templateYear != null && next.templateYear !== "") {
@@ -115,6 +121,37 @@ export function saveClientDraft(partial) {
     return next;
   } catch (e) {
     return null;
+  }
+}
+
+export function getEditingSubmissionId(draft = loadClientDraft()) {
+  const id = draft?.editingSubmissionId;
+  if (id == null || id === "") return null;
+  const n = parseInt(String(id), 10);
+  return Number.isNaN(n) || n <= 0 ? null : n;
+}
+
+/** Restore wizard + Annex A local state when reopening a pending submission for edit. */
+export function persistClientEditSession({
+  selectedCities,
+  formData,
+  templateYear,
+  templateName,
+  annexAState,
+  editingSubmissionId,
+  agreementIndex = 0,
+}) {
+  saveClientDraft({
+    selectedCities,
+    formData,
+    templateYear,
+    templateName,
+    agreementIndex,
+    editingSubmissionId,
+  });
+  if (annexAState && typeof annexAState === "object") {
+    localStorage.setItem(ANNEX_A_KEY, JSON.stringify(annexAState));
+    window.dispatchEvent(new Event("annexAStatesUpdated"));
   }
 }
 
@@ -141,6 +178,16 @@ export function isClientWizardComplete(draft = loadClientDraft()) {
   const airport = draft.selectedCities[0];
   const data = draft.formData?.[airport.airport_id] || {};
   if (!String(data.applicable_for || "").trim()) return false;
+  const aircraftCount = Number(draft.aircraftOptionsCount) || 0;
+  if (
+    !hasValidHomeAircraftSelection(
+      draft.formData,
+      draft.selectedCities,
+      aircraftCount,
+    )
+  ) {
+    return false;
+  }
   if (!data.showCompanyDetail) return true;
   return !!(
     String(data.company_name || "").trim() &&
@@ -204,6 +251,146 @@ export function buildFormDetailsAirportFields(selectedCities, formData = {}) {
     airport_city: airport.city || data.city || null,
     airport_iata: airport.iata || null,
     airport_country: airport.country || data.country || null,
+  };
+}
+
+export const OTHER_AIRCRAFT_SELECT_VALUE = "__other__";
+
+/** Label for Company Aircraft dropdown rows (New SGHA). */
+export function formatCompanyAircraftOptionLabel(aircraft) {
+  if (!aircraft || typeof aircraft !== "object") return "Aircraft";
+  const label = [
+    aircraft.Company_name,
+    aircraft.Aircraft_name,
+    aircraft.Aircraft_model,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return label || "Aircraft";
+}
+
+/** Alias kept for older call sites after catalog revert. */
+export function formatCatalogAircraftOptionLabel(aircraft) {
+  return formatCompanyAircraftOptionLabel(aircraft);
+}
+
+export function isOtherAircraftSelection(data) {
+  return (
+    String(data?.selected_aircraft_id || "") === OTHER_AIRCRAFT_SELECT_VALUE
+  );
+}
+
+/** Snapshot stored from New SGHA aircraft picker (Company Aircraft row or custom Other). */
+export function buildAircraftOptionsVariable(aircraft) {
+  if (!aircraft || typeof aircraft !== "object") return null;
+  const id = aircraft.aircraft_id ?? aircraft.selected_aircraft_id;
+  const customText = String(
+    aircraft.custom_aircraft_text || aircraft.Aircraft_name || "",
+  ).trim();
+  if (
+    aircraft.is_other ||
+    id === OTHER_AIRCRAFT_SELECT_VALUE ||
+    (id == null && customText)
+  ) {
+    if (!customText) return null;
+    return {
+      selected_aircraft_id: OTHER_AIRCRAFT_SELECT_VALUE,
+      is_other: true,
+      custom_aircraft_text: customText,
+      Company_name: null,
+      Aircraft_name: customText,
+      Aircraft_model: null,
+      Flight_type: null,
+      MTOW: null,
+      Limit_per_incident: null,
+    };
+  }
+  if (id == null || id === "") return null;
+  return {
+    selected_aircraft_id: id,
+    is_other: false,
+    Company_name: aircraft.Company_name ?? null,
+    Aircraft_name: aircraft.Aircraft_name ?? null,
+    Aircraft_model: aircraft.Aircraft_model ?? null,
+    Flight_type: aircraft.Flight_type ?? null,
+    MTOW: aircraft.MTOW ?? null,
+    Limit_per_incident: aircraft.Limit_per_incident ?? null,
+  };
+}
+
+export function getHomeAircraftSelection(formData = {}, selectedCities = []) {
+  const airport = getSelectedAirport(selectedCities);
+  if (!airport) return null;
+  const data = formData?.[airport.airport_id] || {};
+  if (isOtherAircraftSelection(data)) {
+    return buildAircraftOptionsVariable({
+      selected_aircraft_id: OTHER_AIRCRAFT_SELECT_VALUE,
+      is_other: true,
+      custom_aircraft_text: data.custom_aircraft_text,
+      Aircraft_name: data.custom_aircraft_text,
+    });
+  }
+  if (data.selected_aircraft && typeof data.selected_aircraft === "object") {
+    return buildAircraftOptionsVariable(data.selected_aircraft);
+  }
+  if (data.selected_aircraft_id != null && data.selected_aircraft_id !== "") {
+    return buildAircraftOptionsVariable({
+      aircraft_id: data.selected_aircraft_id,
+    });
+  }
+  return null;
+}
+
+export function hasValidAircraftForAirport(
+  formData = {},
+  airportId,
+  aircraftOptionsCount = 0,
+) {
+  if (airportId == null) return false;
+  const data = formData?.[airportId] || {};
+  if (isOtherAircraftSelection(data)) {
+    return !!String(data.custom_aircraft_text || "").trim();
+  }
+  if (data.selected_aircraft && typeof data.selected_aircraft === "object") {
+    return true;
+  }
+  if (
+    data.selected_aircraft_id != null &&
+    String(data.selected_aircraft_id).trim() !== "" &&
+    !isOtherAircraftSelection(data)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function hasValidHomeAircraftSelection(
+  formData = {},
+  selectedCities = [],
+  aircraftOptionsCount = 0,
+) {
+  const airport = getSelectedAirport(selectedCities);
+  if (!airport) return true;
+  return hasValidAircraftForAirport(
+    formData,
+    airport.airport_id,
+    aircraftOptionsCount,
+  );
+}
+
+export function buildFormDetailsAircraftFields(formData = {}, selectedCities = []) {
+  const sel = getHomeAircraftSelection(formData, selectedCities);
+  if (!sel) return {};
+  return {
+    selected_aircraft_id: sel.selected_aircraft_id,
+    aircraft_is_other: !!sel.is_other,
+    custom_aircraft_text: sel.custom_aircraft_text ?? null,
+    aircraft_company_name: sel.Company_name,
+    aircraft_name: sel.Aircraft_name,
+    aircraft_model: sel.Aircraft_model,
+    aircraft_flight_type: sel.Flight_type,
+    aircraft_mtow: sel.MTOW,
+    aircraft_limit_per_incident: sel.Limit_per_incident,
   };
 }
 

@@ -11,10 +11,12 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { getSocket } from "../../context/socket";
 import GifLoder from '../../interfaces/GifLoder';
+import { useAppMessageDialog } from '../../hooks/useAppMessageDialog';
 
 
 const SGHA_Form = () => {
      const { role, roleId } = useAuth();
+     const { showDialog, messageDialog } = useAppMessageDialog();
     const PAGE_NAME = "SGHA FORM";
     const socket = getSocket();
     const [loading, setLoading] = useState(false);
@@ -136,7 +138,7 @@ const SGHA_Form = () => {
         if (activeIndex < items.length - 1) {
           setActiveIndex((prev) => prev + 1);
         } else {
-          alert("🎉 Finished all steps!");
+          showDialog("Finished all steps!", "Complete");
         }
       };
 
@@ -1218,6 +1220,7 @@ const SGHA_Form = () => {
           />
           </div>
         </Sidebar>
+        {messageDialog}
     </>
   )
 }

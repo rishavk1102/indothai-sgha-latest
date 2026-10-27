@@ -1,19 +1,21 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { getSocket } from "../../context/socket";
 import { DataTable } from "primereact/datatable";
 import { Column } from "primereact/column";
 import { Button } from "primereact/button";
 import { Tag } from "primereact/tag";
-import { Row, Col, Card, Table } from 'react-bootstrap';
+import { Row, Col, Card } from 'react-bootstrap';
 import { AutoComplete } from 'primereact/autocomplete';
 import { InputText } from 'primereact/inputtext';
-import logoImage from '../../assets/images/logo.png';
 import { useAuth } from "../../context/AuthContext";
-import { Dropdown } from "primereact/dropdown";
-import api from "../../api/axios";
 import GifLoder from '../../interfaces/GifLoder';
-import AgreementBodyHtml from '../../components/AgreementBodyHtml';
+import SentAgreementLetterView from '../../components/SentAgreementLetterView';
 import { Sidebar } from 'primereact/sidebar';
+import { useAppMessageDialog } from "../../hooks/useAppMessageDialog";
+import {
+  downloadSentAgreementPdf,
+  sentAgreementPdfFilename,
+} from "../../utils/generateSentAgreementPdf";
 import {
     ClientBreadcrumbs,
     ClientEmptyState,
@@ -30,6 +32,45 @@ const ClientSGHA_List = () => {
     const socket = getSocket();
     const [selectedTemplate, setSelectedTemplate] = useState(null);
     const [showDialog, setShowDialog] = useState(false);
+    const [pdfExportTemplate, setPdfExportTemplate] = useState(null);
+    const [downloadingId, setDownloadingId] = useState(null);
+    const pdfExportRef = useRef(null);
+    const { showError, messageDialog } = useAppMessageDialog();
+
+    const waitForPaint = () =>
+        new Promise((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(resolve));
+        });
+
+    const handleDownloadAgreement = useCallback(
+        async (rowData) => {
+            if (!rowData?.mainAgreement) {
+                showError("No agreement content to download.");
+                return;
+            }
+            const id = rowData.SGHA_template_id;
+            setDownloadingId(id);
+            setPdfExportTemplate(rowData);
+            try {
+                await waitForPaint();
+                await new Promise((resolve) => setTimeout(resolve, 80));
+                if (!pdfExportRef.current) {
+                    throw new Error("PDF export container not ready");
+                }
+                await downloadSentAgreementPdf(
+                    pdfExportRef.current,
+                    sentAgreementPdfFilename(rowData),
+                );
+            } catch (err) {
+                console.error("[ClientSGHA_List] PDF download failed:", err);
+                showError("Failed to download PDF. Please try again.");
+            } finally {
+                setPdfExportTemplate(null);
+                setDownloadingId(null);
+            }
+        },
+        [showError],
+    );
 
     useEffect(() => {
         if (!socket || !userId) return;
@@ -151,6 +192,19 @@ const ClientSGHA_List = () => {
                     setShowDialog(true);
                 }}
             />
+            <Button
+                icon="pi pi-file-pdf"
+                severity="success"
+                text
+                tooltip="Download PDF"
+                tooltipOptions={{ position: "top" }}
+                className="border-0 p-0"
+                loading={downloadingId === rowData.SGHA_template_id}
+                disabled={
+                    downloadingId != null && downloadingId !== rowData.SGHA_template_id
+                }
+                onClick={() => handleDownloadAgreement(rowData)}
+            />
             {/* {!rowData.status === 'Sent' && (
                 <Button
                     icon="pi pi-send"
@@ -164,155 +218,6 @@ const ClientSGHA_List = () => {
             )} */}
         </div>
     );
-
-
-    const renderDialogContent = () => {
-        if (!selectedTemplate) return null;
-
-        // const { template_name, letterTemplate, annexure } = selectedTemplate;
-        const { mainAgreement, business, client } = selectedTemplate;
-        return (
-            <div className="p-2">
-                {mainAgreement ? (
-                    <div className="letterTable">
-                        <div className="d-flex justify-content-between align-items-center py-3 mb-3">
-                            <h4 className='text-black'>{mainAgreement?.template_name}</h4>
-                            <span className="d-block">
-                                <img
-                                    src={logoImage}
-                                    alt="brand-logo"
-                                    style={{ width: "80px" }}
-                                />
-                            </span>
-                        </div>
-                        <Table bordered-0>
-                            <tbody>
-                                <tr>
-                                    <td colSpan={2} className='d-flex align-items-center gap-2'>
-                                        <span>An Agreement made between :</span>
-                                        <b className='mb-0' style={{ borderBottom: "1px solid #ccc", paddingBottom: "5px" }}>{client?.name}</b>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td colSpan={2} className='d-flex align-items-center gap-2'>
-                                        <span>having its principal office at·</span>
-                                        <b className='mb-0' style={{ borderBottom: "1px solid #ccc", paddingBottom: "5px" }}>{client?.city}, {client?.country}</b>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td colSpan={2}>hereinafter referred to as the 'Carrier' or the 'Handling Company' as the case may be,</td>
-                                </tr>
-                                <tr>
-                                    <td colSpan={2} className='d-flex align-items-center gap-2'>
-                                        <span>and:</span>
-                                        <b className='mb-0' style={{ borderBottom: "1px solid #ccc", paddingBottom: "5px" }}>{business?.name}</b>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td colSpan={2} className='d-flex align-items-center gap-2'>
-                                        <span>having its principal office at·</span>
-                                        <b className='mb-0' style={{ borderBottom: "1px solid #ccc", paddingBottom: "5px" }}>{business?.city}, {business?.country}</b>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td colSpan={2}>
-                                        hereinafter referred to as the 'Handling Company' or the 'Carrier', as the case may be,
-                                        the Carrier and/or the Handling Company may hereinafter be referred to as the "Party(ies)" Whereby all the parties agree as follows:
-                                    </td>
-                                </tr>
-                                {mainAgreement.sections &&
-                                    mainAgreement.sections.length > 0 ? (
-                                    mainAgreement.sections
-                                        .sort((a, b) => a.section_order - b.section_order) // Ensure sections are rendered in order
-                                        .map((section) => (
-                                            <tr key={section.section_id}>
-                                                <td colSpan={2}>
-                                                    <h6>{section.section_heading}</h6>
-                                                    <AgreementBodyHtml content={section.section_body} />
-                                                </td>
-                                            </tr>
-                                        ))
-                                ) : (
-                                    <tr>
-                                        <td colSpan={2}>
-                                            <p>No sections available.</p>
-                                        </td>
-                                    </tr>
-                                )}
-
-
-                            </tbody>
-                            <tfoot>
-                                <tr>
-                                    <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>Signed the</span> <span style={{ borderBottom: "1px solid #ccc", width: "calc(100% - 80px)" }}></span>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>Signed the</span> <span style={{ borderBottom: "1px solid #ccc", width: "calc(100% - 80px)" }}></span>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>at</span> <span style={{ borderBottom: "1px solid #ccc", width: "calc(100% - 20px)" }}></span>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>at</span> <span style={{ borderBottom: "1px solid #ccc", width: "calc(100% - 20px)" }}></span>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>for and on behalf of</span> <span style={{ borderBottom: "1px solid #ccc", width: "calc(100% - 130px)" }}></span>
-                                        </div>
-
-                                    </td>
-                                    <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>for and on behalf of</span> <span style={{ borderBottom: "1px solid #ccc", width: "calc(100% - 130px)" }}></span>
-                                        </div>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>by</span> <span style={{ borderBottom: "1px solid #ccc", width: "calc(100% - 20px)" }}></span>
-                                        </div>
-
-                                    </td>
-                                    <td>
-                                        <div className='d-flex align-items-center gap-2'>
-                                            <span>by</span> <span style={{ borderBottom: "1px solid #ccc", width: "calc(100% - 20px)" }}></span>
-                                        </div>
-
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td className="text-end" colSpan={2}>
-                                        <small className='mt-4'>People. Passion. Pride. Since 1833</small>
-                                    </td>
-                                </tr>
-                            </tfoot>
-                        </Table>
-                    </div>
-                ) : (
-                    <p>No template data available</p>
-                )}
-            </div>
-        );
-    };
-
-
-
-
-
 
 
     if (unauthorized) {
@@ -330,6 +235,25 @@ const ClientSGHA_List = () => {
 
     return (
         <>
+            {messageDialog}
+            {pdfExportTemplate ? (
+                <div
+                    aria-hidden
+                    style={{
+                        position: "fixed",
+                        left: -10000,
+                        top: 0,
+                        width: "794px",
+                        background: "#fff",
+                        zIndex: -1,
+                    }}
+                >
+                    <SentAgreementLetterView
+                        ref={pdfExportRef}
+                        template={pdfExportTemplate}
+                    />
+                </div>
+            ) : null}
             <Row className='mb-4'>
                 <Col md={12} lg={8}>
                     <ClientBreadcrumbs
@@ -363,16 +287,35 @@ const ClientSGHA_List = () => {
                     <Column header="Business" body={businessBody} />
                     <Column header="Status" body={statusBody} />
                     {/* <Column header="Annexure" body={annexureNameBody} /> */}
-                    <Column header="Actions" body={actionsBody} style={{ width: "120px" }} />
+                    <Column header="Actions" body={actionsBody} style={{ width: "140px" }} />
                 </DataTable>
             </Card>
-            <Sidebar position="right"
+            <Sidebar
+                position="right"
                 style={{ width: "70vw" }}
                 visible={showDialog}
                 onHide={() => setShowDialog(false)}
-                breakpoints={{ '960px': '95vw' }}
+                breakpoints={{ "960px": "95vw" }}
+                header={
+                    selectedTemplate ? (
+                        <div className="d-flex align-items-center justify-content-between w-100 pe-2 gap-2">
+                            <span className="text-truncate">{selectedTemplate.template_name}</span>
+                            <Button
+                                label="Download PDF"
+                                icon="pi pi-file-pdf"
+                                size="small"
+                                severity="success"
+                                loading={
+                                    downloadingId === selectedTemplate.SGHA_template_id
+                                }
+                                disabled={downloadingId != null}
+                                onClick={() => handleDownloadAgreement(selectedTemplate)}
+                            />
+                        </div>
+                    ) : null
+                }
             >
-                {renderDialogContent()}
+                <SentAgreementLetterView template={selectedTemplate} />
             </Sidebar>
         </>
     );

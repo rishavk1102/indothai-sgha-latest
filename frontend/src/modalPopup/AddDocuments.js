@@ -7,9 +7,11 @@ import axios from 'axios';
 import config from '../config';
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
+import { useAppMessageDialog } from "../hooks/useAppMessageDialog";
 
 function AddDocuments({ userId, setVisibleModal2 }) {
     const { accessToken } = useAuth();
+    const { showWarn, showError, messageDialog } = useAppMessageDialog();
     const [selectedFiles, setSelectedFiles] = useState([]);
     const [uploadedImages, setUploadedImages] = useState([]);
 
@@ -18,7 +20,7 @@ function AddDocuments({ userId, setVisibleModal2 }) {
         if (selectedFiles.length + uploadedImages.length < 5 && file) {
             setSelectedFiles((prevFiles) => [...prevFiles, file]);
         } else {
-            alert("You can only select up to 5 documents.");
+            showWarn("You can only select up to 5 documents.");
         }
     };
 
@@ -28,7 +30,7 @@ function AddDocuments({ userId, setVisibleModal2 }) {
 
     const handleSave = async () => {
         if (selectedFiles.length < 2 || selectedFiles.length > 5) {
-            alert("Please select between 2 and 5 images to upload.");
+            showWarn("Please select between 2 and 5 images to upload.");
             return;
         }
 
@@ -47,12 +49,13 @@ function AddDocuments({ userId, setVisibleModal2 }) {
             setSelectedFiles([]);
         } catch (error) {
             console.error("Error uploading document:", error);
-            alert("Error uploading document. Please try again.");
+            showError("Error uploading document. Please try again.");
         }
     };
 
     return (
         <>
+            {messageDialog}
             <Card className='shadow-0 bg-transparent border-0'>
                 <Card.Body className="py-0">
                     <Card.Title className='d-flex justify-content-center align-items-center'>

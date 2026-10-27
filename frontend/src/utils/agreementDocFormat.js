@@ -20,12 +20,39 @@ function isMarkdownTableRow(line) {
   return trimmed.startsWith("|") && trimmed.indexOf("|", 1) !== -1;
 }
 
+/** PDF/import rows: `Col A | Col B | Col C` without leading/trailing pipes. */
+function isPipeSeparatedTableRow(line) {
+  const trimmed = String(line || "").trim();
+  if (!trimmed || !trimmed.includes("|")) return false;
+  if (isMarkdownTableRow(trimmed)) return true;
+  if (/^[\|\s:\-]+$/.test(trimmed) && trimmed.includes("-")) return true;
+  const pipeCount = (trimmed.match(/\|/g) || []).length;
+  if (pipeCount < 1) return false;
+  const cells = trimmed.split("|").map((c) => c.trim());
+  const nonEmpty = cells.filter(Boolean);
+  return nonEmpty.length >= 2 && pipeCount >= 1;
+}
+
+function isTableRow(line) {
+  return isMarkdownTableRow(line) || isPipeSeparatedTableRow(line);
+}
+
 function isMarkdownSeparatorRow(line) {
-  if (!isMarkdownTableRow(line)) return false;
+  if (!isTableRow(line)) return false;
   const cells = parseMarkdownTableRow(line);
   return (
     cells.length > 0 &&
     cells.every((cell) => /^:?-{3,}:?$/.test(cell.trim()))
+  );
+}
+
+/** Merged template bodies sometimes use only `<br/>` between plain-text blocks. */
+function isHtmlWithBreaksOnly(text) {
+  const s = String(text || "");
+  if (!/<br\s*\/?>/i.test(s)) return false;
+  const withoutBreaks = s.replace(/<br\s*\/?>/gi, "");
+  return !/<(?:table|p|h[1-6]|ul|ol|div|tr|td|th|span|strong|em)\b/i.test(
+    withoutBreaks,
   );
 }
 
@@ -103,8 +130,14 @@ function markdownTableLinesToHtml(tableLines) {
  */
 export function formatAgreementBodyForDisplay(text) {
   if (text == null || text === "") return "";
-  const s = String(text);
-  if (stringLooksLikeHtml(s)) return s;
+  let s = String(text);
+  if (stringLooksLikeHtml(s)) {
+    if (isHtmlWithBreaksOnly(s)) {
+      s = s.replace(/<br\s*\/?>/gi, "\n");
+    } else {
+      return s;
+    }
+  }
 
   const lines = s.split(/\r?\n/);
   const segments = [];
@@ -121,10 +154,10 @@ export function formatAgreementBodyForDisplay(text) {
 
   let index = 0;
   while (index < lines.length) {
-    if (isMarkdownTableRow(lines[index])) {
+    if (isTableRow(lines[index])) {
       flushText();
       const tableLines = [];
-      while (index < lines.length && isMarkdownTableRow(lines[index])) {
+      while (index < lines.length && isTableRow(lines[index])) {
         tableLines.push(lines[index]);
         index += 1;
       }

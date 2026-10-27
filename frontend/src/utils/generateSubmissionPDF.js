@@ -62,6 +62,22 @@ function sectionContentKey(section) {
 const hasContent = (section) =>
   !!(section && section.content && String(section.content).trim().length > 0);
 
+function drawTemplateSectionHeading(doc, yPos, section) {
+  if (!section?.sectionTitle && !section?.sectionNumber) return yPos;
+  if (section.sectionNumber && section.sectionTitle) {
+    return drawSubsectionRow(
+      doc,
+      yPos,
+      section.sectionNumber,
+      section.sectionTitle,
+    );
+  }
+  if (section.sectionTitle) {
+    return drawSubsectionRow(doc, yPos, "", section.sectionTitle);
+  }
+  return yPos;
+}
+
 function numericPath(value) {
   const raw = String(value || "").trim();
   if (!/^\d/.test(raw)) return null;
@@ -509,6 +525,21 @@ function buildArticlesFromTemplate(fields, { annexAAware = false, sort = false }
       }
     }
 
+    // Standalone subheading before editor (e.g. "Basic Handling Charges" in Annex B)
+    if (field.type === "subheading" && article) {
+      const prev = fields[index - 1];
+      if (prev?.type === "subheading_no") return;
+      if (next?.type === "editor") {
+        section = {
+          sectionNumber: null,
+          sectionTitle: String(field.value ?? "").trim(),
+          content: null,
+        };
+        article.sections.push(section);
+        return;
+      }
+    }
+
     if (field.type === "editor" && article) {
       const html = field.value ?? field.content ?? "";
       if (!html) return;
@@ -894,14 +925,7 @@ export const generateSubmissionPDF = async (
           );
 
           sections.forEach((section) => {
-            if (section.sectionNumber && section.sectionTitle) {
-              yPos = drawSubsectionRow(
-                doc,
-                yPos,
-                section.sectionNumber,
-                section.sectionTitle,
-              );
-            }
+            yPos = drawTemplateSectionHeading(doc, yPos, section);
             renderHtmlBody(section.content);
           });
           yPos += 2;
@@ -1157,14 +1181,7 @@ export const generateSubmissionPDF = async (
           `SECTION ${article.articleNumber}. ${(article.articleTitle || "").toUpperCase()}`.trim(),
         );
         nonEmptySections.forEach((section) => {
-          if (section.sectionNumber && section.sectionTitle) {
-            yPos = drawSubsectionRow(
-              doc,
-              yPos,
-              section.sectionNumber,
-              section.sectionTitle,
-            );
-          }
+          yPos = drawTemplateSectionHeading(doc, yPos, section);
           renderHtmlBody(section.content);
         });
         yPos += 2;
@@ -1252,14 +1269,7 @@ export const generateSubmissionPDF = async (
               const contentKey = sectionContentKey(section);
               if (seenSectionContent.has(contentKey)) return;
               seenSectionContent.add(contentKey);
-              if (section.sectionNumber && section.sectionTitle) {
-                yPos = drawSubsectionRow(
-                  doc,
-                  yPos,
-                  section.sectionNumber,
-                  section.sectionTitle,
-                );
-              }
+              yPos = drawTemplateSectionHeading(doc, yPos, section);
               if (section.content) {
                 const parts = splitAnnexBContentByVariables(section.content);
                 doc.setFontSize(10);
@@ -1304,7 +1314,11 @@ export const generateSubmissionPDF = async (
                           ])
                         : [
                             [
-                              data.Company_name || "-",
+                              data.is_other
+                                ? data.custom_aircraft_text ||
+                                  data.Aircraft_name ||
+                                  "Other"
+                                : data.Company_name || "-",
                               data.Flight_type || "-",
                               data.MTOW || "-",
                               data.Limit_per_incident || "-",
@@ -1598,6 +1612,8 @@ export const generateSubmissionPDF = async (
     }
   } catch (error) {
     console.error("Error generating PDF:", error);
-    alert("Failed to generate PDF. Please try again.");
+    throw error instanceof Error
+      ? error
+      : new Error("Failed to generate PDF. Please try again.");
   }
 };

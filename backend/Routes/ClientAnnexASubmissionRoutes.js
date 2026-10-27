@@ -1479,10 +1479,12 @@ router.put("/annex-a-submissions/:submission_id/edit", async (req, res) => {
     const { submission_id } = req.params;
     const {
       checkbox_selections,
+      form_details,
       editor_type,
       editor_id,
       editor_name,
       edit_note,
+      client_registration_id,
       previous_template_fields: previousTemplateFieldsOverride,
     } = req.body;
 
@@ -1511,6 +1513,30 @@ router.put("/annex-a-submissions/:submission_id/edit", async (req, res) => {
       return res.status(404).json({ message: "Submission not found" });
     }
 
+    if (editor_type === "Client") {
+      const empStatus = submission.status || "Pending";
+      const clientStatus = submission.client_status || "Pending";
+      if (empStatus !== "Pending" || clientStatus !== "Pending") {
+        await transaction.rollback();
+        return res.status(403).json({
+          message:
+            "This submission can no longer be edited. It is already being processed or finalized.",
+          error: "Edit not allowed",
+        });
+      }
+      if (
+        client_registration_id != null &&
+        String(submission.client_registration_id) !==
+          String(client_registration_id)
+      ) {
+        await transaction.rollback();
+        return res.status(403).json({
+          message: "You can only edit your own submissions",
+          error: "Forbidden",
+        });
+      }
+    }
+
     const previousData = submission.checkbox_selections || {};
     const changesSummary = generateChangesSummary(
       previousData,
@@ -1518,10 +1544,22 @@ router.put("/annex-a-submissions/:submission_id/edit", async (req, res) => {
       previousTemplateFieldsOverride,
     );
 
+    let formDetailsChanged = false;
+    if (
+      form_details != null &&
+      typeof form_details === "object" &&
+      editor_type === "Client"
+    ) {
+      const prevFd = submission.form_details || {};
+      formDetailsChanged =
+        JSON.stringify(prevFd) !== JSON.stringify(form_details);
+    }
+
     const hasChanges =
       changesSummary.added.length > 0 ||
       changesSummary.removed.length > 0 ||
-      changesSummary.modified.length > 0;
+      changesSummary.modified.length > 0 ||
+      formDetailsChanged;
 
     if (!hasChanges) {
       await transaction.rollback();
@@ -1555,6 +1593,9 @@ router.put("/annex-a-submissions/:submission_id/edit", async (req, res) => {
 
     // When employee edits, move Pending → In Progress
     const updatePayload = { checkbox_selections };
+    if (formDetailsChanged) {
+      updatePayload.form_details = form_details;
+    }
     if (submission.status === "Pending" && editor_type === "Employee") {
       updatePayload.status = "In Progress";
     }

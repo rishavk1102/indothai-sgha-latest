@@ -26,9 +26,11 @@ import { getSocket } from '../../context/socket';
 import SubmissionCommentThread from '../../components/SubmissionCommentThread';
 import CustomEditor from '../../components/CustomEditor';
 import { EmployeePageHeader } from '../../components/EmployeePageChrome';
+import { useAppMessageDialog } from '../../hooks/useAppMessageDialog';
 
 const AgreedServicesCharges = () => {
    const { role, userId, username } = useAuth();
+   const { showError, showWarn, messageDialog } = useAppMessageDialog();
    const location = useLocation();
    const navigate = useNavigate();
 
@@ -970,9 +972,9 @@ const AgreedServicesCharges = () => {
       } catch (err) {
          console.error('Error saving edit:', err);
          if (err.response?.status === 400 && err.response?.data?.error === 'No changes') {
-            alert('No changes detected.');
+            showWarn('No changes detected.');
          } else {
-            alert('Failed to save changes. Please try again.');
+            showError('Failed to save changes. Please try again.');
          }
       } finally {
          setEditSaving(false);
@@ -1543,7 +1545,7 @@ const AgreedServicesCharges = () => {
          });
          if (emptyOrNa.length > 0) {
             const labels = emptyOrNa.map((v) => v.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())).join(', ');
-            alert(`Please enter valid values for Company's Pricing: ${labels}. They cannot be empty or "na".`);
+            showWarn(`Please enter valid values for Company's Pricing: ${labels}. They cannot be empty or "na".`);
             return;
          }
       } else {
@@ -1603,7 +1605,7 @@ const AgreedServicesCharges = () => {
          console.error('Error updating status/variables:', error);
          console.error('Error details:', error.response?.data || error.message);
          // Show error message to user
-         alert('Failed to update. Please try again.');
+         showError('Failed to update. Please try again.');
       }
    };
 
@@ -1776,7 +1778,7 @@ const AgreedServicesCharges = () => {
                                                 await generateSubmissionPDF(submission, itemTextMap, sectionTitles, { openInNewTab: true });
                                              } catch (error) {
                                                 console.error('Error generating PDF:', error);
-                                                alert('Failed to generate PDF. Please try again.');
+                                                showError('Failed to generate PDF. Please try again.');
                                              }
                                           }}
                                        />
@@ -1793,7 +1795,7 @@ const AgreedServicesCharges = () => {
                                                 await generateSubmissionPDF(submission, itemTextMap, sectionTitles, { openInNewTab: false });
                                              } catch (error) {
                                                 console.error('Error generating PDF:', error);
-                                                alert('Failed to generate PDF. Please try again.');
+                                                showError('Failed to generate PDF. Please try again.');
                                              }
                                           }}
                                        />
@@ -2312,6 +2314,7 @@ const AgreedServicesCharges = () => {
                highlightCommentId={highlightCommentId}
             />
          </Dialog>
+         {messageDialog}
       </>
     )
 }

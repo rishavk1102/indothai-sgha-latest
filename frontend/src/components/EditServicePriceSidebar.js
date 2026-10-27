@@ -10,10 +10,12 @@ import { getSocket } from "../context/socket";
 import GifLoder from "../interfaces/GifLoder";
 import { Dialog } from "primereact/dialog";
 import { useDebounce } from "use-debounce"; 
+import { useAppMessageDialog } from "../hooks/useAppMessageDialog";
 
 const EditServicePriceSidebar = ({ visible, onHide, pageName, editData }) => {
 
     const { roleId, userId } = useAuth();
+    const { showWarn, showError, messageDialog } = useAppMessageDialog();
     const socket = getSocket();
 
     const [loading, setLoading] = useState(false);
@@ -174,7 +176,8 @@ const EditServicePriceSidebar = ({ visible, onHide, pageName, editData }) => {
     // ---------------- UPDATE HANDLER ----------------
     const handleUpdate = async () => {
         if (!selectedBusiness || !selectedAirport || !selectedCategoryId || !selectedFlightTypeId || !selectedCatId || !price) {
-            return alert("Please fill all fields");
+            showWarn("Please fill all fields");
+            return;
         }
 
         setLoading(true);
@@ -192,7 +195,7 @@ const EditServicePriceSidebar = ({ visible, onHide, pageName, editData }) => {
             onHide(); // close after success
         } catch (err) {
             console.error("❌ Failed to update service price:", err);
-            alert(err.response?.data?.message || "Failed to update service price");
+            showError(err.response?.data?.message || "Failed to update service price");
         } finally {
             setLoading(false);
         }
@@ -234,6 +237,8 @@ const EditServicePriceSidebar = ({ visible, onHide, pageName, editData }) => {
     }
 
     return (
+        <>
+        {messageDialog}
         <Card className="border-0 shadow-0 pt-3">
             <Card.Header className="bg-white border-0 shadow-0">
                 <h5>Edit Charges</h5>
@@ -330,6 +335,7 @@ const EditServicePriceSidebar = ({ visible, onHide, pageName, editData }) => {
                 </div> 
             </Card.Body>
         </Card>
+        </>
     );
 };
 

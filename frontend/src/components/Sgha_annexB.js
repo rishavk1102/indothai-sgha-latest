@@ -16,8 +16,13 @@ import { useAuth } from "../context/AuthContext";
 import { getSocket } from "../context/socket";
 import CustomToast from "./CustomToast";
 import {
+  buildAircraftOptionsVariable,
+  buildFormDetailsAircraftFields,
   buildFormDetailsAirportFields,
   clearClientDraft,
+  getEditingSubmissionId,
+  loadClientDraft,
+  getHomeAircraftSelection,
   getSelectedAirportCity,
   getSelectedAirportLabel,
   getSelectedAirportOffice,
@@ -76,7 +81,39 @@ const Sgha_annexB = ({
   const [aircraftOptions, setAircraftOptions] = useState([]);
   const [loadingAircraftOptions, setLoadingAircraftOptions] = useState(false);
   // Single selected aircraft (only one can be selected for handling services)
-  const [selectedAircraftId, setSelectedAircraftId] = useState(null);
+  const [selectedAircraftId, setSelectedAircraftId] = useState(() => {
+    const airportId = selectedCities[0]?.airport_id;
+    const id =
+      airportId != null ? formData?.[airportId]?.selected_aircraft_id : null;
+    return id != null && id !== "" ? id : null;
+  });
+
+  const resolveAircraftOptionsVariable = () => {
+    if (
+      selectedAircraftId != null &&
+      selectedAircraftId !== "" &&
+      Array.isArray(aircraftOptions) &&
+      aircraftOptions.length > 0
+    ) {
+      const selectedAircraft = aircraftOptions.find((a, i) => {
+        const rowId = a.aircraft_id ?? `aircraft-${i}`;
+        return String(rowId) === String(selectedAircraftId);
+      });
+      if (selectedAircraft) {
+        return buildAircraftOptionsVariable(selectedAircraft);
+      }
+    }
+    return getHomeAircraftSelection(formData, selectedCities);
+  };
+
+  useEffect(() => {
+    const airportId = selectedCities[0]?.airport_id;
+    const id =
+      airportId != null ? formData?.[airportId]?.selected_aircraft_id : null;
+    if (id != null && id !== "" && String(selectedAircraftId) !== String(id)) {
+      setSelectedAircraftId(id);
+    }
+  }, [selectedCities, formData, selectedAircraftId]);
 
   // State for additional charges
   const [additionalCharges, setAdditionalCharges] = useState([]);
@@ -502,15 +539,10 @@ const Sgha_annexB = ({
         return; // Prevent multiple submissions
       }
 
-      // Require one aircraft selected only when template has aircraft section AND table has options
-      if (
-        templateHasAircraftSection &&
-        aircraftOptions.length > 0 &&
-        !selectedAircraftId
-      ) {
+      if (!resolveAircraftOptionsVariable()) {
         showMessage(
           "warn",
-          "Please select one aircraft from the table to proceed.",
+          "Please select an aircraft (or choose Others and enter your aircraft type) in New SGHA agreement details.",
         );
         return;
       }
@@ -752,51 +784,55 @@ const Sgha_annexB = ({
               template_name: firstData.template_name || null,
               other_details: firstData.value || null,
               ...buildFormDetailsAirportFields(selectedCities, formData),
+              ...buildFormDetailsAircraftFields(formData, selectedCities),
             };
           }
         }
 
-        // Save to database
-        // userId is the client_registration_id for clients
-        const response = await api.post("/api/client/annex-a-submission", {
-          client_registration_id: userId,
-          agreement_year: agreementYear,
-          checkbox_selections: transformedState,
-          form_details,
-        });
+        const editingSubmissionId = getEditingSubmissionId(loadClientDraft());
+        let submissionId = editingSubmissionId;
 
-        if (response.data && response.data.message) {
-          showMessage("success", "Annex A selections saved successfully!");
-          console.log("✅ Annex A submission saved:", response.data);
+        if (editingSubmissionId) {
+          const response = await api.put(
+            `/api/client/annex-a-submissions/${editingSubmissionId}/edit`,
+            {
+              checkbox_selections: transformedState,
+              form_details,
+              editor_type: "Client",
+              editor_id: userId,
+              editor_name: username || "Client",
+              client_registration_id: userId,
+              edit_note: "Client amended submission before review",
+            },
+          );
+          if (response.data?.message) {
+            showMessage("success", "Your submission has been updated.");
+            console.log("✅ Annex A submission updated:", response.data);
+          } else {
+            showMessage("success", "Submission updated successfully!");
+          }
         } else {
-          showMessage("success", "Submission completed successfully!");
-        }
+          const response = await api.post("/api/client/annex-a-submission", {
+            client_registration_id: userId,
+            agreement_year: agreementYear,
+            checkbox_selections: transformedState,
+            form_details,
+          });
 
-        const submissionId = response.data?.data?.submission_id;
+          if (response.data && response.data.message) {
+            showMessage("success", "Annex A selections saved successfully!");
+            console.log("✅ Annex A submission saved:", response.data);
+          } else {
+            showMessage("success", "Submission completed successfully!");
+          }
+
+          submissionId = response.data?.data?.submission_id;
+        }
         if (submissionId) {
           const variables = {};
-          if (
-            selectedAircraftId != null &&
-            selectedAircraftId !== "" &&
-            Array.isArray(aircraftOptions) &&
-            aircraftOptions.length > 0
-          ) {
-            const selectedAircraft = aircraftOptions.find((a, i) => {
-              const rowId = a.aircraft_id ?? `aircraft-${i}`;
-              return String(rowId) === String(selectedAircraftId);
-            });
-            if (selectedAircraft) {
-              variables.aircraft_options = {
-                selected_aircraft_id:
-                  selectedAircraft.aircraft_id ?? selectedAircraftId,
-                Company_name: selectedAircraft.Company_name,
-                Aircraft_name: selectedAircraft.Aircraft_name,
-                Aircraft_model: selectedAircraft.Aircraft_model,
-                Flight_type: selectedAircraft.Flight_type,
-                MTOW: selectedAircraft.MTOW,
-                Limit_per_incident: selectedAircraft.Limit_per_incident,
-              };
-            }
+          const aircraftVar = resolveAircraftOptionsVariable();
+          if (aircraftVar) {
+            variables.aircraft_options = aircraftVar;
           }
           if (
             Array.isArray(additionalCharges) &&
@@ -980,6 +1016,20 @@ const Sgha_annexB = ({
             "[Annex B] parsed sections count:",
             sections?.length ?? 0,
           );
+          console.log(
+            "[Annex B] charge step labels:",
+            sections.map((s) => s.heading || s.label || "(untitled)"),
+          );
+          const basicStep = sections.findIndex((s) =>
+            /basic handling charges/i.test(String(s.heading || "")),
+          );
+          if (basicStep >= 0) {
+            console.log(
+              "[Annex B] Basic Handling Charges is step index",
+              basicStep,
+              "(0-based; use Next or click the stepper)",
+            );
+          }
         } else {
           // No template data, use default items
           setParsedSections([]);
@@ -998,24 +1048,6 @@ const Sgha_annexB = ({
 
     fetchTemplateData();
   }, [agreementYear, templateName]);
-
-  // Whether the current year's template includes aircraft selection ({{ aircraft_options }})
-  const templateHasAircraftSection = useMemo(() => {
-    if (!templateData) return false;
-    const content = Array.isArray(templateData) ? templateData : [templateData];
-    const aircraftVarRegex = /\{\{\s*aircraft_options\s*\}\}/i;
-    for (const item of content) {
-      if (
-        item &&
-        item.type === "editor" &&
-        typeof item.value === "string" &&
-        aircraftVarRegex.test(item.value)
-      ) {
-        return true;
-      }
-    }
-    return false;
-  }, [templateData]);
 
   // Whether the current year's template includes additional charges ({{ additional_charges }})
   const templateHasAdditionalChargesSection = useMemo(() => {
@@ -1094,6 +1126,23 @@ const Sgha_annexB = ({
             sections.push(currentSection);
             processedIndices.add(index);
             processedIndices.add(index + 1);
+            return;
+          }
+        }
+
+        // Standalone subheading immediately before editor (e.g. "Basic Handling Charges")
+        if (item.type === "subheading") {
+          const nextItem = content[index + 1];
+          if (nextItem?.type === "editor") {
+            currentSection = {
+              headingNo: "",
+              heading: String(item.value ?? "").trim(),
+              editor: null,
+              id: item.id || nextItem.id,
+              index: sections.length,
+            };
+            sections.push(currentSection);
+            processedIndices.add(index);
             return;
           }
         }
@@ -1738,23 +1787,13 @@ const Sgha_annexB = ({
     "annex_a_selection",
   ];
 
-  // Fetch aircraft options
+  // Fetch aircraft options (Company Aircraft)
   useEffect(() => {
     if (!socket || !roleId) {
-      console.log("[Annex B] Socket or roleId not available:", {
-        socket: !!socket,
-        roleId: !!roleId,
-      });
       return;
     }
 
-    // Set up listeners first, before emitting
     const handleSuccess = (data) => {
-      console.log(
-        "[Annex B] Aircraft options fetched successfully:",
-        data?.length || 0,
-        "items",
-      );
       if (data && Array.isArray(data)) {
         setAircraftOptions(data);
       } else {
@@ -1765,69 +1804,40 @@ const Sgha_annexB = ({
 
     const handleError = (error) => {
       console.error("[Annex B] Error fetching aircraft options:", error);
-      console.error(
-        "[Annex B] Full error object:",
-        JSON.stringify(error, null, 2),
-      );
-      // Set empty array and log the error for debugging
       setAircraftOptions([]);
       setLoadingAircraftOptions(false);
     };
 
     const handleUpdate = () => {
-      console.log("[Annex B] Aircraft options updated, refetching...");
       fetchAircraftOptions();
     };
 
-    // Register listeners
     socket.on("view-company-aircrafts-success", handleSuccess);
     socket.on("view-company-aircrafts-error", handleError);
     socket.on("company-aircrafts-updated", handleUpdate);
 
     const fetchAircraftOptions = () => {
       setLoadingAircraftOptions(true);
-      console.log(
-        "[Annex B] Fetching aircraft options with roleId:",
-        roleId,
-        "role:",
-        role,
-      );
-
       const pageName =
         role === "Client"
           ? CLIENT_PAGE_PERMISSION_NAMES.newSgha
           : PAGE_PERMISSION_NAMES.networkAircraftOptions;
 
-      const payload = {
+      socket.emit("view-company-aircrafts", {
         role_id: roleId,
         page_name: pageName,
         sortOrder: "ASC",
-        limit: 1000, // Fetch all aircraft options
+        limit: 1000,
         searchTerm: "",
-        // No business_id or airport_id filters - fetch all aircraft options
-      };
-
-      console.log(
-        "[Annex B] Emitting view-company-aircrafts with payload:",
-        JSON.stringify(payload, null, 2),
-      );
-      socket.emit("view-company-aircrafts", payload);
+      });
     };
 
-    // Check if socket is connected
     if (socket.connected) {
-      // Socket is connected, fetch immediately
       fetchAircraftOptions();
     } else {
-      // Wait for connection
-      console.log("[Annex B] Socket not connected, waiting for connection...");
-      const onConnect = () => {
-        console.log("[Annex B] Socket connected, fetching aircraft options...");
-        fetchAircraftOptions();
-      };
+      const onConnect = () => fetchAircraftOptions();
       socket.on("connect", onConnect);
 
-      // Also try to fetch after a short delay in case connection happens quickly
       const timeoutId = setTimeout(() => {
         if (socket.connected) {
           fetchAircraftOptions();
@@ -1848,7 +1858,7 @@ const Sgha_annexB = ({
       socket.off("view-company-aircrafts-error", handleError);
       socket.off("company-aircrafts-updated", handleUpdate);
     };
-  }, [socket, roleId]);
+  }, [socket, roleId, role]);
 
   // Function to replace non-reserved variables with underscores
   const replaceVariablesWithUnderscores = (htmlContent) => {
@@ -2157,7 +2167,7 @@ const Sgha_annexB = ({
                   <Steps
                     model={items}
                     activeIndex={activeIndex}
-                    readOnly={true}
+                    readOnly={false}
                   />
                 </div>
               )}

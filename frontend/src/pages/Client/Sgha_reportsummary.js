@@ -28,6 +28,7 @@ import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 import GifLoder from "../../interfaces/GifLoder";
 import SubmissionCommentThread from "../../components/SubmissionCommentThread";
+import { useAppMessageDialog } from "../../hooks/useAppMessageDialog";
 import { generateSubmissionPDF } from "../../utils/generateSubmissionPDF";
 import {
   ClientBreadcrumbs,
@@ -35,11 +36,18 @@ import {
   CLIENT_HOME,
   CLIENT_ROUTES,
 } from "../../components/ClientPageChrome";
+import { persistClientEditSession } from "../../utils/clientWorkspace";
+import {
+  buildDraftFromSubmissionRecord,
+  canClientEditSubmission,
+  mergeAircraftVariableIntoDraft,
+} from "../../utils/submissionDraftHydrate";
 
 const Sgha_reportsummary = () => {
   const { userId, username } = useAuth(); // userId is client_registration_id for clients
   const navigate = useNavigate();
   const location = useLocation();
+  const { showWarn, showError, messageDialog } = useAppMessageDialog();
   const highlightedRowRef = useRef(null);
   const [showSubmitSuccess, setShowSubmitSuccess] = useState(
     !!location.state?.justSubmitted,
@@ -85,6 +93,7 @@ const Sgha_reportsummary = () => {
   const [historySubmission, setHistorySubmission] = useState(null);
   const [editHistory, setEditHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [editAgreementLoadingId, setEditAgreementLoadingId] = useState(null);
 
   const toggleRow = (id) => {
     setExpandedRow(expandedRow === id ? null : id);
@@ -114,6 +123,55 @@ const Sgha_reportsummary = () => {
     setCommentVisible(true);
     navigate(location.pathname, { replace: true });
   }, [location.pathname, location.search, navigate, submissions]);
+
+  const handleEditAgreement = async (submission) => {
+    if (!canClientEditSubmission(submission)) {
+      showWarn(
+        "This submission can only be edited while it is still pending review (before Indo Thai begins processing).",
+        "Cannot edit",
+      );
+      return;
+    }
+    const sid = submission.submission_id;
+    setEditAgreementLoadingId(sid);
+    try {
+      const detailsRes = await api.get(
+        `/api/client/annex-a-submissions/${sid}/details`,
+      );
+      const record = detailsRes.data?.data;
+      if (!record) {
+        showError("Could not load submission details. Please try again.");
+        return;
+      }
+      let draft = buildDraftFromSubmissionRecord(record);
+      try {
+        const varsRes = await api.get(
+          `/api/client/annex-a-submissions/${sid}/variables`,
+        );
+        draft = mergeAircraftVariableIntoDraft(draft, varsRes.data?.data || {});
+      } catch (varsErr) {
+        console.warn("[ReportSummary] Variables not loaded for edit:", varsErr);
+      }
+      persistClientEditSession({
+        selectedCities: draft.selectedCities,
+        formData: draft.formData,
+        templateYear: draft.templateYear,
+        templateName: draft.templateName,
+        annexAState: draft.annexAState,
+        editingSubmissionId: sid,
+        agreementIndex: 0,
+      });
+      navigate(CLIENT_ROUTES.agreement);
+    } catch (err) {
+      console.error("[ReportSummary] Edit agreement failed:", err);
+      showError(
+        err.response?.data?.message ||
+          "Failed to open submission for editing. Please try again.",
+      );
+    } finally {
+      setEditAgreementLoadingId(null);
+    }
+  };
 
   const openHistoryDialog = async (submission) => {
     setHistorySubmission(submission);
@@ -764,7 +822,7 @@ const Sgha_reportsummary = () => {
             v.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()),
           )
           .join(", ");
-        alert(
+        showWarn(
           `Please enter valid values for Company's Pricing: ${labels}. They cannot be empty or "na".`,
         );
         return;
@@ -798,7 +856,7 @@ const Sgha_reportsummary = () => {
       }
     } catch (error) {
       console.error("Error updating status:", error);
-      alert("Failed to update status. Please try again.");
+      showError("Failed to update status. Please try again.");
     }
   };
 
@@ -976,12 +1034,30 @@ const Sgha_reportsummary = () => {
                             : submission.client_status || "Pending"}
                         </Badge>
                         <div className="actions-cell__buttons">
+                          {canClientEditSubmission(submission) ? (
+                            <Button
+                              icon="pi pi-file-edit"
+                              className="p-0"
+                              text
+                              severity="warning"
+                              style={{ fontSize: "10px", width: "28px" }}
+                              tooltip="Edit agreement"
+                              tooltipOptions={{ position: "top" }}
+                              loading={
+                                editAgreementLoadingId === submission.submission_id
+                              }
+                              disabled={editAgreementLoadingId != null}
+                              onClick={() => handleEditAgreement(submission)}
+                            />
+                          ) : null}
                           <Button
                             icon="pi pi-pencil"
                             className="p-0"
                             text
                             severity="danger"
                             style={{ fontSize: "10px", width: "28px" }}
+                            tooltip="Update client status"
+                            tooltipOptions={{ position: "top" }}
                             onClick={() => {
                               setSelectedSubmission(submission);
                               setVisible(true);
@@ -1019,7 +1095,7 @@ const Sgha_reportsummary = () => {
                                   "Error generating PDF preview:",
                                   error,
                                 );
-                                alert(
+                                showError(
                                   "Failed to generate PDF preview. Please try again.",
                                 );
                               }
@@ -1043,7 +1119,7 @@ const Sgha_reportsummary = () => {
                                 );
                               } catch (error) {
                                 console.error("Error downloading PDF:", error);
-                                alert(
+                                showError(
                                   "Failed to download PDF. Please try again.",
                                 );
                               }
@@ -1700,6 +1776,7 @@ const Sgha_reportsummary = () => {
           </div>
         )}
       </Dialog>
+      {messageDialog}
     </>
   );
 };

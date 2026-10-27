@@ -14,6 +14,7 @@ import { Card, Table } from "react-bootstrap";
 import api from "../api/axios";
 import { stringLooksLikeHtml } from "../utils/agreementDocFormat";
 import AgreementBodyHtml from "./AgreementBodyHtml";
+import { useAppMessageDialog } from "../hooks/useAppMessageDialog";
 
 /** Rich text from template editor: keep block/line structure when rendering client-side */
 const AGREEMENT_DOC_PURIFY = {
@@ -75,6 +76,7 @@ const AnnexRichLine = ({ value }) => {
 };
 
 const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
+  const { showDialog, messageDialog } = useAppMessageDialog();
   const [visibleRight, setVisibleRight] = useState(false);
 
   // State for cards
@@ -1963,7 +1965,7 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
     if (activeIndex < items.length - 1) {
       setActiveIndex((prev) => prev + 1);
     } else {
-      alert("🎉 Finished all steps!");
+      showDialog("Finished all steps!", "Complete");
     }
   };
 
@@ -2210,6 +2212,7 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
           })()}
         </Accordion>
       </div>
+      {messageDialog}
     </>
   );
 };

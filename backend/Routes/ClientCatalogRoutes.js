@@ -12,6 +12,36 @@ const router = express.Router();
  * Admin screens load the same tables through permission-gated sockets
  * (view-aircrafts, view-categories). Those sockets stay employee-only.
  */
+/** Same rows as employee /dashboard/AircraftCategory */
+router.get('/catalog/aircraft-categories', authenticateToken, async (req, res) => {
+  try {
+    const categories = await AircraftCategory.findAll({
+      attributes: ['Aircraft_category_id', 'Category_name'],
+      order: [['Category_name', 'ASC']],
+      limit: 500,
+    });
+
+    const data = categories.map((row) => {
+      const c = row.toJSON();
+      return {
+        Aircraft_category_id: c.Aircraft_category_id,
+        Category_name: c.Category_name,
+      };
+    });
+
+    return res.status(200).json({
+      message: 'Aircraft categories retrieved successfully',
+      data,
+    });
+  } catch (error) {
+    console.error('Failed to retrieve aircraft categories:', error);
+    return res.status(500).json({
+      message: 'Failed to retrieve aircraft categories',
+      error: error.message,
+    });
+  }
+});
+
 router.get('/catalog/aircraft-types', authenticateToken, async (req, res) => {
   try {
     const aircrafts = await Aircraft.findAll({

@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Card, Col, Row } from "react-bootstrap";
 import { Button } from "primereact/button";
 import { MdFlight } from "react-icons/md";
-import { fetchAircraftTypes, fetchServices } from "../api/clientCatalog";
+import { fetchAircraftCategoriesWithFallback, fetchServices } from "../api/clientCatalog";
+import { getSocket } from "../context/socket";
+import { useAuth } from "../context/AuthContext";
+import GifLoder from "../interfaces/GifLoder";
+import { CLIENT_PAGE_PERMISSION_NAMES } from "../utils/clientWorkspace";
 
 function useCatalog(loader) {
   const [status, setStatus] = useState("loading");
@@ -38,10 +42,9 @@ function useCatalog(loader) {
 function CatalogState({ status, error, empty, isEmpty, onRetry, children }) {
   if (status === "loading") {
     return (
-      <p className="client-catalog-state" role="status">
-        <i className="pi pi-spin pi-spinner me-2" aria-hidden="true" />
-        Loading...
-      </p>
+      <div className="loderDiv">
+        <GifLoder />
+      </div>
     );
   }
 
@@ -67,24 +70,14 @@ function CatalogState({ status, error, empty, isEmpty, onRetry, children }) {
   return children;
 }
 
-function AircraftCard({ aircraft }) {
-  const airline = [aircraft.airline_name, aircraft.airline_iata]
-    .filter(Boolean)
-    .join(" · ");
-
+function AircraftCategoryCard({ category }) {
   return (
     <Card className="client-catalog-card h-100">
       <Card.Body>
         <span className="client-catalog-icon" aria-hidden="true">
           <MdFlight />
         </span>
-        <h6>{aircraft.type_name}</h6>
-        <p>{aircraft.category_name || "No category"}</p>
-        <ul className="client-catalog-meta">
-          {airline ? <li>{airline}</li> : null}
-          {aircraft.currency ? <li>Currency {aircraft.currency}</li> : null}
-          {aircraft.AAI_levy != null ? <li>AAI levy {aircraft.AAI_levy}%</li> : null}
-        </ul>
+        <h6>{category.Category_name || "Unnamed category"}</h6>
       </Card.Body>
     </Card>
   );
@@ -106,27 +99,40 @@ function ServiceCard({ service }) {
 }
 
 const ClientCatalogSections = () => {
-  const aircraft = useCatalog(fetchAircraftTypes);
+  const { roleId } = useAuth();
+  const socket = getSocket();
+  const loadCategories = useCallback(
+    () =>
+      fetchAircraftCategoriesWithFallback(
+        socket,
+        roleId,
+        CLIENT_PAGE_PERMISSION_NAMES.newSgha,
+      ),
+    [socket, roleId],
+  );
+  const aircraftCategories = useCatalog(loadCategories);
   const services = useCatalog(fetchServices);
 
   return (
     <div className="client-catalog">
-      <section className="mb-4" aria-labelledby="client-aircraft-types">
+      <section className="mb-4" aria-labelledby="client-aircraft-categories">
         <div className="client-catalog-heading">
-          <h5 id="client-aircraft-types">Aircraft types</h5>
-          <p>Types used for handling charges, from the same records as the admin aircraft list.</p>
+          <h5 id="client-aircraft-categories">Aircraft categories</h5>
+          <p>
+            Same list as New SGHA → Aircraft category. Choose Other there if yours is not listed.
+          </p>
         </div>
         <CatalogState
-          status={aircraft.status}
-          error={aircraft.error}
-          empty="No aircraft types have been added yet."
-          isEmpty={aircraft.items.length === 0}
-          onRetry={aircraft.reload}
+          status={aircraftCategories.status}
+          error={aircraftCategories.error}
+          empty="No aircraft categories have been added yet."
+          isEmpty={aircraftCategories.items.length === 0}
+          onRetry={aircraftCategories.reload}
         >
           <Row className="g-3">
-            {aircraft.items.map((item) => (
-              <Col key={item.aircraft_id} xs={12} sm={6} lg={4}>
-                <AircraftCard aircraft={item} />
+            {aircraftCategories.items.map((item) => (
+              <Col key={item.Aircraft_category_id} xs={12} sm={6} lg={4}>
+                <AircraftCategoryCard category={item} />
               </Col>
             ))}
           </Row>

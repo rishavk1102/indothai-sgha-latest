@@ -123,6 +123,9 @@ export function formDetailsToWizardDraft(formDetails, agreementYear) {
   } else if (fd.selected_aircraft_id != null && fd.selected_aircraft_id !== "") {
     airportData.selected_aircraft_id = fd.selected_aircraft_id;
     airportData.selected_aircraft = {
+      Aircraft_category_id:
+        fd.aircraft_category_id ?? fd.selected_aircraft_id,
+      Category_name: fd.aircraft_category_name || fd.aircraft_name,
       aircraft_id: fd.selected_aircraft_id,
       Company_name: fd.aircraft_company_name,
       Aircraft_name: fd.aircraft_name,
@@ -177,6 +180,10 @@ export function mergeAircraftVariableIntoDraft(draft, variables) {
     row.selected_aircraft_id =
       aircraftVar.selected_aircraft_id ?? aircraftVar.aircraft_id;
     row.selected_aircraft = {
+      Aircraft_category_id:
+        aircraftVar.Aircraft_category_id ?? row.selected_aircraft_id,
+      Category_name:
+        aircraftVar.Category_name ?? aircraftVar.Aircraft_name ?? null,
       aircraft_id: row.selected_aircraft_id,
       Company_name: aircraftVar.Company_name,
       Aircraft_name: aircraftVar.Aircraft_name,

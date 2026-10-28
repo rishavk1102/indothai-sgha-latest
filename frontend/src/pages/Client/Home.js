@@ -10,9 +10,10 @@ import { InputIcon } from "primereact/inputicon";
 import { InputTextarea } from "primereact/inputtextarea";
 import { getSocket } from "../../context/socket";
 import { useAuth } from "../../context/AuthContext";
-import GifLoder from '../../interfaces/GifLoder';
 import { TabView, TabPanel } from 'primereact/tabview';
+import GifLoder from '../../interfaces/GifLoder';
 import api from '../../api/axios';
+import { fetchAircraftCategoriesWithFallback } from "../../api/clientCatalog";
 import {
   ClientBreadcrumbs,
   ClientFlowStepper,
@@ -30,6 +31,7 @@ import {
   isOtherAircraftSelection,
   hasValidAircraftForAirport,
   formatCatalogAircraftOptionLabel,
+  aircraftCategoryRowId,
 } from "../../utils/clientWorkspace";
 
 const Home = () => {
@@ -151,48 +153,31 @@ const Home = () => {
     };
   }, [socket, roleId, PAGE_NAME]);
 
-  // Company Aircraft list (Pricing → Aircraft options)
+  // Aircraft categories (same data as employee /dashboard/AircraftCategory)
   useEffect(() => {
-    if (!socket || !roleId) return;
-
-    const handleSuccess = (data) => {
-      setAircraftOptions(Array.isArray(data) ? data : []);
-      setLoadingAircraftOptions(false);
-    };
-    const handleError = () => {
-      setAircraftOptions([]);
-      setLoadingAircraftOptions(false);
-    };
-
-    const fetchAircraftOptions = () => {
+    if (!roleId) return;
+    let cancelled = false;
+    const loadCategories = async () => {
       setLoadingAircraftOptions(true);
-      socket.emit("view-company-aircrafts", {
-        role_id: roleId,
-        page_name: PAGE_NAME,
-        sortOrder: "ASC",
-        limit: 1000,
-        searchTerm: "",
-      });
+      try {
+        const data = await fetchAircraftCategoriesWithFallback(
+          socket,
+          roleId,
+          PAGE_NAME,
+        );
+        if (!cancelled) {
+          setAircraftOptions(Array.isArray(data) ? data : []);
+        }
+      } catch (err) {
+        console.warn("[New SGHA] Aircraft categories fetch:", err?.message || err);
+        if (!cancelled) setAircraftOptions([]);
+      } finally {
+        if (!cancelled) setLoadingAircraftOptions(false);
+      }
     };
-
-    socket.on("view-company-aircrafts-success", handleSuccess);
-    socket.on("view-company-aircrafts-error", handleError);
-
-    if (socket.connected) {
-      fetchAircraftOptions();
-    } else {
-      const onConnect = () => fetchAircraftOptions();
-      socket.on("connect", onConnect);
-      return () => {
-        socket.off("connect", onConnect);
-        socket.off("view-company-aircrafts-success", handleSuccess);
-        socket.off("view-company-aircrafts-error", handleError);
-      };
-    }
-
+    loadCategories();
     return () => {
-      socket.off("view-company-aircrafts-success", handleSuccess);
-      socket.off("view-company-aircrafts-error", handleError);
+      cancelled = true;
     };
   }, [socket, roleId, PAGE_NAME]);
 
@@ -267,21 +252,16 @@ const Home = () => {
     }));
   };
 
-  const handleAircraftSelect = (airport_id, aircraft, index) => {
-    const rowId = aircraft.aircraft_id ?? `aircraft-${index}`;
+  const handleAircraftSelect = (airport_id, category, index) => {
+    const rowId = aircraftCategoryRowId(category, index);
     setFormData((prev) => ({
       ...prev,
       [airport_id]: {
         ...prev[airport_id],
         selected_aircraft_id: rowId,
         selected_aircraft: {
-          aircraft_id: aircraft.aircraft_id ?? rowId,
-          Company_name: aircraft.Company_name,
-          Aircraft_name: aircraft.Aircraft_name,
-          Aircraft_model: aircraft.Aircraft_model,
-          Flight_type: aircraft.Flight_type,
-          MTOW: aircraft.MTOW,
-          Limit_per_incident: aircraft.Limit_per_incident,
+          Aircraft_category_id: category.Aircraft_category_id ?? rowId,
+          Category_name: category.Category_name,
         },
         custom_aircraft_text: "",
       },
@@ -454,7 +434,7 @@ const Home = () => {
             return;
           }
           const index = aircraftOptions.findIndex(
-            (a, i) => String(a.aircraft_id ?? `aircraft-${i}`) === v,
+            (a, i) => aircraftCategoryRowId(a, i) === v,
           );
           if (index < 0) return;
           handleAircraftSelect(airportId, aircraftOptions[index], index);
@@ -463,27 +443,32 @@ const Home = () => {
         <option value="" disabled>
           Please select
         </option>
-        {aircraftOptions.map((aircraft, index) => {
-          const rowId = aircraft.aircraft_id ?? `aircraft-${index}`;
+        {aircraftOptions.map((category, index) => {
+          const rowId = aircraftCategoryRowId(category, index);
           return (
             <option key={rowId} value={String(rowId)}>
-              {formatCatalogAircraftOptionLabel(aircraft)}
+              {formatCatalogAircraftOptionLabel(category)}
             </option>
           );
         })}
-        <option value={OTHER_AIRCRAFT_SELECT_VALUE}>Others</option>
+        <option value={OTHER_AIRCRAFT_SELECT_VALUE}>Other</option>
       </Form.Select>
     );
 
     return (
       <>
         <Form.Label>
-          Aircraft type <sup className="text-danger">*</sup>
+          Aircraft category <sup className="text-danger">*</sup>
         </Form.Label>
         {loadingAircraftOptions ? (
-          <Form.Select style={{ height: selectHeight }} disabled>
-            <option>Loading aircraft options…</option>
-          </Form.Select>
+          <div
+            className="d-flex align-items-center text-muted"
+            style={{ height: selectHeight }}
+            role="status"
+          >
+            <i className="pi pi-spin pi-spinner me-2" aria-hidden="true" />
+            Loading...
+          </div>
         ) : isOther ? (
           <Row className="g-2 mx-0">
             <Col xs={6} className="ps-0">
@@ -493,7 +478,7 @@ const Home = () => {
               <Form.Control
                 type="text"
                 style={{ height: selectHeight }}
-                placeholder="Enter aircraft type / model"
+                placeholder="Enter aircraft category"
                 value={data.custom_aircraft_text || ""}
                 onChange={(e) =>
                   handleCustomAircraftTextChange(airportId, e.target.value)
@@ -548,7 +533,7 @@ const Home = () => {
   }
 
   if (loading) {
-    return <div className='loderDiv'><GifLoder /></div>;
+    return <div className="loderDiv"><GifLoder /></div>;
   }
 
 
@@ -668,7 +653,7 @@ const Home = () => {
         <Row className="mx-0 mb-3">
           <div className="add_business ueselect">
             <h5 className="mb-2">Agreement details</h5>
-            <p className="text-muted mb-3">Enter flight type, services, aircraft type, and company details for the selected airport.</p>
+            <p className="text-muted mb-3">Enter flight type, services, aircraft category, and company details for the selected airport.</p>
             <div className="my-3">
               <TabView>
                 {selectedCities.map((airport) => {

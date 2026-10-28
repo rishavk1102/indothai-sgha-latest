@@ -62,6 +62,24 @@ function sectionContentKey(section) {
 const hasContent = (section) =>
   !!(section && section.content && String(section.content).trim().length > 0);
 
+function aircraftOptionsCategoryLabel(data) {
+  if (!data || typeof data !== "object") return "—";
+  if (data.is_other) {
+    return (
+      data.custom_aircraft_text ||
+      data.Category_name ||
+      data.Aircraft_name ||
+      "Other"
+    );
+  }
+  return (
+    data.Category_name ||
+    data.Aircraft_name ||
+    data.Company_name ||
+    "—"
+  );
+}
+
 function drawTemplateSectionHeading(doc, yPos, section) {
   if (!section?.sectionTitle && !section?.sectionNumber) return yPos;
   if (section.sectionNumber && section.sectionTitle) {
@@ -1231,7 +1249,6 @@ export const generateSubmissionPDF = async (
               );
           }
 
-          const colWidthsAircraft = [55, 35, 30, 35];
           const colWidthsCharges = [25, 55, 45, 40];
 
           // List numbering carries across all sections of one article, so a plain
@@ -1306,37 +1323,16 @@ export const generateSubmissionPDF = async (
                       if (data == null) return;
                       data = typeof data === "string" ? JSON.parse(data) : data;
                       const rows = Array.isArray(data)
-                        ? data.map((a) => [
-                            a.Company_name || "-",
-                            a.Flight_type || "-",
-                            a.MTOW || "-",
-                            a.Limit_per_incident || "-",
-                          ])
-                        : [
-                            [
-                              data.is_other
-                                ? data.custom_aircraft_text ||
-                                  data.Aircraft_name ||
-                                  "Other"
-                                : data.Company_name || "-",
-                              data.Flight_type || "-",
-                              data.MTOW || "-",
-                              data.Limit_per_incident || "-",
-                            ],
-                          ];
+                        ? data.map((a) => [aircraftOptionsCategoryLabel(a)])
+                        : [[aircraftOptionsCategoryLabel(data)]];
                       if (rows.length === 0) return;
-                      checkPageBreak(40);
+                      checkPageBreak(20);
                       yPos = drawSimpleTable(
                         margin,
                         yPos,
-                        [
-                          "Aircraft Company",
-                          "Region",
-                          "MOTW",
-                          "Limit Per Incident",
-                        ],
+                        ["Aircraft category"],
                         rows,
-                        colWidthsAircraft,
+                        [155],
                         { fontSize: 9, rowHeight: 7 },
                       );
                     } catch (e) {
@@ -1473,7 +1469,7 @@ export const generateSubmissionPDF = async (
           checkPageBreak(20);
           doc.setFontSize(11);
           doc.setFont("helvetica", "bold");
-          doc.text("Aircraft Options", margin, yPos);
+          doc.text("Aircraft category", margin, yPos);
           yPos += 6;
 
           try {
@@ -1487,17 +1483,19 @@ export const generateSubmissionPDF = async (
               doc.setFont("helvetica", "normal");
               aircraftData.forEach((aircraft) => {
                 checkPageBreak(10);
-                const aircraftLine = `• ${aircraft.aircraft_name || aircraft.name || "N/A"}`;
+                const aircraftLine = `• ${aircraftOptionsCategoryLabel(aircraft)}`;
                 yPos = addText(aircraftLine, margin + 5, yPos, { fontSize: 9 });
               });
             } else if (typeof aircraftData === "object") {
               doc.setFontSize(9);
               doc.setFont("helvetica", "normal");
-              Object.entries(aircraftData).forEach(([key, value]) => {
-                checkPageBreak(10);
-                const line = `• ${key}: ${value}`;
-                yPos = addText(line, margin + 5, yPos, { fontSize: 9 });
-              });
+              checkPageBreak(10);
+              yPos = addText(
+                `• ${aircraftOptionsCategoryLabel(aircraftData)}`,
+                margin + 5,
+                yPos,
+                { fontSize: 9 },
+              );
             }
           } catch (e) {
             doc.setFontSize(9);

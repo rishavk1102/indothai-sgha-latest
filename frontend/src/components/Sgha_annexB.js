@@ -504,13 +504,22 @@ const Sgha_annexB = ({
 
   // Steps/charges sections come only from template data — no fallback list
   const items = useMemo(() => {
-    if (parsedSections.length > 0) {
-      return parsedSections.map((section, index) => ({
-        label: section.heading || section.label || `Step ${index + 1}`,
+    if (!parsedSections.length) return [];
+    const seen = {};
+    return parsedSections.map((section, index) => {
+      const heading = String(
+        section.heading || section.label || `Step ${index + 1}`,
+      ).trim();
+      const withNo = section.headingNo
+        ? `${section.headingNo} ${heading}`
+        : heading;
+      const key = withNo.toLowerCase();
+      seen[key] = (seen[key] || 0) + 1;
+      return {
+        label: seen[key] > 1 ? `${withNo} (${seen[key]})` : withNo,
         command: () => setActiveIndex(index),
-      }));
-    }
-    return [];
+      };
+    });
   }, [parsedSections]);
 
   // Auto scroll active step into view
@@ -1454,7 +1463,8 @@ const Sgha_annexB = ({
           <tbody>
             <tr>
               <td colSpan="2" className="text-center text-muted">
-                Loading aircraft categories...
+                <i className="pi pi-spin pi-spinner me-2" aria-hidden="true" />
+                Loading...
               </td>
             </tr>
           </tbody>

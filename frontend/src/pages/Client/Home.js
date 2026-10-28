@@ -10,8 +10,8 @@ import { InputIcon } from "primereact/inputicon";
 import { InputTextarea } from "primereact/inputtextarea";
 import { getSocket } from "../../context/socket";
 import { useAuth } from "../../context/AuthContext";
-import GifLoder from '../../interfaces/GifLoder';
 import { TabView, TabPanel } from 'primereact/tabview';
+import GifLoder from '../../interfaces/GifLoder';
 import api from '../../api/axios';
 import { fetchAircraftCategoriesWithFallback } from "../../api/clientCatalog";
 import {
@@ -461,9 +461,14 @@ const Home = () => {
           Aircraft category <sup className="text-danger">*</sup>
         </Form.Label>
         {loadingAircraftOptions ? (
-          <Form.Select style={{ height: selectHeight }} disabled>
-            <option>Loading aircraft categories…</option>
-          </Form.Select>
+          <div
+            className="d-flex align-items-center text-muted"
+            style={{ height: selectHeight }}
+            role="status"
+          >
+            <i className="pi pi-spin pi-spinner me-2" aria-hidden="true" />
+            Loading...
+          </div>
         ) : isOther ? (
           <Row className="g-2 mx-0">
             <Col xs={6} className="ps-0">
@@ -528,7 +533,7 @@ const Home = () => {
   }
 
   if (loading) {
-    return <div className='loderDiv'><GifLoder /></div>;
+    return <div className="loderDiv"><GifLoder /></div>;
   }
 
 

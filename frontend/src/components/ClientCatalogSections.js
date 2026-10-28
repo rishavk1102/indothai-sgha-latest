@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Card, Col, Row } from "react-bootstrap";
 import { Button } from "primereact/button";
 import { MdFlight } from "react-icons/md";
-import { fetchAircraftCategories, fetchServices } from "../api/clientCatalog";
+import { fetchAircraftCategoriesWithFallback, fetchServices } from "../api/clientCatalog";
+import { getSocket } from "../context/socket";
+import { useAuth } from "../context/AuthContext";
+import GifLoder from "../interfaces/GifLoder";
+import { CLIENT_PAGE_PERMISSION_NAMES } from "../utils/clientWorkspace";
 
 function useCatalog(loader) {
   const [status, setStatus] = useState("loading");
@@ -38,10 +42,9 @@ function useCatalog(loader) {
 function CatalogState({ status, error, empty, isEmpty, onRetry, children }) {
   if (status === "loading") {
     return (
-      <p className="client-catalog-state" role="status">
-        <i className="pi pi-spin pi-spinner me-2" aria-hidden="true" />
-        Loading...
-      </p>
+      <div className="loderDiv">
+        <GifLoder />
+      </div>
     );
   }
 
@@ -96,7 +99,18 @@ function ServiceCard({ service }) {
 }
 
 const ClientCatalogSections = () => {
-  const aircraftCategories = useCatalog(fetchAircraftCategories);
+  const { roleId } = useAuth();
+  const socket = getSocket();
+  const loadCategories = useCallback(
+    () =>
+      fetchAircraftCategoriesWithFallback(
+        socket,
+        roleId,
+        CLIENT_PAGE_PERMISSION_NAMES.newSgha,
+      ),
+    [socket, roleId],
+  );
+  const aircraftCategories = useCatalog(loadCategories);
   const services = useCatalog(fetchServices);
 
   return (
@@ -104,7 +118,9 @@ const ClientCatalogSections = () => {
       <section className="mb-4" aria-labelledby="client-aircraft-categories">
         <div className="client-catalog-heading">
           <h5 id="client-aircraft-categories">Aircraft categories</h5>
-          <p>Same categories maintained under Pricing → Aircraft Category in the employee workspace.</p>
+          <p>
+            Same list as New SGHA → Aircraft category. Choose Other there if yours is not listed.
+          </p>
         </div>
         <CatalogState
           status={aircraftCategories.status}

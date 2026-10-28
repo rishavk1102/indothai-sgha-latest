@@ -73,9 +73,6 @@ const Sgha_reportsummary = () => {
   const [perPage, setPerPage] = useState(15);
   const [selectedSubmission, setSelectedSubmission] = useState(null);
   const [selectedStatus, setSelectedStatus] = useState(null);
-  const [dialogVariables, setDialogVariables] = useState({});
-  const [dialogTemplateVariables, setDialogTemplateVariables] = useState([]);
-  const [loadingDialogVariables, setLoadingDialogVariables] = useState(false);
   const [loadingTemplate, setLoadingTemplate] = useState(false);
   const [itemTextMap, setItemTextMap] = useState({});
   const [sectionTitles, setSectionTitles] = useState({});
@@ -730,15 +727,10 @@ const Sgha_reportsummary = () => {
     [],
   );
 
-  // Initialize status and fetch Company's Pricing variables when dialog opens
+  // Initialize status when dialog opens
   useEffect(() => {
     if (!visible || !selectedSubmission) {
-      if (!visible) {
-        setDialogVariables({});
-        setDialogTemplateVariables([]);
-        setLoadingDialogVariables(false);
-        setSelectedStatus(null);
-      }
+      if (!visible) setSelectedStatus(null);
       return;
     }
     // Initialize status: show In Progress if employee has set it, else use client_status
@@ -756,82 +748,10 @@ const Sgha_reportsummary = () => {
       );
       if (pendingOption) setSelectedStatus(pendingOption);
     }
-    // Fetch variables/template for Company's Pricing so we can show and validate
-    const fetchDialogVariables = async () => {
-      try {
-        setLoadingDialogVariables(true);
-        const response = await api.get(
-          `/api/client/annex-a-submissions/${selectedSubmission.submission_id}/variables/template`,
-        );
-        console.log("[ReportSummary Status Dialog] Variables loaded", {
-          submission_id: selectedSubmission.submission_id,
-          data: response.data?.data,
-          templateVariables: response.data?.data?.templateVariables,
-          templateVariablesCount: (response.data?.data?.templateVariables || [])
-            .length,
-        });
-        if (response.data?.data) {
-          const variables = response.data.data.variables || {};
-          const templateVars = response.data.data.templateVariables || [];
-          setDialogVariables(variables);
-          setDialogTemplateVariables(templateVars);
-        } else {
-          setDialogVariables({});
-          setDialogTemplateVariables([]);
-        }
-      } catch (error) {
-        console.error(
-          "[ReportSummary Status Dialog] Error fetching variables:",
-          error,
-        );
-        setDialogVariables({});
-        setDialogTemplateVariables([]);
-      } finally {
-        setLoadingDialogVariables(false);
-      }
-    };
-    fetchDialogVariables();
   }, [visible, selectedSubmission, statusOptions]);
 
   const handleStatusUpdate = async () => {
     if (!selectedSubmission || !selectedStatus) return;
-
-    // Client-side validation: Company's Pricing vars must not be empty or "na"
-    console.log("[ReportSummary Status Update] Update clicked", {
-      submission_id: selectedSubmission.submission_id,
-      selectedStatus: selectedStatus?.code,
-      dialogTemplateVariables,
-      dialogTemplateVariablesLength: dialogTemplateVariables.length,
-      dialogVariables,
-    });
-    if (dialogTemplateVariables.length > 0) {
-      const emptyOrNa = dialogTemplateVariables.filter((varName) => {
-        const val = (dialogVariables[varName] ?? "")
-          .toString()
-          .trim()
-          .toLowerCase();
-        return !val || val === "na" || val === "n/a";
-      });
-      console.log(
-        "[ReportSummary Status Update] Company's Pricing validation",
-        { emptyOrNa, wouldBlock: emptyOrNa.length > 0 },
-      );
-      if (emptyOrNa.length > 0) {
-        const labels = emptyOrNa
-          .map((v) =>
-            v.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()),
-          )
-          .join(", ");
-        showWarn(
-          `Please enter valid values for Company's Pricing: ${labels}. They cannot be empty or "na".`,
-        );
-        return;
-      }
-    } else {
-      console.log(
-        "[ReportSummary Status Update] No template variables – skipping Company's Pricing validation",
-      );
-    }
 
     try {
       // Call API to update client_status (client side uses client_status, not status)
@@ -1073,17 +993,6 @@ const Sgha_reportsummary = () => {
                             tooltipOptions={{ position: "top" }}
                             onClick={async () => {
                               try {
-                                console.log(
-                                  "[ReportSummary] Preview PDF clicked",
-                                  {
-                                    submission_id: submission.submission_id,
-                                    agreement_year: submission.agreement_year,
-                                    template_name:
-                                      submission.form_details?.template_name ||
-                                      null,
-                                    status: submission.status,
-                                  },
-                                );
                                 await generateSubmissionPDF(
                                   submission,
                                   itemTextMap,

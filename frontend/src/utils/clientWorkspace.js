@@ -256,7 +256,7 @@ export function buildFormDetailsAirportFields(selectedCities, formData = {}) {
 
 export const OTHER_AIRCRAFT_SELECT_VALUE = "__other__";
 
-/** Label for aircraft category dropdown rows (New SGHA). */
+/** Label for aircraft category dropdown rows. */
 export function formatAircraftCategoryOptionLabel(category) {
   if (!category || typeof category !== "object") return "Category";
   const name =
@@ -267,56 +267,73 @@ export function formatAircraftCategoryOptionLabel(category) {
   return String(name).trim() || "Category";
 }
 
-/** @deprecated Company aircraft row label; prefer formatAircraftCategoryOptionLabel. */
+/** Aircraft options (CompanyAircraft) dropdown / PDF label. */
 export function formatCompanyAircraftOptionLabel(aircraft) {
   if (!aircraft || typeof aircraft !== "object") return "Aircraft";
-  if (aircraft.Category_name || aircraft.Aircraft_category_id != null) {
-    return formatAircraftCategoryOptionLabel(aircraft);
-  }
   const label = [
-    aircraft.Company_name,
     aircraft.Aircraft_name,
     aircraft.Aircraft_model,
+    aircraft.Flight_type,
+    aircraft.Company_name,
   ]
     .filter(Boolean)
     .join(" · ");
-  return label || "Aircraft";
+  return label || aircraft.Category_name || "Aircraft";
 }
 
-/** Alias for New SGHA aircraft category picker. */
+/** New SGHA picker: Aircraft options catalog. */
 export function formatCatalogAircraftOptionLabel(item) {
+  if (!item || typeof item !== "object") return "Aircraft";
+  if (item.aircraft_id != null || item.Aircraft_name || item.Aircraft_model) {
+    return formatCompanyAircraftOptionLabel(item);
+  }
   return formatAircraftCategoryOptionLabel(item);
 }
 
-export function aircraftCategoryRowId(category, index = 0) {
-  if (!category || typeof category !== "object") return `category-${index}`;
-  if (category.Aircraft_category_id != null) {
-    return String(category.Aircraft_category_id);
+export function aircraftOptionRowId(aircraft, index = 0) {
+  if (!aircraft || typeof aircraft !== "object") return `aircraft-${index}`;
+  if (aircraft.aircraft_id != null) return String(aircraft.aircraft_id);
+  if (aircraft.selected_aircraft_id != null) {
+    return String(aircraft.selected_aircraft_id);
   }
-  return `category-${index}`;
+  if (aircraft.Aircraft_category_id != null) {
+    return String(aircraft.Aircraft_category_id);
+  }
+  return `aircraft-${index}`;
+}
+
+/** @deprecated Use aircraftOptionRowId. */
+export function aircraftCategoryRowId(item, index = 0) {
+  return aircraftOptionRowId(item, index);
+}
+
+export function getSelectedAircraftIds(data = {}) {
+  if (Array.isArray(data.selected_aircraft_ids) && data.selected_aircraft_ids.length) {
+    return data.selected_aircraft_ids.map((id) => String(id));
+  }
+  if (data.selected_aircraft_id != null && String(data.selected_aircraft_id) !== "") {
+    return [String(data.selected_aircraft_id)];
+  }
+  return [];
 }
 
 export function isOtherAircraftSelection(data) {
-  return (
-    String(data?.selected_aircraft_id || "") === OTHER_AIRCRAFT_SELECT_VALUE
-  );
+  return getSelectedAircraftIds(data).includes(OTHER_AIRCRAFT_SELECT_VALUE);
 }
 
-/** Snapshot from New SGHA picker (aircraft category or custom Other). */
+/** Snapshot from New SGHA picker (Aircraft options row or custom Other). */
 export function buildAircraftOptionsVariable(aircraft) {
   if (!aircraft || typeof aircraft !== "object") return null;
-  const categoryId =
+  const id =
+    aircraft.aircraft_id ??
+    aircraft.selected_aircraft_id ??
     aircraft.Aircraft_category_id ??
     aircraft.aircraft_category_id ??
     null;
-  const id =
-    categoryId ??
-    aircraft.aircraft_id ??
-    aircraft.selected_aircraft_id;
   const customText = String(
     aircraft.custom_aircraft_text ||
-      aircraft.Category_name ||
       aircraft.Aircraft_name ||
+      aircraft.Category_name ||
       "",
   ).trim();
   if (
@@ -329,6 +346,7 @@ export function buildAircraftOptionsVariable(aircraft) {
       selected_aircraft_id: OTHER_AIRCRAFT_SELECT_VALUE,
       is_other: true,
       custom_aircraft_text: customText,
+      aircraft_id: null,
       Aircraft_category_id: null,
       Category_name: customText,
       Company_name: null,
@@ -337,50 +355,77 @@ export function buildAircraftOptionsVariable(aircraft) {
       Flight_type: null,
       MTOW: null,
       Limit_per_incident: null,
+      Price_per_Limit_inr: null,
+      Price_per_Limit_usd: null,
     };
   }
   if (id == null || id === "") return null;
-  const categoryName =
-    aircraft.Category_name ??
-    aircraft.category_name ??
-    aircraft.Aircraft_name ??
-    null;
+  const name = aircraft.Aircraft_name ?? aircraft.Category_name ?? null;
   return {
     selected_aircraft_id: id,
     is_other: false,
-    Aircraft_category_id: categoryId ?? id,
-    Category_name: categoryName,
+    aircraft_id: aircraft.aircraft_id ?? id,
+    Aircraft_category_id: aircraft.Aircraft_category_id ?? null,
+    Category_name: aircraft.Category_name ?? name,
     Company_name: aircraft.Company_name ?? null,
-    Aircraft_name: categoryName ?? aircraft.Aircraft_name ?? null,
+    Aircraft_name: name,
     Aircraft_model: aircraft.Aircraft_model ?? null,
     Flight_type: aircraft.Flight_type ?? null,
     MTOW: aircraft.MTOW ?? null,
     Limit_per_incident: aircraft.Limit_per_incident ?? null,
+    Price_per_Limit_inr: aircraft.Price_per_Limit_inr ?? null,
+    Price_per_Limit_usd: aircraft.Price_per_Limit_usd ?? null,
   };
 }
 
-export function getHomeAircraftSelection(formData = {}, selectedCities = []) {
+export function getHomeAircraftSelections(formData = {}, selectedCities = []) {
   const airport = getSelectedAirport(selectedCities);
-  if (!airport) return null;
+  if (!airport) return [];
   const data = formData?.[airport.airport_id] || {};
-  if (isOtherAircraftSelection(data)) {
-    return buildAircraftOptionsVariable({
-      selected_aircraft_id: OTHER_AIRCRAFT_SELECT_VALUE,
-      is_other: true,
-      custom_aircraft_text: data.custom_aircraft_text,
-      Aircraft_name: data.custom_aircraft_text,
-    });
-  }
-  if (data.selected_aircraft && typeof data.selected_aircraft === "object") {
-    return buildAircraftOptionsVariable(data.selected_aircraft);
-  }
-  if (data.selected_aircraft_id != null && data.selected_aircraft_id !== "") {
-    return buildAircraftOptionsVariable({
-      Aircraft_category_id: data.selected_aircraft_id,
-      selected_aircraft_id: data.selected_aircraft_id,
-    });
-  }
-  return null;
+  const ids = getSelectedAircraftIds(data);
+  if (!ids.length) return [];
+
+  const snapshots = Array.isArray(data.selected_aircrafts)
+    ? data.selected_aircrafts
+    : data.selected_aircraft
+      ? [data.selected_aircraft]
+      : [];
+
+  return ids
+    .map((id) => {
+      if (id === OTHER_AIRCRAFT_SELECT_VALUE) {
+        return buildAircraftOptionsVariable({
+          selected_aircraft_id: OTHER_AIRCRAFT_SELECT_VALUE,
+          is_other: true,
+          custom_aircraft_text: data.custom_aircraft_text,
+          Aircraft_name: data.custom_aircraft_text,
+        });
+      }
+      const snap = snapshots.find(
+        (s) =>
+          String(
+            s?.selected_aircraft_id ?? s?.aircraft_id ?? s?.Aircraft_category_id,
+          ) === String(id),
+      );
+      if (snap) return buildAircraftOptionsVariable(snap);
+      return buildAircraftOptionsVariable({
+        aircraft_id: id,
+        selected_aircraft_id: id,
+        Aircraft_name: data.aircraft_name,
+        Aircraft_model: data.aircraft_model,
+        Company_name: data.aircraft_company_name,
+        Flight_type: data.aircraft_flight_type,
+        MTOW: data.aircraft_mtow,
+        Limit_per_incident: data.aircraft_limit_per_incident,
+      });
+    })
+    .filter(Boolean);
+}
+
+/** @deprecated Use getHomeAircraftSelections; still returns the list (array). */
+export function getHomeAircraftSelection(formData = {}, selectedCities = []) {
+  const list = getHomeAircraftSelections(formData, selectedCities);
+  return list.length ? list : null;
 }
 
 export function hasValidAircraftForAirport(
@@ -390,20 +435,14 @@ export function hasValidAircraftForAirport(
 ) {
   if (airportId == null) return false;
   const data = formData?.[airportId] || {};
-  if (isOtherAircraftSelection(data)) {
-    return !!String(data.custom_aircraft_text || "").trim();
+  const ids = getSelectedAircraftIds(data);
+  if (!ids.length) return false;
+  if (ids.includes(OTHER_AIRCRAFT_SELECT_VALUE)) {
+    const customOk = !!String(data.custom_aircraft_text || "").trim();
+    if (!customOk && ids.length === 1) return false;
+    if (!customOk) return ids.some((id) => id !== OTHER_AIRCRAFT_SELECT_VALUE);
   }
-  if (data.selected_aircraft && typeof data.selected_aircraft === "object") {
-    return true;
-  }
-  if (
-    data.selected_aircraft_id != null &&
-    String(data.selected_aircraft_id).trim() !== "" &&
-    !isOtherAircraftSelection(data)
-  ) {
-    return true;
-  }
-  return false;
+  return true;
 }
 
 export function hasValidHomeAircraftSelection(
@@ -421,20 +460,29 @@ export function hasValidHomeAircraftSelection(
 }
 
 export function buildFormDetailsAircraftFields(formData = {}, selectedCities = []) {
-  const sel = getHomeAircraftSelection(formData, selectedCities);
-  if (!sel) return {};
+  const list = getHomeAircraftSelections(formData, selectedCities);
+  if (!list.length) return {};
+  const first = list[0];
+  const other = list.find((s) => s.is_other);
   return {
-    selected_aircraft_id: sel.selected_aircraft_id,
-    aircraft_is_other: !!sel.is_other,
-    custom_aircraft_text: sel.custom_aircraft_text ?? null,
-    aircraft_category_id: sel.Aircraft_category_id ?? null,
-    aircraft_category_name: sel.Category_name ?? null,
-    aircraft_company_name: sel.Company_name,
-    aircraft_name: sel.Aircraft_name,
-    aircraft_model: sel.Aircraft_model,
-    aircraft_flight_type: sel.Flight_type,
-    aircraft_mtow: sel.MTOW,
-    aircraft_limit_per_incident: sel.Limit_per_incident,
+    selected_aircraft_ids: list.map((s) => s.selected_aircraft_id),
+    selected_aircrafts: list,
+    selected_aircraft_id: first.selected_aircraft_id,
+    aircraft_is_other: !!other,
+    custom_aircraft_text: other?.custom_aircraft_text ?? null,
+    aircraft_category_id: first.Aircraft_category_id ?? null,
+    aircraft_category_name: list
+      .map((s) => s.Category_name || s.Aircraft_name)
+      .filter(Boolean)
+      .join(", "),
+    aircraft_company_name: first.Company_name,
+    aircraft_name: first.Aircraft_name,
+    aircraft_model: first.Aircraft_model,
+    aircraft_flight_type: first.Flight_type,
+    aircraft_mtow: first.MTOW,
+    aircraft_limit_per_incident: first.Limit_per_incident,
+    aircraft_price_inr: first.Price_per_Limit_inr,
+    aircraft_price_usd: first.Price_per_Limit_usd,
   };
 }
 

@@ -5,6 +5,28 @@ export async function fetchAircraftTypes() {
   return response.data?.data || [];
 }
 
+/** Employee Aircraft options (`/dashboard/CompanyAircraft`) — MOTW, region, limits. */
+export async function fetchAircraftOptions(airportId) {
+  const params =
+    airportId != null && String(airportId).trim() !== ""
+      ? { airport_id: airportId }
+      : {};
+  const response = await api.get("/api/client/catalog/aircraft-options", {
+    params,
+  });
+  return response.data?.data || [];
+}
+
+/**
+ * Prefer rows for the selected airport; if none, return the full catalog.
+ */
+export async function fetchAircraftOptionsWithFallback(airportId) {
+  const scoped = await fetchAircraftOptions(airportId);
+  if (Array.isArray(scoped) && scoped.length) return scoped;
+  if (airportId == null) return Array.isArray(scoped) ? scoped : [];
+  return fetchAircraftOptions();
+}
+
 /** Employee Aircraft Category sidebar (`/dashboard/AircraftCategory`) */
 export async function fetchAircraftCategories() {
   const response = await api.get("/api/client/catalog/aircraft-categories");

@@ -35,7 +35,7 @@ export const SDA_PDF = {
     body: 10,
     table: 9,
     footer: 9,
-    lineFactor: 0.38,
+    lineFactor: 0.46,
   },
   color: {
     black: [0, 0, 0],

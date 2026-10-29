@@ -91,7 +91,7 @@ export function drawWrappedText(doc, text, x, y, options = {}) {
       setFont(doc, fontStyle, fontSize);
       rgb(doc, textColor);
     }
-    drawLineWithEmails(doc, line, x, currentY, {
+    drawLineWithEmails(doc, line, x, currentY + lh * 0.75, {
       fontSize,
       fontStyle,
       textColor,
@@ -101,7 +101,7 @@ export function drawWrappedText(doc, text, x, y, options = {}) {
     currentY += lh;
   });
 
-  return currentY;
+  return currentY + 0.8;
 }
 
 function drawLineWithEmails(doc, line, x, y, opts) {
@@ -614,10 +614,7 @@ export function drawSignatureSection(doc, y, lines) {
   const pageRoom = contentBottom - contentTop;
   const fitsPage = height <= pageRoom;
   let currentY = y;
-  if (fitsPage && currentY + height > contentBottom) {
-    doc.addPage();
-    currentY = contentTop;
-  } else if (!fitsPage && currentY + 42 > contentBottom) {
+  if (currentY + height > contentBottom) {
     doc.addPage();
     currentY = contentTop;
   }
@@ -810,10 +807,29 @@ export function drawAgreementBlocks(doc, y, blocks, options = {}) {
 
 export function drawDataTable(doc, y, headers, rows, colWidths, opts = {}) {
   const fontSize = opts.fontSize || font.table;
-  const lh = lineHeight(fontSize);
+  const lh = Math.max(lineHeight(fontSize), fontSize * 0.5);
+  const padY = Math.max(cellPadY, 1.2);
   const widths = scaleWidths(colWidths, contentWidth);
+  const colCount = widths.length;
   const headerFill = opts.headerFill || color.sectionRow;
   const body = Array.isArray(rows) ? rows : [];
+
+  const fitCells = (row) => {
+    const source = Array.isArray(row)
+      ? row.map((cell) => (cell == null ? "" : String(cell)))
+      : headers.map((_, i) => String(row?.[headers[i]] ?? "—"));
+    const cells = source.slice(0, colCount);
+    while (cells.length < colCount) cells.push("");
+    if (source.length > colCount) {
+      const extra = source
+        .slice(colCount - 1)
+        .map((cell) => cell.trim())
+        .filter(Boolean)
+        .join(" ");
+      cells[colCount - 1] = extra;
+    }
+    return cells;
+  };
 
   const wrapCell = (value, width, style) => {
     setFont(doc, style, fontSize);
@@ -823,7 +839,7 @@ export function drawDataTable(doc, y, headers, rows, colWidths, opts = {}) {
   };
 
   const paintSlice = (wrapped, from, count, top, isHeader, fillColor) => {
-    const h = count * lh + cellPadY * 2;
+    const h = count * lh + padY * 2;
     if (fillColor) {
       fill(doc, fillColor);
       doc.rect(margin.left, top, contentWidth, h, "F");
@@ -831,20 +847,21 @@ export function drawDataTable(doc, y, headers, rows, colWidths, opts = {}) {
     let x = margin.left;
     wrapped.forEach((lines, i) => {
       const w = widths[i];
+      if (!w) return;
       strokeRect(doc, x, top, w, h);
       setFont(doc, isHeader ? "bold" : "normal", fontSize);
       rgb(doc, color.black);
       lines.slice(from, from + count).forEach((line, li) => {
-        doc.text(line, x + cellPadX, top + cellPadY + lh * (li + 0.75));
+        doc.text(line, x + cellPadX, top + padY + lh * (li + 0.75));
       });
       x += w;
     });
     return top + h;
   };
 
-  const headerWrapped = headers.map((h, i) => wrapCell(h, widths[i], "bold"));
+  const headerWrapped = fitCells(headers).map((h, i) => wrapCell(h, widths[i], "bold"));
   const headerLines = Math.max(...headerWrapped.map((l) => l.length), 1);
-  const headerH = headerLines * lh + cellPadY * 2;
+  const headerH = headerLines * lh + padY * 2;
 
   const paintHeader = (top) => paintSlice(headerWrapped, 0, headerLines, top, true, headerFill);
 
@@ -855,23 +872,19 @@ export function drawDataTable(doc, y, headers, rows, colWidths, opts = {}) {
   }
   currentY = paintHeader(currentY);
 
-  const dataRows = body.length
-    ? body
-    : [headers.map(() => "—")];
+  const dataRows = body.length ? body : [headers.map(() => "—")];
 
   dataRows.forEach((row) => {
-    const cells = Array.isArray(row)
-      ? row
-      : headers.map((_, i) => row[headers[i]] ?? "—");
+    const cells = fitCells(row);
     const wrapped = cells.map((cell, i) => wrapCell(cell, widths[i] || 20, "normal"));
     const total = Math.max(...wrapped.map((l) => l.length), 1);
     let drawn = 0;
     while (drawn < total) {
       const room = contentBottom - currentY;
       let fit = total - drawn;
-      const needed = fit * lh + cellPadY * 2;
+      const needed = fit * lh + padY * 2;
       if (needed > room) {
-        const capacity = Math.floor((room - cellPadY * 2) / lh);
+        const capacity = Math.floor((room - padY * 2) / lh);
         if (capacity < 1 || (fit <= capacity && needed > room)) {
           doc.addPage();
           currentY = paintHeader(contentTop);
@@ -884,7 +897,7 @@ export function drawDataTable(doc, y, headers, rows, colWidths, opts = {}) {
     }
   });
 
-  return currentY + 3;
+  return currentY + 4;
 }
 
 function scaleWidths(colWidths, total) {

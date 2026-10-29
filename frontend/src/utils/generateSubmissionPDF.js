@@ -62,22 +62,57 @@ function sectionContentKey(section) {
 const hasContent = (section) =>
   !!(section && section.content && String(section.content).trim().length > 0);
 
+function formatPdfCell(value, prefix = "") {
+  if (value == null || value === "") return "—";
+  return `${prefix}${value}`;
+}
+
 function aircraftOptionsCategoryLabel(data) {
   if (!data || typeof data !== "object") return "—";
   if (data.is_other) {
     return (
       data.custom_aircraft_text ||
-      data.Category_name ||
       data.Aircraft_name ||
+      data.Category_name ||
       "Other"
     );
   }
-  return (
-    data.Category_name ||
-    data.Aircraft_name ||
-    data.Company_name ||
-    "—"
-  );
+  const label = [
+    data.Company_name,
+    data.Aircraft_name,
+    data.Aircraft_model,
+    data.Flight_type,
+    data.MTOW != null && data.MTOW !== "" ? `MOTW ${data.MTOW}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return label || data.Category_name || "—";
+}
+
+function aircraftOptionsTableRow(data) {
+  if (!data || typeof data !== "object") {
+    return ["—", "—", "—", "—", "—", "—"];
+  }
+  if (data.is_other) {
+    const name =
+      data.custom_aircraft_text ||
+      data.Aircraft_name ||
+      data.Category_name ||
+      "Other";
+    return [name, "—", "—", "—", "—", "—"];
+  }
+  const aircraft = [data.Aircraft_name, data.Aircraft_model]
+    .filter(Boolean)
+    .join(" / ");
+  const company = [data.Company_name, aircraft].filter(Boolean).join(" · ");
+  return [
+    company || "—",
+    data.Flight_type || "—",
+    formatPdfCell(data.MTOW),
+    formatPdfCell(data.Limit_per_incident),
+    formatPdfCell(data.Price_per_Limit_inr, "Rs "),
+    formatPdfCell(data.Price_per_Limit_usd, "$ "),
+  ];
 }
 
 function drawTemplateSectionHeading(doc, yPos, section) {
@@ -1304,6 +1339,7 @@ export const generateSubmissionPDF = async (
                       yPos = drawAgreementBlocks(doc, yPos, blocks, {
                         signatureRuns,
                       });
+                      yPos += 2;
                     }
                     return;
                   }
@@ -1314,7 +1350,7 @@ export const generateSubmissionPDF = async (
                       yPos,
                       { fontSize: 10 },
                     );
-                    yPos += 5;
+                    yPos += 4;
                     return;
                   }
                   if (part.tableType === "aircraft_options") {
@@ -1323,17 +1359,24 @@ export const generateSubmissionPDF = async (
                       if (data == null) return;
                       data = typeof data === "string" ? JSON.parse(data) : data;
                       const rows = Array.isArray(data)
-                        ? data.map((a) => [aircraftOptionsCategoryLabel(a)])
-                        : [[aircraftOptionsCategoryLabel(data)]];
+                        ? data.map((a) => aircraftOptionsTableRow(a))
+                        : [aircraftOptionsTableRow(data)];
                       if (rows.length === 0) return;
                       checkPageBreak(20);
                       yPos = drawSimpleTable(
                         margin,
                         yPos,
-                        ["Aircraft category"],
+                        [
+                          "Aircraft",
+                          "Region",
+                          "MOTW",
+                          "Limit",
+                          "INR",
+                          "USD",
+                        ],
                         rows,
-                        [155],
-                        { fontSize: 9, rowHeight: 7 },
+                        [50, 24, 20, 22, 20, 19],
+                        { fontSize: 8, rowHeight: 7 },
                       );
                     } catch (e) {
                       console.error(
@@ -1469,7 +1512,7 @@ export const generateSubmissionPDF = async (
           checkPageBreak(20);
           doc.setFontSize(11);
           doc.setFont("helvetica", "bold");
-          doc.text("Aircraft category", margin, yPos);
+          doc.text("Aircraft options", margin, yPos);
           yPos += 6;
 
           try {

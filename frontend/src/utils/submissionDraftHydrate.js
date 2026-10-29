@@ -115,13 +115,24 @@ export function formDetailsToWizardDraft(formDetails, agreementYear) {
     value: fd.other_details || "",
   };
 
-  if (fd.aircraft_is_other || fd.selected_aircraft_id === OTHER_AIRCRAFT_SELECT_VALUE) {
+  if (Array.isArray(fd.selected_aircraft_ids) && fd.selected_aircraft_ids.length) {
+    airportData.selected_aircraft_ids = fd.selected_aircraft_ids.map(String);
+    airportData.selected_aircraft_id = airportData.selected_aircraft_ids[0];
+    airportData.selected_aircrafts = Array.isArray(fd.selected_aircrafts)
+      ? fd.selected_aircrafts
+      : [];
+    airportData.selected_aircraft = airportData.selected_aircrafts[0] || null;
+    airportData.custom_aircraft_text = fd.custom_aircraft_text || "";
+  } else if (fd.aircraft_is_other || fd.selected_aircraft_id === OTHER_AIRCRAFT_SELECT_VALUE) {
     airportData.selected_aircraft_id = OTHER_AIRCRAFT_SELECT_VALUE;
+    airportData.selected_aircraft_ids = [OTHER_AIRCRAFT_SELECT_VALUE];
     airportData.custom_aircraft_text =
       fd.custom_aircraft_text || fd.aircraft_name || "";
     airportData.selected_aircraft = null;
+    airportData.selected_aircrafts = [];
   } else if (fd.selected_aircraft_id != null && fd.selected_aircraft_id !== "") {
     airportData.selected_aircraft_id = fd.selected_aircraft_id;
+    airportData.selected_aircraft_ids = [String(fd.selected_aircraft_id)];
     airportData.selected_aircraft = {
       Aircraft_category_id:
         fd.aircraft_category_id ?? fd.selected_aircraft_id,
@@ -134,6 +145,7 @@ export function formDetailsToWizardDraft(formDetails, agreementYear) {
       MTOW: fd.aircraft_mtow,
       Limit_per_incident: fd.aircraft_limit_per_incident,
     };
+    airportData.selected_aircrafts = [airportData.selected_aircraft];
     airportData.custom_aircraft_text = "";
   }
 
@@ -170,30 +182,18 @@ export function mergeAircraftVariableIntoDraft(draft, variables) {
   }
   if (!aircraftVar || typeof aircraftVar !== "object") return draft;
 
+  const list = Array.isArray(aircraftVar) ? aircraftVar : [aircraftVar];
   const row = { ...draft.formData[airportId] };
-  if (aircraftVar.is_other) {
-    row.selected_aircraft_id = OTHER_AIRCRAFT_SELECT_VALUE;
-    row.custom_aircraft_text =
-      aircraftVar.custom_aircraft_text || aircraftVar.Aircraft_name || "";
-    row.selected_aircraft = null;
-  } else {
-    row.selected_aircraft_id =
-      aircraftVar.selected_aircraft_id ?? aircraftVar.aircraft_id;
-    row.selected_aircraft = {
-      Aircraft_category_id:
-        aircraftVar.Aircraft_category_id ?? row.selected_aircraft_id,
-      Category_name:
-        aircraftVar.Category_name ?? aircraftVar.Aircraft_name ?? null,
-      aircraft_id: row.selected_aircraft_id,
-      Company_name: aircraftVar.Company_name,
-      Aircraft_name: aircraftVar.Aircraft_name,
-      Aircraft_model: aircraftVar.Aircraft_model,
-      Flight_type: aircraftVar.Flight_type,
-      MTOW: aircraftVar.MTOW,
-      Limit_per_incident: aircraftVar.Limit_per_incident,
-    };
-    row.custom_aircraft_text = "";
-  }
+  row.selected_aircraft_ids = list
+    .map((item) => String(item.selected_aircraft_id ?? item.Aircraft_category_id ?? item.aircraft_id ?? ""))
+    .filter(Boolean);
+  row.selected_aircraft_id = row.selected_aircraft_ids[0] || "";
+  row.selected_aircrafts = list;
+  row.selected_aircraft = list.find((item) => !item.is_other) || null;
+  const other = list.find((item) => item.is_other);
+  row.custom_aircraft_text = other
+    ? other.custom_aircraft_text || other.Aircraft_name || ""
+    : "";
 
   return {
     ...draft,

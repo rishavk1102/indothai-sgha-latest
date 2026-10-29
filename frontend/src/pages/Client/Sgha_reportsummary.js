@@ -2,7 +2,6 @@ import DOMPurify from "dompurify";
 import { Avatar } from "primereact/avatar";
 import { Button } from "primereact/button";
 import { Dialog } from "primereact/dialog";
-import { Dropdown } from "primereact/dropdown";
 import { IconField } from "primereact/iconfield";
 import { InputIcon } from "primereact/inputicon";
 import { InputText } from "primereact/inputtext";
@@ -57,7 +56,6 @@ const Sgha_reportsummary = () => {
   );
 
   const [expandedRow, setExpandedRow] = useState(null);
-  const [visible, setVisible] = useState(false);
   const [searchValue, setSearchValue] = useState("");
   const [submissions, setSubmissions] = useState([]);
   const [filteredSubmissions, setFilteredSubmissions] = useState([]);
@@ -71,8 +69,6 @@ const Sgha_reportsummary = () => {
   const [activeStatus, setActiveStatus] = useState("Pending");
   const [sortOrder, setSortOrder] = useState("DESC");
   const [perPage, setPerPage] = useState(15);
-  const [selectedSubmission, setSelectedSubmission] = useState(null);
-  const [selectedStatus, setSelectedStatus] = useState(null);
   const [loadingTemplate, setLoadingTemplate] = useState(false);
   const [itemTextMap, setItemTextMap] = useState({});
   const [sectionTitles, setSectionTitles] = useState({});
@@ -716,70 +712,6 @@ const Sgha_reportsummary = () => {
     Rejected: "bg-danger text-white",
   };
 
-  // Status options for dropdown (client statuses only)
-  const statusOptions = useMemo(
-    () => [
-      { name: "Pending", code: "Pending" },
-      { name: "In Progress", code: "In Progress" },
-      { name: "Approved", code: "Approved" },
-      { name: "Rejected", code: "Rejected" },
-    ],
-    [],
-  );
-
-  // Initialize status when dialog opens
-  useEffect(() => {
-    if (!visible || !selectedSubmission) {
-      if (!visible) setSelectedStatus(null);
-      return;
-    }
-    // Initialize status: show In Progress if employee has set it, else use client_status
-    const displayStatus =
-      selectedSubmission.status === "In Progress"
-        ? "In Progress"
-        : selectedSubmission.client_status || "Pending";
-    const currentStatusOption = statusOptions.find(
-      (option) => option.code === displayStatus,
-    );
-    if (currentStatusOption) setSelectedStatus(currentStatusOption);
-    else {
-      const pendingOption = statusOptions.find(
-        (option) => option.code === "Pending",
-      );
-      if (pendingOption) setSelectedStatus(pendingOption);
-    }
-  }, [visible, selectedSubmission, statusOptions]);
-
-  const handleStatusUpdate = async () => {
-    if (!selectedSubmission || !selectedStatus) return;
-
-    try {
-      // Call API to update client_status (client side uses client_status, not status)
-      await api.put(
-        `/api/client/annex-a-submissions/${selectedSubmission.submission_id}/status`,
-        {
-          client_status: selectedStatus.code,
-        },
-      );
-
-      // Close dialog
-      setVisible(false);
-      const newStatus = selectedStatus.code;
-      setSelectedSubmission(null);
-      setSelectedStatus(null);
-
-      if (newStatus !== activeStatus) {
-        setActiveStatus(newStatus);
-        setSearchValue("");
-      } else {
-        await fetchSubmissions();
-      }
-    } catch (error) {
-      console.error("Error updating status:", error);
-      showError("Failed to update status. Please try again.");
-    }
-  };
-
   if (loading) {
     return (
       <div className="loderDiv">
@@ -970,19 +902,6 @@ const Sgha_reportsummary = () => {
                               onClick={() => handleEditAgreement(submission)}
                             />
                           ) : null}
-                          <Button
-                            icon="pi pi-pencil"
-                            className="p-0"
-                            text
-                            severity="danger"
-                            style={{ fontSize: "10px", width: "28px" }}
-                            tooltip="Update client status"
-                            tooltipOptions={{ position: "top" }}
-                            onClick={() => {
-                              setSelectedSubmission(submission);
-                              setVisible(true);
-                            }}
-                          />
                           <Button
                             icon="pi pi-eye"
                             className="p-0"
@@ -1488,40 +1407,6 @@ const Sgha_reportsummary = () => {
           {renderTableContent()}
         </TabPanel>
       </TabView>
-
-      <Dialog
-        visible={visible}
-        style={{ width: "380px" }}
-        onHide={() => {
-          if (!visible) return;
-          setVisible(false);
-          setSelectedSubmission(null);
-          setSelectedStatus(null);
-        }}
-      >
-        <h6>{selectedSubmission?.client_name || "Update Status"}</h6>
-        <hr />
-        <div className="mb-3">
-          <label className="small fw-semibold d-block mb-1">Status</label>
-          <Dropdown
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.value)}
-            options={statusOptions}
-            optionLabel="name"
-            placeholder="Select a Status"
-            className="w-100"
-          />
-        </div>
-        <Button
-          label="Update"
-          icon="pi pi-check"
-          className="py-1 mt-3 text-white"
-          style={{ fontSize: "14px", float: "right" }}
-          severity="warning"
-          onClick={handleStatusUpdate}
-          disabled={!selectedStatus}
-        />
-      </Dialog>
 
       {/* Comment Dialog */}
       <Dialog

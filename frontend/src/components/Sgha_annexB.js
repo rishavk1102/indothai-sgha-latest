@@ -1,37 +1,33 @@
 import DOMPurify from "dompurify";
 import { Accordion, AccordionTab } from "primereact/accordion";
-import { Avatar } from "primereact/avatar";
 import { Button } from "primereact/button";
 import { Checkbox } from "primereact/checkbox";
 import { Chip } from "primereact/chip";
-import { RadioButton } from "primereact/radiobutton";
 import { Steps } from "primereact/steps";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Table } from "react-bootstrap";
-import { MdFlight } from "react-icons/md";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
-import { fetchAircraftCategoriesWithFallback } from "../api/clientCatalog";
+import { fetchAircraftOptionsWithFallback } from "../api/clientCatalog";
 import AgreementBodyHtml from "./AgreementBodyHtml";
 import { useAuth } from "../context/AuthContext";
 import { getSocket } from "../context/socket";
 import CustomToast from "./CustomToast";
 import {
-  aircraftCategoryRowId,
+  aircraftOptionRowId,
   buildAircraftOptionsVariable,
   buildFormDetailsAircraftFields,
   buildFormDetailsAirportFields,
   clearClientDraft,
   getEditingSubmissionId,
   loadClientDraft,
-  getHomeAircraftSelection,
+  getHomeAircraftSelections,
+  getSelectedAircraftIds,
   getSelectedAirportCity,
   getSelectedAirportLabel,
   getSelectedAirportOffice,
-  CLIENT_PAGE_PERMISSION_NAMES,
   OTHER_AIRCRAFT_SELECT_VALUE,
 } from "../utils/clientWorkspace";
-import { PAGE_PERMISSION_NAMES } from "../utils/employeeWorkspace";
 import { CLIENT_ROUTES } from "./ClientPageChrome";
 
 const Sgha_annexB = ({
@@ -40,7 +36,7 @@ const Sgha_annexB = ({
   formData = {},
   selectedCities = [],
 }) => {
-  const { roleId, role, userId, username } = useAuth();
+  const { roleId, userId, username } = useAuth();
   const agreementYear =
     templateYear >= 2000 && templateYear <= 2100 ? Number(templateYear) : 2025;
   const navigate = useNavigate();
@@ -83,40 +79,54 @@ const Sgha_annexB = ({
   // State for aircraft options
   const [aircraftOptions, setAircraftOptions] = useState([]);
   const [loadingAircraftOptions, setLoadingAircraftOptions] = useState(false);
-  // Single selected aircraft (only one can be selected for handling services)
-  const [selectedAircraftId, setSelectedAircraftId] = useState(() => {
+  const [selectedAircraftIds, setSelectedAircraftIds] = useState(() => {
     const airportId = selectedCities[0]?.airport_id;
-    const id =
-      airportId != null ? formData?.[airportId]?.selected_aircraft_id : null;
-    return id != null && id !== "" ? id : null;
+    return airportId != null
+      ? getSelectedAircraftIds(formData?.[airportId] || {})
+      : [];
   });
 
   const resolveAircraftOptionsVariable = () => {
-    if (
-      selectedAircraftId != null &&
-      selectedAircraftId !== "" &&
-      Array.isArray(aircraftOptions) &&
-      aircraftOptions.length > 0
-    ) {
-      const selectedAircraft = aircraftOptions.find((a, i) => {
-        const rowId = aircraftCategoryRowId(a, i);
-        return String(rowId) === String(selectedAircraftId);
-      });
-      if (selectedAircraft) {
-        return buildAircraftOptionsVariable(selectedAircraft);
-      }
-    }
-    return getHomeAircraftSelection(formData, selectedCities);
+    const homeList = getHomeAircraftSelections(formData, selectedCities) || [];
+    const customText =
+      selectedCities[0]?.airport_id != null
+        ? formData?.[selectedCities[0].airport_id]?.custom_aircraft_text
+        : "";
+    const fromTable = (selectedAircraftIds || [])
+      .map((id) => {
+        if (String(id) === OTHER_AIRCRAFT_SELECT_VALUE) {
+          return buildAircraftOptionsVariable({
+            selected_aircraft_id: OTHER_AIRCRAFT_SELECT_VALUE,
+            is_other: true,
+            custom_aircraft_text: customText,
+            Aircraft_name: customText,
+          });
+        }
+        const selectedAircraft = aircraftOptions.find((a, i) => {
+          const rowId = aircraftOptionRowId(a, i);
+          return String(rowId) === String(id);
+        });
+        if (selectedAircraft) return buildAircraftOptionsVariable(selectedAircraft);
+        const snap = homeList.find(
+          (s) => String(s.selected_aircraft_id) === String(id),
+        );
+        return snap || null;
+      })
+      .filter(Boolean);
+    if (fromTable.length) return fromTable;
+    return homeList.length ? homeList : null;
   };
 
   useEffect(() => {
     const airportId = selectedCities[0]?.airport_id;
-    const id =
-      airportId != null ? formData?.[airportId]?.selected_aircraft_id : null;
-    if (id != null && id !== "" && String(selectedAircraftId) !== String(id)) {
-      setSelectedAircraftId(id);
-    }
-  }, [selectedCities, formData, selectedAircraftId]);
+    const ids =
+      airportId != null ? getSelectedAircraftIds(formData?.[airportId] || {}) : [];
+    setSelectedAircraftIds((prev) => {
+      const same =
+        prev.length === ids.length && prev.every((id, i) => String(id) === String(ids[i]));
+      return same ? prev : ids;
+    });
+  }, [selectedCities, formData]);
 
   // State for additional charges
   const [additionalCharges, setAdditionalCharges] = useState([]);
@@ -551,10 +561,10 @@ const Sgha_annexB = ({
         return; // Prevent multiple submissions
       }
 
-      if (!resolveAircraftOptionsVariable()) {
+      if (!resolveAircraftOptionsVariable()?.length) {
         showMessage(
           "warn",
-          "Please select an aircraft category (or choose Other and enter a custom category) in New SGHA agreement details.",
+          "Please select at least one aircraft category (or choose Other and enter a custom category) in New SGHA agreement details.",
         );
         return;
       }
@@ -843,7 +853,7 @@ const Sgha_annexB = ({
         if (submissionId) {
           const variables = {};
           const aircraftVar = resolveAircraftOptionsVariable();
-          if (aircraftVar) {
+          if (aircraftVar?.length) {
             variables.aircraft_options = aircraftVar;
           }
           if (
@@ -1455,14 +1465,14 @@ const Sgha_annexB = ({
     );
   };
 
-  // Function to render Aircraft Options table (with radio selection - single aircraft)
+  // Function to render Aircraft Options table (multi-select categories)
   const renderAircraftOptionsTable = () => {
     if (loadingAircraftOptions) {
       return (
         <Table bordered className="mb-0 mt-4">
           <tbody>
             <tr>
-              <td colSpan="2" className="text-center text-muted">
+              <td colSpan="7" className="text-center text-muted">
                 <i className="pi pi-spin pi-spinner me-2" aria-hidden="true" />
                 Loading...
               </td>
@@ -1477,8 +1487,8 @@ const Sgha_annexB = ({
         <Table bordered className="mb-0 mt-4">
           <tbody>
             <tr>
-              <td colSpan="2" className="text-center text-muted">
-                No aircraft categories available
+              <td colSpan="7" className="text-center text-muted">
+                No aircraft options available
               </td>
             </tr>
           </tbody>
@@ -1486,71 +1496,100 @@ const Sgha_annexB = ({
       );
     }
 
-    const otherSelected =
-      String(selectedAircraftId) === OTHER_AIRCRAFT_SELECT_VALUE;
+    const isSelected = (rowId) =>
+      (selectedAircraftIds || []).some((id) => String(id) === String(rowId));
+
+    const toggleAircraftId = (rowId) => {
+      setSelectedAircraftIds((prev) => {
+        const key = String(rowId);
+        const next = (prev || []).filter((id) => String(id) !== key);
+        if (next.length === (prev || []).length) return [...(prev || []), key];
+        return next;
+      });
+    };
+
+    const otherSelected = isSelected(OTHER_AIRCRAFT_SELECT_VALUE);
 
     return (
-      <>
-        <Table bordered className="mb-0 mt-4">
-          <thead>
-            <tr className="table-primary">
-              <th style={{ width: "80px" }} className="text-center">
-                Select
-              </th>
-              <th>Aircraft category</th>
-            </tr>
-          </thead>
-          <tbody>
-            {aircraftOptions.map((category, index) => {
-              const rowId = aircraftCategoryRowId(category, index);
-              return (
-                <tr key={rowId}>
-                  <td className="align-middle text-center">
-                    <RadioButton
-                      inputId={`aircraft-select-${rowId}`}
-                      name="selectedAircraft"
-                      value={rowId}
-                      checked={String(selectedAircraftId) === String(rowId)}
-                      onChange={() => setSelectedAircraftId(rowId)}
-                    />
-                  </td>
-                  <td>
-                    <div className="d-flex align-items-center gap-2">
-                      <Avatar
-                        className="me-2"
-                        style={{
-                          backgroundColor: "rgb(197 197 197 / 27%)",
-                          color: "rgb(146 74 151)",
-                        }}
-                        shape="circle"
-                      >
-                        <MdFlight />
-                      </Avatar>
-                      <b>{category.Category_name || "—"}</b>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-            <tr>
-              <td className="align-middle text-center">
-                <RadioButton
-                  inputId="aircraft-select-other"
-                  name="selectedAircraft"
-                  value={OTHER_AIRCRAFT_SELECT_VALUE}
-                  checked={otherSelected}
-                  onChange={() =>
-                    setSelectedAircraftId(OTHER_AIRCRAFT_SELECT_VALUE)
-                  }
-                />
-              </td>
-              <td>
-                <span className="text-muted">Other — specify on New SGHA step</span>
-              </td>
-            </tr>
-          </tbody>
-        </Table>
-      </>
+      <Table bordered className="mb-0 mt-4">
+        <thead>
+          <tr className="table-primary">
+            <th style={{ width: "80px" }} className="text-center">
+              Select
+            </th>
+            <th>Aircraft Company</th>
+            <th style={{ width: "120px" }}>Region</th>
+            <th>MOTW</th>
+            <th style={{ width: "140px" }}>Limit Per Incident</th>
+            <th>Price per Limit (INR)</th>
+            <th>Price per Limit (USD)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {aircraftOptions.map((aircraft, index) => {
+            const rowId = String(aircraftOptionRowId(aircraft, index));
+            return (
+              <tr key={rowId}>
+                <td className="align-middle text-center">
+                  <Checkbox
+                    inputId={`aircraft-option-select-${rowId}`}
+                    checked={isSelected(rowId)}
+                    onChange={() => toggleAircraftId(rowId)}
+                  />
+                </td>
+                <td>
+                  <span className="d-flex flex-column gap-1">
+                    <b>{aircraft.Company_name || "—"}</b>
+                    <small>
+                      Aircraft Name : <b>{aircraft.Aircraft_name || "—"}</b>
+                    </small>
+                    <small>
+                      Model/Make : <b>{aircraft.Aircraft_model || "—"}</b>
+                    </small>
+                  </span>
+                </td>
+                <td className="align-middle">{aircraft.Flight_type || "—"}</td>
+                <td className="align-middle">{aircraft.MTOW || "—"}</td>
+                <td className="align-middle">
+                  {aircraft.Limit_per_incident ?? "—"}
+                </td>
+                <td className="align-middle">
+                  {aircraft.Price_per_Limit_inr != null
+                    ? `₹ ${aircraft.Price_per_Limit_inr}`
+                    : "—"}
+                </td>
+                <td className="align-middle">
+                  {aircraft.Price_per_Limit_usd != null
+                    ? `$ ${aircraft.Price_per_Limit_usd}`
+                    : "—"}
+                </td>
+              </tr>
+            );
+          })}
+          <tr>
+            <td className="align-middle text-center">
+              <Checkbox
+                inputId="aircraft-option-select-other"
+                checked={otherSelected}
+                onChange={() => toggleAircraftId(OTHER_AIRCRAFT_SELECT_VALUE)}
+              />
+            </td>
+            <td>
+              Other
+              {otherSelected && (
+                <p className="text-muted small mt-2 mb-0">
+                  Specify the custom aircraft on the New SGHA details step.
+                </p>
+              )}
+            </td>
+            <td className="align-middle">—</td>
+            <td className="align-middle">—</td>
+            <td className="align-middle">—</td>
+            <td className="align-middle">—</td>
+            <td className="align-middle">—</td>
+          </tr>
+        </tbody>
+      </Table>
     );
   };
 
@@ -1807,27 +1846,21 @@ const Sgha_annexB = ({
     "annex_a_selection",
   ];
 
-  // Aircraft categories (employee /dashboard/AircraftCategory)
+  const selectedAirportId = selectedCities[0]?.airport_id;
+
+  // Aircraft options (employee /dashboard/CompanyAircraft)
   useEffect(() => {
     if (!roleId) return;
     let cancelled = false;
-    const pageName =
-      role === "Client"
-        ? CLIENT_PAGE_PERMISSION_NAMES.newSgha
-        : PAGE_PERMISSION_NAMES.networkAircraftCategories;
     const load = async () => {
       setLoadingAircraftOptions(true);
       try {
-        const data = await fetchAircraftCategoriesWithFallback(
-          socket,
-          roleId,
-          pageName,
-        );
+        const data = await fetchAircraftOptionsWithFallback(selectedAirportId);
         if (!cancelled) {
           setAircraftOptions(Array.isArray(data) ? data : []);
         }
       } catch (error) {
-        console.error("[Annex B] Error fetching aircraft categories:", error);
+        console.error("[Annex B] Error fetching aircraft options:", error);
         if (!cancelled) setAircraftOptions([]);
       } finally {
         if (!cancelled) setLoadingAircraftOptions(false);
@@ -1837,7 +1870,7 @@ const Sgha_annexB = ({
     return () => {
       cancelled = true;
     };
-  }, [socket, roleId, role]);
+  }, [roleId, selectedAirportId]);
 
   // Function to replace non-reserved variables with underscores
   const replaceVariablesWithUnderscores = (htmlContent) => {

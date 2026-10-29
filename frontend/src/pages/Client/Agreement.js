@@ -92,11 +92,9 @@ const Agreement = () => {
   console.log('[Agreement] templateYear:', templateYear, '| templateName:', templateName ?? '(null)');
 
   const airportLabel = getSelectedAirportLabel(selectedCities) || "Selected airport";
-  const agreementSteps = [
-    { label: "Main Agreement" },
-    { label: "Annex A" },
-    { label: "Annex B" },
-  ];
+  const DOC_MAIN = 0;
+  const DOC_ANNEX_A = 1;
+  const DOC_ANNEX_B = 2;
 
   const goToNewSgha = () => {
     navigate(CLIENT_ROUTES.newSgha);
@@ -107,10 +105,50 @@ const Agreement = () => {
     const [pendingIndex, setPendingIndex] = useState(null);
     const [templateData, setTemplateData] = useState(null);
     const [loadingTemplate, setLoadingTemplate] = useState(false);
+    const [hasAnnexA, setHasAnnexA] = useState(true);
 
-    const sections = ["main", "annex-a", "annex-b"];
     const [activeIndex, setActiveIndex] = useState(
       Number.isInteger(initialDraft.agreementIndex) ? initialDraft.agreementIndex : 0
+    );
+
+    const annexAQueryParams =
+      templateName != null && String(templateName).trim() !== ""
+        ? { template_name: String(templateName).trim() }
+        : {};
+
+    const annexAHasContent = (raw) => {
+      if (raw == null || raw === "") return false;
+      let parsed = raw;
+      if (typeof raw === "string") {
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          return raw.trim() !== "";
+        }
+      }
+      if (Array.isArray(parsed)) return parsed.length > 0;
+      if (parsed && typeof parsed === "object") return Object.keys(parsed).length > 0;
+      return Boolean(parsed);
+    };
+
+    const agreementSteps = useMemo(
+      () =>
+        hasAnnexA
+          ? [
+              { label: "Main Agreement", docIndex: DOC_MAIN },
+              { label: "Annex A", docIndex: DOC_ANNEX_A },
+              { label: "Annex B", docIndex: DOC_ANNEX_B },
+            ]
+          : [
+              { label: "Main Agreement", docIndex: DOC_MAIN },
+              { label: "Annex B", docIndex: DOC_ANNEX_B },
+            ],
+      [hasAnnexA],
+    );
+
+    const stepperIndex = Math.max(
+      0,
+      agreementSteps.findIndex((step) => step.docIndex === activeIndex),
     );
 
     useEffect(() => {
@@ -145,17 +183,37 @@ const Agreement = () => {
         }
     }, [templateYear, templateName]);
 
+    useEffect(() => {
+      let cancelled = false;
+      const probeAnnexA = async () => {
+        try {
+          const url = `/sgha_template_content/get/${templateYear}/Annex A/Section Template`;
+          const response = await api.get(url, { params: annexAQueryParams });
+          if (cancelled) return;
+          const present = annexAHasContent(response.data?.data?.content);
+          setHasAnnexA(present);
+          if (!present) {
+            setActiveIndex((prev) => (prev === DOC_ANNEX_A ? DOC_ANNEX_B : prev));
+          }
+        } catch (error) {
+          if (!cancelled) setHasAnnexA(false);
+        }
+      };
+      probeAnnexA();
+      return () => {
+        cancelled = true;
+      };
+    }, [templateYear, templateName]);
+
     // Fetch template data when dialog is shown (use selected template year)
     useEffect(() => {
         const fetchTemplateData = async () => {
-            if (!showAnnexASummary) return;
+            if (!showAnnexASummary || !hasAnnexA) return;
             
             try {
                 setLoadingTemplate(true);
                 const url = `/sgha_template_content/get/${templateYear}/Annex A/Section Template`;
-                const params = (templateName != null && String(templateName).trim() !== '')
-                  ? { template_name: String(templateName).trim() }
-                  : {};
+                const params = annexAQueryParams;
                 const response = await api.get(url, { params });
 
                 if (response.data?.data?.content) {
@@ -174,7 +232,7 @@ const Agreement = () => {
         };
 
         fetchTemplateData();
-    }, [showAnnexASummary, templateYear, templateName]);
+    }, [showAnnexASummary, templateYear, templateName, hasAnnexA]);
 
     // Helper function to parse HTML exactly like Annex A does - extract items with their text and IDs
     // Parse HTML content and generate item IDs with section prefix
@@ -874,8 +932,12 @@ const Agreement = () => {
     }, [showAnnexASummary, templateData, loadingTemplate]);
 
     const handleClick = (index) => {
-        // If clicking on Annex B (index 2) from Annex A (index 1), show summary
-        if (index === 2 && activeIndex === 1) {
+        if (!hasAnnexA && index === DOC_ANNEX_A) {
+            setActiveIndex(DOC_ANNEX_B);
+            return;
+        }
+        // If clicking on Annex B from Annex A, show summary
+        if (hasAnnexA && index === DOC_ANNEX_B && activeIndex === DOC_ANNEX_A) {
             setPendingIndex(index);
             setShowAnnexASummary(true);
         } else {
@@ -884,17 +946,24 @@ const Agreement = () => {
     };
 
     const handleNext = () => {
-        // If moving from Annex A (index 1) to Annex B (index 2), show summary
-        if (activeIndex === 1) {
-            setPendingIndex(2);
+        if (hasAnnexA && activeIndex === DOC_ANNEX_A) {
+            setPendingIndex(DOC_ANNEX_B);
             setShowAnnexASummary(true);
-        } else {
-            setActiveIndex((prev) => (prev + 1) % sections.length);
+            return;
         }
+        if (activeIndex === DOC_MAIN) {
+            setActiveIndex(hasAnnexA ? DOC_ANNEX_A : DOC_ANNEX_B);
+            return;
+        }
+        setActiveIndex(DOC_ANNEX_B);
     };
 
     const handlePrev = () => {
-        setActiveIndex((prev) => (prev - 1 + sections.length) % sections.length);
+        if (activeIndex === DOC_ANNEX_B) {
+            setActiveIndex(hasAnnexA ? DOC_ANNEX_A : DOC_MAIN);
+            return;
+        }
+        setActiveIndex(DOC_MAIN);
     };
 
     const handleConfirmSummary = () => {
@@ -938,8 +1007,8 @@ const Agreement = () => {
             </div>
             <ClientFlowStepper
                 steps={agreementSteps}
-                activeIndex={activeIndex}
-                onSelect={handleClick}
+                activeIndex={stepperIndex}
+                onSelect={(index) => handleClick(agreementSteps[index]?.docIndex)}
             />
             <Row className="mt-2 mx-0">
                 <TabView>
@@ -963,15 +1032,17 @@ const Agreement = () => {
                                     Main Agreement
                                     </a>
                                 </li>
+                                {hasAnnexA && (
                                 <li>
                                     <a
                                     href="#!"
-                                    className={activeIndex === 1 ? "active" : ""}
-                                    onClick={() => handleClick(1)}
+                                    className={activeIndex === DOC_ANNEX_A ? "active" : ""}
+                                    onClick={() => handleClick(DOC_ANNEX_A)}
                                     >
                                     Annex A
                                     </a>
                                 </li>
+                                )}
                                 <li>
                                     <a
                                     href="#!"
@@ -1003,7 +1074,7 @@ const Agreement = () => {
                                 )}
 
 
-                                {activeIndex === 1 && (
+                                {hasAnnexA && activeIndex === DOC_ANNEX_A && (
                                     <motion.div
                                     key="annex-a"
                                     initial={{ x: 100, opacity: 0 }}
@@ -1046,7 +1117,7 @@ const Agreement = () => {
                                             iconPos="left"
                                         />
                                     )}
-                                    {activeIndex === 1 && (
+                                    {activeIndex === DOC_ANNEX_A && (
                                         <Button
                                             onClick={handlePrev}
                                             icon="pi pi-arrow-left"
@@ -1056,24 +1127,28 @@ const Agreement = () => {
                                             iconPos="left"
                                         />
                                     )}
-                                    {activeIndex === 2 && (
+                                    {activeIndex === DOC_ANNEX_B && (
                                         <Button
                                             onClick={handlePrev}
                                             icon="pi pi-arrow-left"
                                             className="py-2 me-2"
                                             severity="secondary"
-                                            label="Back to Annex A"
+                                            label={hasAnnexA ? "Back to Annex A" : "Back to Main Agreement"}
                                             iconPos="left"
                                         />
                                     )}
 
-                                    {activeIndex !== 2 && (
+                                    {activeIndex !== DOC_ANNEX_B && (
                                         <Button
                                             onClick={handleNext}
                                             icon="pi pi-arrow-right"
                                             className="py-2"
                                             severity="warning"
-                                            label={activeIndex === 0 ? "Next: Annex A" : "Next: Annex B"}
+                                            label={
+                                              activeIndex === DOC_MAIN && hasAnnexA
+                                                ? "Next: Annex A"
+                                                : "Next: Annex B"
+                                            }
                                             iconPos="right"
                                         />
                                     )}

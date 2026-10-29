@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Row, Col, Badge, Form } from "react-bootstrap";
 import { Checkbox } from "primereact/checkbox";
+import { MultiSelect } from "primereact/multiselect";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "primereact/button";
 import { RadioButton } from "primereact/radiobutton";
@@ -13,7 +14,7 @@ import { useAuth } from "../../context/AuthContext";
 import { TabView, TabPanel } from 'primereact/tabview';
 import GifLoder from '../../interfaces/GifLoder';
 import api from '../../api/axios';
-import { fetchAircraftCategoriesWithFallback } from "../../api/clientCatalog";
+import { fetchAircraftOptionsWithFallback } from "../../api/clientCatalog";
 import {
   ClientBreadcrumbs,
   ClientFlowStepper,
@@ -29,9 +30,11 @@ import {
   CLIENT_PAGE_PERMISSION_NAMES,
   OTHER_AIRCRAFT_SELECT_VALUE,
   isOtherAircraftSelection,
+  getSelectedAircraftIds,
   hasValidAircraftForAirport,
   formatCatalogAircraftOptionLabel,
-  aircraftCategoryRowId,
+  aircraftOptionRowId,
+  buildAircraftOptionsVariable,
 } from "../../utils/clientWorkspace";
 
 const Home = () => {
@@ -153,33 +156,31 @@ const Home = () => {
     };
   }, [socket, roleId, PAGE_NAME]);
 
-  // Aircraft categories (same data as employee /dashboard/AircraftCategory)
+  const selectedAirportId = selectedCities[0]?.airport_id;
+
+  // Aircraft options (same rows as employee /dashboard/CompanyAircraft)
   useEffect(() => {
     if (!roleId) return;
     let cancelled = false;
-    const loadCategories = async () => {
+    const loadAircraftOptions = async () => {
       setLoadingAircraftOptions(true);
       try {
-        const data = await fetchAircraftCategoriesWithFallback(
-          socket,
-          roleId,
-          PAGE_NAME,
-        );
+        const data = await fetchAircraftOptionsWithFallback(selectedAirportId);
         if (!cancelled) {
           setAircraftOptions(Array.isArray(data) ? data : []);
         }
       } catch (err) {
-        console.warn("[New SGHA] Aircraft categories fetch:", err?.message || err);
+        console.warn("[New SGHA] Aircraft options fetch:", err?.message || err);
         if (!cancelled) setAircraftOptions([]);
       } finally {
         if (!cancelled) setLoadingAircraftOptions(false);
       }
     };
-    loadCategories();
+    loadAircraftOptions();
     return () => {
       cancelled = true;
     };
-  }, [socket, roleId, PAGE_NAME]);
+  }, [roleId, selectedAirportId]);
 
   useEffect(() => {
     if (!restoredRef.current) return;
@@ -252,31 +253,42 @@ const Home = () => {
     }));
   };
 
-  const handleAircraftSelect = (airport_id, category, index) => {
-    const rowId = aircraftCategoryRowId(category, index);
-    setFormData((prev) => ({
-      ...prev,
-      [airport_id]: {
-        ...prev[airport_id],
-        selected_aircraft_id: rowId,
-        selected_aircraft: {
-          Aircraft_category_id: category.Aircraft_category_id ?? rowId,
-          Category_name: category.Category_name,
+  const handleAircraftIdsChange = (airport_id, nextIds) => {
+    const ids = (nextIds || []).map(String);
+    setFormData((prev) => {
+      const current = prev[airport_id] || {};
+      const snapshots = ids
+        .filter((id) => id !== OTHER_AIRCRAFT_SELECT_VALUE)
+        .map((id) => {
+          const index = aircraftOptions.findIndex(
+            (a, i) => String(aircraftOptionRowId(a, i)) === id,
+          );
+          const option = index >= 0 ? aircraftOptions[index] : null;
+          if (option) return buildAircraftOptionsVariable(option);
+          return (current.selected_aircrafts || []).find(
+            (s) =>
+              String(
+                s?.aircraft_id ??
+                  s?.selected_aircraft_id ??
+                  s?.Aircraft_category_id,
+              ) === id,
+          );
+        })
+        .filter(Boolean);
+      return {
+        ...prev,
+        [airport_id]: {
+          ...current,
+          selected_aircraft_ids: ids,
+          selected_aircraft_id: ids[0] || "",
+          selected_aircrafts: snapshots,
+          selected_aircraft: snapshots[0] || null,
+          custom_aircraft_text: ids.includes(OTHER_AIRCRAFT_SELECT_VALUE)
+            ? current.custom_aircraft_text || ""
+            : "",
         },
-        custom_aircraft_text: "",
-      },
-    }));
-  };
-
-  const handleAircraftOtherSelect = (airport_id) => {
-    setFormData((prev) => ({
-      ...prev,
-      [airport_id]: {
-        ...prev[airport_id],
-        selected_aircraft_id: OTHER_AIRCRAFT_SELECT_VALUE,
-        selected_aircraft: null,
-      },
-    }));
+      };
+    });
   };
 
   const handleCustomAircraftTextChange = (airport_id, text) => {
@@ -412,82 +424,57 @@ const Home = () => {
 
 
   const renderAircraftTypeSelect = (airportId, data, selectHeight = "50px") => {
-    const isOther = isOtherAircraftSelection(data);
-
-    const aircraftSelect = (
-      <Form.Select
-        style={{
-          height: selectHeight,
-          width: "100%",
-          ...(isOther ? { minWidth: 0 } : {}),
-        }}
-        value={
-          data.selected_aircraft_id != null && data.selected_aircraft_id !== ""
-            ? String(data.selected_aircraft_id)
-            : ""
-        }
-        onChange={(e) => {
-          const v = e.target.value;
-          if (!v) return;
-          if (v === OTHER_AIRCRAFT_SELECT_VALUE) {
-            handleAircraftOtherSelect(airportId);
-            return;
-          }
-          const index = aircraftOptions.findIndex(
-            (a, i) => aircraftCategoryRowId(a, i) === v,
-          );
-          if (index < 0) return;
-          handleAircraftSelect(airportId, aircraftOptions[index], index);
-        }}
-      >
-        <option value="" disabled>
-          Please select
-        </option>
-        {aircraftOptions.map((category, index) => {
-          const rowId = aircraftCategoryRowId(category, index);
-          return (
-            <option key={rowId} value={String(rowId)}>
-              {formatCatalogAircraftOptionLabel(category)}
-            </option>
-          );
-        })}
-        <option value={OTHER_AIRCRAFT_SELECT_VALUE}>Other</option>
-      </Form.Select>
-    );
+    const selectedIds = getSelectedAircraftIds(data);
+    const isOther = selectedIds.includes(OTHER_AIRCRAFT_SELECT_VALUE);
+    const aircraftChoices = [
+      ...aircraftOptions.map((aircraft, index) => {
+        const rowId = aircraftOptionRowId(aircraft, index);
+        return {
+          label: formatCatalogAircraftOptionLabel(aircraft),
+          value: String(rowId),
+        };
+      }),
+      { label: "Other", value: OTHER_AIRCRAFT_SELECT_VALUE },
+    ];
 
     return (
       <>
         <Form.Label>
-          Aircraft category <sup className="text-danger">*</sup>
+          Aircraft options <sup className="text-danger">*</sup>
         </Form.Label>
         {loadingAircraftOptions ? (
           <div
             className="d-flex align-items-center text-muted"
-            style={{ height: selectHeight }}
+            style={{ minHeight: selectHeight }}
             role="status"
           >
             <i className="pi pi-spin pi-spinner me-2" aria-hidden="true" />
             Loading...
           </div>
-        ) : isOther ? (
-          <Row className="g-2 mx-0">
-            <Col xs={6} className="ps-0">
-              {aircraftSelect}
-            </Col>
-            <Col xs={6} className="pe-0">
+        ) : (
+          <>
+            <MultiSelect
+              value={selectedIds}
+              options={aircraftChoices}
+              onChange={(e) => handleAircraftIdsChange(airportId, e.value || [])}
+              placeholder="Select aircraft options"
+              display="chip"
+              filter
+              className="w-100 aircraft-cat-multiselect"
+              style={{ minHeight: selectHeight }}
+            />
+            {isOther && (
               <Form.Control
+                className="mt-2"
                 type="text"
-                style={{ height: selectHeight }}
-                placeholder="Enter aircraft category"
+                placeholder="Enter aircraft name"
                 value={data.custom_aircraft_text || ""}
                 onChange={(e) =>
                   handleCustomAircraftTextChange(airportId, e.target.value)
                 }
               />
-            </Col>
-          </Row>
-        ) : (
-          aircraftSelect
+            )}
+          </>
         )}
       </>
     );
@@ -653,7 +640,7 @@ const Home = () => {
         <Row className="mx-0 mb-3">
           <div className="add_business ueselect">
             <h5 className="mb-2">Agreement details</h5>
-            <p className="text-muted mb-3">Enter flight type, services, aircraft category, and company details for the selected airport.</p>
+            <p className="text-muted mb-3">Enter flight type, services, aircraft categories, and company details for the selected airport.</p>
             <div className="my-3">
               <TabView>
                 {selectedCities.map((airport) => {

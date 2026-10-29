@@ -1312,7 +1312,7 @@ export const generateSubmissionPDF = async (
               yPos = drawParagraphBanner(
                 doc,
                 yPos,
-                `ARTICLE ${article.articleNumber}: ${(article.articleTitle || "").toUpperCase()}`,
+                `PARAGRAPH ${article.articleNumber}: ${(article.articleTitle || "").toUpperCase()}`,
               );
             }
 

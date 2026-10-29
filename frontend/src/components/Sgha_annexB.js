@@ -30,6 +30,16 @@ import {
 } from "../utils/clientWorkspace";
 import { CLIENT_ROUTES } from "./ClientPageChrome";
 
+function formatAnnexBHeading(headingNo, title) {
+  const no = String(headingNo || "").trim();
+  const heading = String(title || "").trim();
+  if (!no) return heading;
+  if (/^\d{1,2}$/.test(no)) {
+    return heading ? `Paragraph ${no}: ${heading}` : `Paragraph ${no}`;
+  }
+  return heading ? `${no} ${heading}` : no;
+}
+
 const Sgha_annexB = ({
   templateYear = 2025,
   templateName = null,
@@ -521,7 +531,7 @@ const Sgha_annexB = ({
         section.heading || section.label || `Step ${index + 1}`,
       ).trim();
       const withNo = section.headingNo
-        ? `${section.headingNo} ${heading}`
+        ? formatAnnexBHeading(section.headingNo, heading)
         : heading;
       const key = withNo.toLowerCase();
       seen[key] = (seen[key] || 0) + 1;
@@ -2198,12 +2208,21 @@ const Sgha_annexB = ({
                         <div key={section.id || sectionIndex}>
                           {section.headingNo && (
                             <h6>
-                              {section.headingNo && (
-                                <span className="me-2">
-                                  {section.headingNo}
-                                </span>
+                              {/^\d{1,2}$/.test(String(section.headingNo).trim()) ? (
+                                <>
+                                  <span className="me-2">
+                                    Paragraph {section.headingNo}:
+                                  </span>
+                                  <b>{section.heading}</b>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="me-2">
+                                    {section.headingNo}
+                                  </span>
+                                  <b>{section.heading}</b>
+                                </>
                               )}
-                              <b>{section.heading}</b>
                             </h6>
                           )}
                           {!section.headingNo && section.heading && (

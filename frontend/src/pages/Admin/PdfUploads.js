@@ -1572,7 +1572,7 @@ const PdfUploads = () => {
     );
   }, []);
 
-  const renderSectionContent = (content) => {
+  const renderSectionContent = (content, headingKind = "article") => {
     if (content == null) return <p className="text-muted">No content available.</p>;
 
     const isPlainText =
@@ -1618,6 +1618,12 @@ const PdfUploads = () => {
     const sections = parseSectionTemplateContent(arr);
     if (!Array.isArray(arr) || sections.length === 0)
       return <p className="text-muted">No sections in this template.</p>;
+    const headingWord =
+      headingKind === "paragraph"
+        ? "Paragraph"
+        : headingKind === "section"
+          ? "Section"
+          : "Article";
     return (
       <Table borderless className="mb-0">
         <tbody>
@@ -1625,7 +1631,7 @@ const PdfUploads = () => {
             <tr key={`article-${articleIndex}`}>
               <td colSpan={2}>
                 <h6 className="mb-2">
-                  Article {article.articleNumber}: {article.articleTitle}
+                  {headingWord} {article.articleNumber}: {article.articleTitle}
                 </h6>
                 {article.sections.map((section, sectionIndex) => (
                   <div key={`s-${sectionIndex}`} className="mb-3">
@@ -2042,10 +2048,10 @@ const PdfUploads = () => {
                 {renderSectionContent(templateDetails.main)}
               </AccordionTab>
               <AccordionTab header="Annex A">
-                {renderSectionContent(templateDetails.annexA)}
+                {renderSectionContent(templateDetails.annexA, "section")}
               </AccordionTab>
               <AccordionTab header="Annex B">
-                {renderSectionContent(templateDetails.annexB)}
+                {renderSectionContent(templateDetails.annexB, "paragraph")}
               </AccordionTab>
             </Accordion>
           </div>
@@ -2325,13 +2331,13 @@ const PdfUploads = () => {
                 <tr>
                   <td colSpan={2}>
                     <h6 className="mt-4 mb-2">Annex A</h6>
-                    {renderSectionContent(templateDetails.annexA)}
+                    {renderSectionContent(templateDetails.annexA, "section")}
                   </td>
                 </tr>
                 <tr>
                   <td colSpan={2}>
                     <h6 className="mt-4 mb-2">Annex B</h6>
-                    {renderSectionContent(templateDetails.annexB)}
+                    {renderSectionContent(templateDetails.annexB, "paragraph")}
                   </td>
                 </tr>
               </tbody>

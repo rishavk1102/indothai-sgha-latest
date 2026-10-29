@@ -625,7 +625,7 @@ export function drawSignatureSection(doc, y, lines) {
   });
 }
 
-const ARTICLE_HEADING = /^ARTICLE\s+(\d+)\s*[:.\-–—]\s+(.+)$/i;
+const ARTICLE_HEADING = /^(?:ARTICLE|PARAGRAPH)\s+(\d+)\s*[:.\-–—]\s+(.+)$/i;
 
 function articleHeadingOf(block) {
   if (!block || block.type === "clause" || block.type === "table") return null;

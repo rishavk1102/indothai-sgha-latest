@@ -1,5 +1,16 @@
 import api from "./axios";
 
+export async function fetchCatalogAirports() {
+  const response = await api.get("/api/client/catalog/airports");
+  return response.data?.data || [];
+}
+
+export function formatAirportFilterLabel(airport) {
+  if (!airport || typeof airport !== "object") return "Airport";
+  const name = airport.name || airport.city || "Airport";
+  return airport.iata ? `${name} (${airport.iata})` : name;
+}
+
 export async function fetchAircraftTypes() {
   const response = await api.get("/api/client/catalog/aircraft-types");
   return response.data?.data || [];

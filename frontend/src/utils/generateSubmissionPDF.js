@@ -67,6 +67,152 @@ function formatPdfCell(value, prefix = "") {
   return `${prefix}${value}`;
 }
 
+function formatChargeRateCell(charge) {
+  if (!charge || typeof charge !== "object") return "Rs —\n$ —";
+  const inr =
+    charge.rate_inr != null && charge.rate_inr !== ""
+      ? formatPdfCell(charge.rate_inr, "Rs ")
+      : "Rs —";
+  const usd =
+    charge.rate_usd != null && charge.rate_usd !== ""
+      ? formatPdfCell(charge.rate_usd, "$ ")
+      : "$ —";
+  return `${inr}\n${usd}`;
+}
+
+function parseAdditionalChargesList(raw) {
+  if (raw == null) return [];
+  const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+  if (Array.isArray(data)) return data;
+  if (data && Array.isArray(data.selected)) return data.selected;
+  return [];
+}
+
+function additionalChargesTableRow(charge, index, includePrices = true) {
+  const base = [
+    String(index + 1),
+    charge?.Service_name || charge?.charge_name || charge?.name || "—",
+    charge?.Charge_type || "—",
+    charge?.unit_or_measure || "—",
+  ];
+  if (!includePrices) return base;
+  return [
+    ...base,
+    formatChargeRateCell(charge),
+    charge?.Remarks || charge?.remarks || "—",
+  ];
+}
+
+function additionalChargesTableSpec(includePrices) {
+  return includePrices
+    ? {
+        headers: [
+          "Serial No.",
+          "Service",
+          "Applicable for",
+          "Unit of Measure",
+          "Rate",
+          "Remarks",
+        ],
+        widths: [16, 42, 26, 26, 26, 48],
+      }
+    : {
+        headers: [
+          "Serial No.",
+          "Service",
+          "Applicable for",
+          "Unit of Measure",
+        ],
+        widths: [22, 58, 48, 42],
+      };
+}
+
+function chargeHasStoredRate(charge) {
+  return (
+    (charge?.rate_inr != null && charge.rate_inr !== "") ||
+    (charge?.rate_usd != null && charge.rate_usd !== "")
+  );
+}
+
+function chargesNeedCatalogFallback(charges) {
+  if (!Array.isArray(charges) || charges.length === 0) return false;
+  return charges.some((charge) => !chargeHasStoredRate(charge));
+}
+
+function chargeLookupKey(...parts) {
+  return parts
+    .map((part) => String(part || "").replace(/\s+/g, " ").trim().toLowerCase())
+    .join("|");
+}
+
+function indexChargeCatalog(catalog) {
+  const byId = new Map();
+  const byNameType = new Map();
+  const byNameTypeUnit = new Map();
+  (catalog || []).forEach((row) => {
+    if (!row) return;
+    if (row.Additional_charges_id != null) {
+      byId.set(String(row.Additional_charges_id), row);
+    }
+    const nameType = chargeLookupKey(row.Service_name, row.Charge_type);
+    if (nameType !== "|") byNameType.set(nameType, row);
+    const nameTypeUnit = chargeLookupKey(
+      row.Service_name,
+      row.Charge_type,
+      row.unit_or_measure,
+    );
+    if (nameTypeUnit !== "||") byNameTypeUnit.set(nameTypeUnit, row);
+  });
+  return { byId, byNameType, byNameTypeUnit };
+}
+
+function findCatalogCharge(indexes, charge) {
+  if (!charge || !indexes) return null;
+  if (charge.Additional_charges_id != null) {
+    const byId = indexes.byId.get(String(charge.Additional_charges_id));
+    if (byId) return byId;
+  }
+  const service =
+    charge.Service_name || charge.charge_name || charge.name || "";
+  const type = charge.Charge_type || "";
+  const unit = charge.unit_or_measure || "";
+  return (
+    indexes.byNameTypeUnit.get(chargeLookupKey(service, type, unit)) ||
+    indexes.byNameType.get(chargeLookupKey(service, type)) ||
+    null
+  );
+}
+
+function mergeChargeFromCatalog(charge, hit) {
+  if (!hit) return charge;
+  return {
+    ...hit,
+    ...charge,
+    rate_inr: charge.rate_inr ?? hit.rate_inr,
+    rate_usd: charge.rate_usd ?? hit.rate_usd,
+    Remarks: charge.Remarks || charge.remarks || hit.Remarks,
+  };
+}
+
+async function loadAdditionalChargesCatalog() {
+  try {
+    const response = await api.get("/api/client/catalog/additional-charges");
+    return Array.isArray(response.data?.data) ? response.data.data : [];
+  } catch (error) {
+    console.error("[PDF] Failed to load additional charges catalog:", error);
+    return [];
+  }
+}
+
+function enrichAdditionalChargesWithCatalog(charges, catalog) {
+  if (!Array.isArray(charges) || charges.length === 0) return charges;
+  if (!Array.isArray(catalog) || catalog.length === 0) return charges;
+  const indexes = indexChargeCatalog(catalog);
+  return charges.map((charge) =>
+    mergeChargeFromCatalog(charge, findCatalogCharge(indexes, charge)),
+  );
+}
+
 function aircraftOptionsCategoryLabel(data) {
   if (!data || typeof data !== "object") return "—";
   if (data.is_other) {
@@ -89,9 +235,11 @@ function aircraftOptionsCategoryLabel(data) {
   return label || data.Category_name || "—";
 }
 
-function aircraftOptionsTableRow(data) {
+function aircraftOptionsTableRow(data, includePrices = true) {
   if (!data || typeof data !== "object") {
-    return ["—", "—", "—", "—", "—", "—"];
+    return includePrices
+      ? ["—", "—", "—", "—", "—", "—"]
+      : ["—", "—", "—", "—"];
   }
   if (data.is_other) {
     const name =
@@ -99,17 +247,23 @@ function aircraftOptionsTableRow(data) {
       data.Aircraft_name ||
       data.Category_name ||
       "Other";
-    return [name, "—", "—", "—", "—", "—"];
+    return includePrices
+      ? [name, "—", "—", "—", "—", "—"]
+      : [name, "—", "—", "—"];
   }
   const aircraft = [data.Aircraft_name, data.Aircraft_model]
     .filter(Boolean)
     .join(" / ");
   const company = [data.Company_name, aircraft].filter(Boolean).join(" · ");
-  return [
+  const base = [
     company || "—",
     data.Flight_type || "—",
     formatPdfCell(data.MTOW),
     formatPdfCell(data.Limit_per_incident),
+  ];
+  if (!includePrices) return base;
+  return [
+    ...base,
     formatPdfCell(data.Price_per_Limit_inr, "Rs "),
     formatPdfCell(data.Price_per_Limit_usd, "$ "),
   ];
@@ -662,7 +816,8 @@ export const generateSubmissionPDF = async (
   sectionTitles = {},
   options = {},
 ) => {
-  const { openInNewTab = true } = options;
+  const { openInNewTab = true, hidePrices = false } = options;
+  const includeAircraftPrices = !hidePrices;
   try {
     // Fetch Annex A template data if not provided
     let finalItemTextMap = itemTextMap;
@@ -1254,6 +1409,25 @@ export const generateSubmissionPDF = async (
       const variables = variablesResponse.data?.data?.variables || {};
       const templateVariables =
         variablesResponse.data?.data?.templateVariables || [];
+      if (includeAircraftPrices && variables.additional_charges) {
+        try {
+          const charges = parseAdditionalChargesList(
+            variables.additional_charges,
+          );
+          if (chargesNeedCatalogFallback(charges)) {
+            const chargeCatalog = await loadAdditionalChargesCatalog();
+            variables.additional_charges = enrichAdditionalChargesWithCatalog(
+              charges,
+              chargeCatalog,
+            );
+          }
+        } catch (enrichErr) {
+          console.error(
+            "[PDF] Failed to parse additional charges for enrichment:",
+            enrichErr,
+          );
+        }
+      }
 
       // Fetch Annex B Section Template and render content with tables (like Add New SGHA Annex B step)
       let annexBBodyRendered = false;
@@ -1283,8 +1457,6 @@ export const generateSubmissionPDF = async (
                 ),
               );
           }
-
-          const colWidthsCharges = [25, 55, 45, 40];
 
           // List numbering carries across all sections of one article, so a plain
           // <ol> in Article 14 is drawn 14.1, 14.2 ... and Annex A sections that
@@ -1359,23 +1531,29 @@ export const generateSubmissionPDF = async (
                       if (data == null) return;
                       data = typeof data === "string" ? JSON.parse(data) : data;
                       const rows = Array.isArray(data)
-                        ? data.map((a) => aircraftOptionsTableRow(a))
-                        : [aircraftOptionsTableRow(data)];
+                        ? data.map((a) =>
+                            aircraftOptionsTableRow(a, includeAircraftPrices),
+                          )
+                        : [aircraftOptionsTableRow(data, includeAircraftPrices)];
                       if (rows.length === 0) return;
                       checkPageBreak(20);
                       yPos = drawSimpleTable(
                         margin,
                         yPos,
-                        [
-                          "Aircraft",
-                          "Region",
-                          "MOTW",
-                          "Limit",
-                          "INR",
-                          "USD",
-                        ],
+                        includeAircraftPrices
+                          ? [
+                              "Aircraft",
+                              "Region",
+                              "MOTW",
+                              "Limit",
+                              "INR",
+                              "USD",
+                            ]
+                          : ["Aircraft", "Region", "MOTW", "Limit"],
                         rows,
-                        [50, 24, 20, 22, 20, 19],
+                        includeAircraftPrices
+                          ? [50, 24, 20, 22, 20, 19]
+                          : [70, 30, 28, 27],
                         { fontSize: 8, rowHeight: 7 },
                       );
                     } catch (e) {
@@ -1395,34 +1573,24 @@ export const generateSubmissionPDF = async (
                   }
                   if (part.tableType === "additional_charges") {
                     try {
-                      let data = variables.additional_charges;
-                      if (data == null) return;
-                      data = typeof data === "string" ? JSON.parse(data) : data;
-                      const arr = Array.isArray(data)
-                        ? data
-                        : data && data.selected
-                          ? data.selected
-                          : [];
-                      const rows = arr.map((c, i) => [
-                        i + 1,
-                        c.Service_name || c.charge_name || c.name || "-",
-                        c.Charge_type || "-",
-                        c.unit_or_measure || "-",
-                      ]);
+                      const arr = parseAdditionalChargesList(
+                        variables.additional_charges,
+                      );
+                      const rows = arr.map((c, i) =>
+                        additionalChargesTableRow(c, i, includeAircraftPrices),
+                      );
                       if (rows.length === 0) return;
+                      const spec = additionalChargesTableSpec(
+                        includeAircraftPrices,
+                      );
                       checkPageBreak(15 + rows.length * 7);
                       yPos = drawSimpleTable(
                         margin,
                         yPos,
-                        [
-                          "Serial No.",
-                          "Service",
-                          "Applicable for",
-                          "Unit of Measure",
-                        ],
+                        spec.headers,
                         rows,
-                        colWidthsCharges,
-                        { fontSize: 9, rowHeight: 7 },
+                        spec.widths,
+                        { fontSize: 8, rowHeight: 7 },
                       );
                     } catch (e) {
                       console.error(
@@ -1562,38 +1730,37 @@ export const generateSubmissionPDF = async (
           yPos += 6;
 
           try {
-            const chargesData =
-              typeof variables.additional_charges === "string"
-                ? JSON.parse(variables.additional_charges)
-                : variables.additional_charges;
+            const chargesData = parseAdditionalChargesList(
+              variables.additional_charges,
+            );
 
-            if (Array.isArray(chargesData) && chargesData.length > 0) {
+            if (chargesData.length > 0) {
+              const spec = additionalChargesTableSpec(includeAircraftPrices);
+              const rows = chargesData.map((c, i) =>
+                additionalChargesTableRow(c, i, includeAircraftPrices),
+              );
+              yPos = drawSimpleTable(
+                margin,
+                yPos,
+                spec.headers,
+                rows,
+                spec.widths,
+                { fontSize: 8, rowHeight: 7 },
+              );
+            } else if (
+              variables.additional_charges &&
+              typeof variables.additional_charges === "object" &&
+              !Array.isArray(variables.additional_charges)
+            ) {
               doc.setFontSize(9);
               doc.setFont("helvetica", "normal");
-              chargesData.forEach((charge) => {
-                checkPageBreak(10);
-                const name =
-                  charge.Service_name ||
-                  charge.charge_name ||
-                  charge.name ||
-                  "N/A";
-                const detail =
-                  charge.unit_or_measure || charge.Charge_type
-                    ? [charge.Charge_type, charge.unit_or_measure]
-                        .filter(Boolean)
-                        .join(" · ")
-                    : charge.amount || charge.value || "N/A";
-                const chargeLine = `• ${name}${detail ? ` (${detail})` : ""}`;
-                yPos = addText(chargeLine, margin + 5, yPos, { fontSize: 9 });
-              });
-            } else if (typeof chargesData === "object") {
-              doc.setFontSize(9);
-              doc.setFont("helvetica", "normal");
-              Object.entries(chargesData).forEach(([key, value]) => {
-                checkPageBreak(10);
-                const line = `• ${key}: ${value}`;
-                yPos = addText(line, margin + 5, yPos, { fontSize: 9 });
-              });
+              Object.entries(variables.additional_charges).forEach(
+                ([key, value]) => {
+                  checkPageBreak(10);
+                  const line = `• ${key}: ${value}`;
+                  yPos = addText(line, margin + 5, yPos, { fontSize: 9 });
+                },
+              );
             }
           } catch (e) {
             doc.setFontSize(9);

@@ -4,6 +4,8 @@ const AircraftCategory = require('../Models/AircraftCategory');
 const Airline = require('../Models/Airlines');
 const Category = require('../Models/Category');
 const CompanyAircraft = require('../NewModels/CompanyAircraft');
+const NewAdditionalCharges = require('../NewModels/NewAdditionalCharges');
+const Airport = require('../Models/Airport');
 const { authenticateToken } = require('../middleware/authMiddleware');
 
 const router = express.Router();
@@ -13,6 +15,26 @@ const router = express.Router();
  * Admin screens load the same tables through permission-gated sockets
  * (view-aircrafts, view-categories). Those sockets stay employee-only.
  */
+router.get('/catalog/airports', authenticateToken, async (req, res) => {
+  try {
+    const rows = await Airport.findAll({
+      attributes: ['airport_id', 'name', 'iata', 'city'],
+      order: [['name', 'ASC'], ['airport_id', 'ASC']],
+      limit: 500,
+    });
+    return res.status(200).json({
+      message: 'Airports retrieved successfully',
+      data: rows,
+    });
+  } catch (error) {
+    console.error('Failed to retrieve airports:', error);
+    return res.status(500).json({
+      message: 'Failed to retrieve airports',
+      error: error.message,
+    });
+  }
+});
+
 /** Same rows as employee /dashboard/CompanyAircraft (Aircraft options). */
 router.get('/catalog/aircraft-options', authenticateToken, async (req, res) => {
   try {
@@ -123,6 +145,34 @@ router.get('/catalog/aircraft-types', authenticateToken, async (req, res) => {
     console.error('Failed to retrieve aircraft types:', error);
     return res.status(500).json({
       message: 'Failed to retrieve aircraft types',
+      error: error.message,
+    });
+  }
+});
+
+router.get('/catalog/additional-charges', authenticateToken, async (req, res) => {
+  try {
+    const rows = await NewAdditionalCharges.findAll({
+      attributes: [
+        'Additional_charges_id',
+        'Service_name',
+        'Charge_type',
+        'unit_or_measure',
+        'rate_inr',
+        'rate_usd',
+        'Remarks',
+      ],
+      order: [['Service_name', 'ASC'], ['Additional_charges_id', 'ASC']],
+      limit: 2000,
+    });
+    return res.status(200).json({
+      message: 'Additional charges retrieved successfully',
+      data: rows,
+    });
+  } catch (error) {
+    console.error('Failed to retrieve additional charges:', error);
+    return res.status(500).json({
+      message: 'Failed to retrieve additional charges',
       error: error.message,
     });
   }

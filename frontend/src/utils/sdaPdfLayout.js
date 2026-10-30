@@ -834,7 +834,11 @@ export function drawDataTable(doc, y, headers, rows, colWidths, opts = {}) {
   const wrapCell = (value, width, style) => {
     setFont(doc, style, fontSize);
     const raw = value == null || value === "" ? "" : String(value);
-    const lines = doc.splitTextToSize(raw, Math.max(4, width - cellPadX * 2));
+    const maxW = Math.max(4, width - cellPadX * 2);
+    const lines = raw.split(/\r?\n/).flatMap((part) => {
+      if (!part) return [""];
+      return doc.splitTextToSize(part, maxW);
+    });
     return lines.length ? lines : [""];
   };
 

@@ -230,13 +230,15 @@ module.exports = (io, socket) => {
 
             const clientIds = clients.map(client => client.client_id);
 
-            // Step 2: Fetch SGHA templates with status 'Sent' for those client IDs
+            // Sent/Submitted = pending for the client; keep Approved/Rejected so those tabs work.
             const agreements = await SGHAgreementTemplate.findAll({
                 where: {
                     client_id: {
                         [Op.in]: clientIds
                     },
-                    status: 'Sent'
+                    status: {
+                        [Op.in]: ['Sent', 'Submitted', 'Approved', 'Rejected']
+                    }
                 },
                 include: [{
                     model: Client,

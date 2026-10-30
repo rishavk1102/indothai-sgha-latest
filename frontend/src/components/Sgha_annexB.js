@@ -28,6 +28,7 @@ import {
   getSelectedAirportOffice,
   OTHER_AIRCRAFT_SELECT_VALUE,
 } from "../utils/clientWorkspace";
+import { shouldShowClientPrices } from "../utils/submissionDraftHydrate";
 import { CLIENT_ROUTES } from "./ClientPageChrome";
 
 function formatAnnexBHeading(headingNo, title) {
@@ -46,7 +47,8 @@ const Sgha_annexB = ({
   formData = {},
   selectedCities = [],
 }) => {
-  const { roleId, userId, username } = useAuth();
+  const { role, roleId, userId, username } = useAuth();
+  const [showPrices, setShowPrices] = useState(role !== "Client");
   const agreementYear =
     templateYear >= 2000 && templateYear <= 2100 ? Number(templateYear) : 2025;
   const navigate = useNavigate();
@@ -54,6 +56,32 @@ const Sgha_annexB = ({
   const toastRef = useRef(null);
   const [visibleRight, setVisibleRight] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (role !== "Client") {
+      setShowPrices(true);
+      return undefined;
+    }
+    const sid = getEditingSubmissionId();
+    if (!sid) {
+      setShowPrices(false);
+      return undefined;
+    }
+    let cancelled = false;
+    api
+      .get(`/api/client/annex-a-submissions/${sid}/details`)
+      .then((res) => {
+        if (!cancelled) {
+          setShowPrices(shouldShowClientPrices(res.data?.data));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setShowPrices(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [role]);
 
   const firstAirportId = selectedCities[0]?.airport_id;
   const clientCompanyName =
@@ -883,6 +911,9 @@ const Sgha_annexB = ({
                 Service_name: c.Service_name,
                 Charge_type: c.Charge_type,
                 unit_or_measure: c.unit_or_measure,
+                rate_inr: c.rate_inr,
+                rate_usd: c.rate_usd,
+                Remarks: c.Remarks,
               }));
             if (selectedCharges.length > 0) {
               variables.additional_charges = selectedCharges;
@@ -1398,12 +1429,13 @@ const Sgha_annexB = ({
 
   // Function to render Additional Charges table (with checkboxes for user to select)
   const renderAdditionalChargesTable = () => {
+    const chargeColSpan = showPrices ? 7 : 5;
     if (loadingAdditionalCharges) {
       return (
         <Table bordered className="mb-0 mt-4">
           <tbody>
             <tr>
-              <td colSpan="5" className="text-center text-muted">
+              <td colSpan={chargeColSpan} className="text-center text-muted">
                 Loading additional charges...
               </td>
             </tr>
@@ -1417,7 +1449,7 @@ const Sgha_annexB = ({
         <Table bordered className="mb-0 mt-4">
           <tbody>
             <tr>
-              <td colSpan="5" className="text-center text-muted">
+              <td colSpan={chargeColSpan} className="text-center text-muted">
                 No additional charges available
               </td>
             </tr>
@@ -1446,6 +1478,8 @@ const Sgha_annexB = ({
             <th>Service</th>
             <th>Applicable for</th>
             <th>Unit of Measure</th>
+            {showPrices && <th style={{ width: "120px" }}>Rate</th>}
+            {showPrices && <th>Remarks</th>}
           </tr>
         </thead>
         <tbody>
@@ -1467,6 +1501,16 @@ const Sgha_annexB = ({
                 <td>{charge.Service_name || "-"}</td>
                 <td>{charge.Charge_type || "-"}</td>
                 <td>{charge.unit_or_measure || "-"}</td>
+                {showPrices && (
+                  <td className="align-middle">
+                    ₹ {charge.rate_inr ?? "-"}
+                    <br />
+                    $ {charge.rate_usd ?? "-"}
+                  </td>
+                )}
+                {showPrices && (
+                  <td className="align-middle">{charge.Remarks || "-"}</td>
+                )}
               </tr>
             );
           })}
@@ -1477,12 +1521,14 @@ const Sgha_annexB = ({
 
   // Function to render Aircraft Options table (multi-select categories)
   const renderAircraftOptionsTable = () => {
+    const priceColSpan = showPrices ? 7 : 5;
+
     if (loadingAircraftOptions) {
       return (
         <Table bordered className="mb-0 mt-4">
           <tbody>
             <tr>
-              <td colSpan="7" className="text-center text-muted">
+              <td colSpan={priceColSpan} className="text-center text-muted">
                 <i className="pi pi-spin pi-spinner me-2" aria-hidden="true" />
                 Loading...
               </td>
@@ -1497,7 +1543,7 @@ const Sgha_annexB = ({
         <Table bordered className="mb-0 mt-4">
           <tbody>
             <tr>
-              <td colSpan="7" className="text-center text-muted">
+              <td colSpan={priceColSpan} className="text-center text-muted">
                 No aircraft options available
               </td>
             </tr>
@@ -1531,8 +1577,8 @@ const Sgha_annexB = ({
             <th style={{ width: "120px" }}>Region</th>
             <th>MOTW</th>
             <th style={{ width: "140px" }}>Limit Per Incident</th>
-            <th>Price per Limit (INR)</th>
-            <th>Price per Limit (USD)</th>
+            {showPrices && <th>Price per Limit (INR)</th>}
+            {showPrices && <th>Price per Limit (USD)</th>}
           </tr>
         </thead>
         <tbody>
@@ -1563,16 +1609,20 @@ const Sgha_annexB = ({
                 <td className="align-middle">
                   {aircraft.Limit_per_incident ?? "—"}
                 </td>
-                <td className="align-middle">
-                  {aircraft.Price_per_Limit_inr != null
-                    ? `₹ ${aircraft.Price_per_Limit_inr}`
-                    : "—"}
-                </td>
-                <td className="align-middle">
-                  {aircraft.Price_per_Limit_usd != null
-                    ? `$ ${aircraft.Price_per_Limit_usd}`
-                    : "—"}
-                </td>
+                {showPrices && (
+                  <td className="align-middle">
+                    {aircraft.Price_per_Limit_inr != null
+                      ? `₹ ${aircraft.Price_per_Limit_inr}`
+                      : "—"}
+                  </td>
+                )}
+                {showPrices && (
+                  <td className="align-middle">
+                    {aircraft.Price_per_Limit_usd != null
+                      ? `$ ${aircraft.Price_per_Limit_usd}`
+                      : "—"}
+                  </td>
+                )}
               </tr>
             );
           })}
@@ -1595,8 +1645,8 @@ const Sgha_annexB = ({
             <td className="align-middle">—</td>
             <td className="align-middle">—</td>
             <td className="align-middle">—</td>
-            <td className="align-middle">—</td>
-            <td className="align-middle">—</td>
+            {showPrices && <td className="align-middle">—</td>}
+            {showPrices && <td className="align-middle">—</td>}
           </tr>
         </tbody>
       </Table>

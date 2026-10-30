@@ -35,11 +35,17 @@ import {
   CLIENT_HOME,
   CLIENT_ROUTES,
 } from "../../components/ClientPageChrome";
+import {
+  fetchCatalogAirports,
+  formatAirportFilterLabel,
+} from "../../api/clientCatalog";
 import { persistClientEditSession } from "../../utils/clientWorkspace";
 import {
   buildDraftFromSubmissionRecord,
   canClientEditSubmission,
+  getClientSubmissionTab,
   mergeAircraftVariableIntoDraft,
+  shouldShowClientPrices,
 } from "../../utils/submissionDraftHydrate";
 
 const Sgha_reportsummary = () => {
@@ -69,6 +75,8 @@ const Sgha_reportsummary = () => {
   const [activeStatus, setActiveStatus] = useState("Pending");
   const [sortOrder, setSortOrder] = useState("DESC");
   const [perPage, setPerPage] = useState(15);
+  const [airports, setAirports] = useState([]);
+  const [selectedAirport, setSelectedAirport] = useState("");
   const [loadingTemplate, setLoadingTemplate] = useState(false);
   const [itemTextMap, setItemTextMap] = useState({});
   const [sectionTitles, setSectionTitles] = useState({});
@@ -586,6 +594,7 @@ const Sgha_reportsummary = () => {
           sortBy: sortOrder,
           limit: perPage,
           client_registration_id: userId, // Filter by logged-in client
+          ...(selectedAirport ? { airport_id: selectedAirport } : {}),
         },
       });
 
@@ -603,11 +612,25 @@ const Sgha_reportsummary = () => {
     } finally {
       setLoading(false);
     }
-  }, [activeStatus, sortOrder, perPage, userId]);
+  }, [activeStatus, sortOrder, perPage, userId, selectedAirport]);
 
   useEffect(() => {
     fetchSubmissions();
   }, [fetchSubmissions]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCatalogAirports()
+      .then((rows) => {
+        if (!cancelled) setAirports(Array.isArray(rows) ? rows : []);
+      })
+      .catch(() => {
+        if (!cancelled) setAirports([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (location.state?.justSubmitted || location.state?.highlightSubmissionId) {
@@ -651,6 +674,9 @@ const Sgha_reportsummary = () => {
         submission.contact_email?.toLowerCase().includes(searchLower) ||
         submission.contact_phone?.toLowerCase().includes(searchLower) ||
         submission.service_type?.toLowerCase().includes(searchLower) ||
+        submission.form_details?.airport_name?.toLowerCase().includes(searchLower) ||
+        submission.form_details?.airport_city?.toLowerCase().includes(searchLower) ||
+        submission.form_details?.airport_iata?.toLowerCase().includes(searchLower) ||
         (detailsSummary !== "—" &&
           detailsSummary.toLowerCase().includes(searchLower))
       );
@@ -745,6 +771,19 @@ const Sgha_reportsummary = () => {
             <option value={25}>25</option>
             <option value={50}>50</option>
             <option value={100}>100</option>
+          </Form.Select>
+          <Form.Select
+            aria-label="Filter by airport"
+            style={{ width: "220px" }}
+            value={selectedAirport}
+            onChange={(e) => setSelectedAirport(e.target.value)}
+          >
+            <option value="">All airports</option>
+            {airports.map((airport) => (
+              <option key={airport.airport_id} value={airport.airport_id}>
+                {formatAirportFilterLabel(airport)}
+              </option>
+            ))}
           </Form.Select>
           <IconField iconPosition="left">
             <InputIcon className="pi pi-search" />
@@ -864,7 +903,18 @@ const Sgha_reportsummary = () => {
                       {submission.service_type}
                     </td>
                     <td className="col-price" data-label="Price">
-                      INR -
+                      {shouldShowClientPrices(submission)
+                        ? [
+                            submission.form_details?.aircraft_price_inr != null
+                              ? `₹ ${submission.form_details.aircraft_price_inr}`
+                              : null,
+                            submission.form_details?.aircraft_price_usd != null
+                              ? `$ ${submission.form_details.aircraft_price_usd}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || "—"
+                        : "—"}
                     </td>
                     <td className="col-submitted small" data-label="Submission Time">
                       {formatDateTime(submission.submission_timestamp)}
@@ -873,17 +923,12 @@ const Sgha_reportsummary = () => {
                       <div className="actions-cell">
                         <Badge
                           className={
-                            statusColors[
-                              submission.status === "In Progress"
-                                ? "In Progress"
-                                : submission.client_status || "Pending"
-                            ] || "bg-secondary text-white"
+                            statusColors[getClientSubmissionTab(submission)] ||
+                            "bg-secondary text-white"
                           }
                           style={{ border: "none", height: "17px", flexShrink: 0 }}
                         >
-                          {submission.status === "In Progress"
-                            ? "In Progress"
-                            : submission.client_status || "Pending"}
+                          {getClientSubmissionTab(submission)}
                         </Badge>
                         <div className="actions-cell__buttons">
                           {canClientEditSubmission(submission) ? (
@@ -916,7 +961,12 @@ const Sgha_reportsummary = () => {
                                   submission,
                                   itemTextMap,
                                   sectionTitles,
-                                  { openInNewTab: true },
+                                  {
+                                    openInNewTab: true,
+                                    hidePrices: !shouldShowClientPrices(
+                                      submission,
+                                    ),
+                                  },
                                 );
                               } catch (error) {
                                 console.error(
@@ -943,7 +993,12 @@ const Sgha_reportsummary = () => {
                                   submission,
                                   itemTextMap,
                                   sectionTitles,
-                                  { openInNewTab: false },
+                                  {
+                                    openInNewTab: false,
+                                    hidePrices: !shouldShowClientPrices(
+                                      submission,
+                                    ),
+                                  },
                                 );
                               } catch (error) {
                                 console.error("Error downloading PDF:", error);
@@ -1305,10 +1360,7 @@ const Sgha_reportsummary = () => {
                                         <p className="mb-0">
                                           <b>
                                             Current Status:{" "}
-                                            {submission.status === "In Progress"
-                                              ? "In Progress"
-                                              : submission.client_status ||
-                                                "Pending"}
+                                            {getClientSubmissionTab(submission)}
                                           </b>
                                         </p>
                                         <p className="mb-0 mt-2">

@@ -1,11 +1,34 @@
 import { OTHER_AIRCRAFT_SELECT_VALUE } from "./clientWorkspace";
 
+/** Tab an agreement belongs on in My Submissions. Each row maps to exactly one tab. */
+export function getClientSubmissionTab(submission) {
+  if (!submission) return "Pending";
+  const clientStatus = submission.client_status || null;
+  const status = submission.status || "Pending";
+  if (clientStatus === "Approved") return "Approved";
+  if (clientStatus === "Rejected") return "Rejected";
+  if (status === "Completed") return "Approved";
+  if (
+    status === "Cancelled" ||
+    status === "Suspended" ||
+    status === "Expired"
+  ) {
+    return "Rejected";
+  }
+  if (status === "In Progress") return "In Progress";
+  return "Pending";
+}
+
 /** Client may amend before employee picks up the submission. */
 export function canClientEditSubmission(submission) {
   if (!submission) return false;
-  const status = submission.status || "Pending";
-  const clientStatus = submission.client_status || "Pending";
-  return status === "Pending" && clientStatus === "Pending";
+  return getClientSubmissionTab(submission) === "Pending";
+}
+
+/** Client sees aircraft prices only after IndoThai starts processing. */
+export function shouldShowClientPrices(submission) {
+  const tab = getClientSubmissionTab(submission);
+  return tab === "In Progress" || tab === "Approved" || tab === "Rejected";
 }
 
 function isSubItemClauseKey(clauseKey) {

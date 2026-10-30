@@ -7,8 +7,9 @@ import { Dropdown } from "primereact/dropdown";
 import { InputText } from 'primereact/inputtext';
 import { Sidebar } from 'primereact/sidebar';
 import { Tag } from "primereact/tag";
-import React, { useEffect, useState } from "react";
-import { Breadcrumb, Card, Col, Row, Table } from 'react-bootstrap';
+import { TabPanel, TabView } from "primereact/tabview";
+import React, { useEffect, useMemo, useState } from "react";
+import { Badge, Breadcrumb, Card, Col, Row, Table } from 'react-bootstrap';
 import { IoChevronBackOutline } from "react-icons/io5";
 import { useNavigate } from 'react-router-dom'; // Import useNavigate
 import api from "../../api/axios";
@@ -18,6 +19,15 @@ import { getSocket } from "../../context/socket";
 import GifLoder from '../../interfaces/GifLoder';
 import AgreementBodyHtml from '../../components/AgreementBodyHtml';
 import { useAppMessageDialog } from '../../hooks/useAppMessageDialog';
+
+const AGREEMENT_TABS = ["Pending", "Approved", "Rejected"];
+
+function statusesForAgreementTab(tab) {
+    if (tab === "Approved") return ["Approved"];
+    if (tab === "Rejected") return ["Rejected"];
+    return ["Draft", "Submitted", "Sent"];
+}
+
 const SGHA_List = () => {
     const navigate = useNavigate(); // Initialize the navigate function
     const { showWarn, messageDialog } = useAppMessageDialog();
@@ -26,6 +36,7 @@ const SGHA_List = () => {
     const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error
     const [loading, setLoading] = useState(false);
     const [templates, setTemplates] = useState([]);
+    const [activeStatus, setActiveStatus] = useState("Pending");
     const socket = getSocket();
     const [selectedTemplate, setSelectedTemplate] = useState(null);
     const [showDialog, setShowDialog] = useState(false);
@@ -101,6 +112,21 @@ const SGHA_List = () => {
 
         return <Tag value={status} severity={getSeverity()} />;
     };
+
+    const statusCounts = useMemo(() => {
+        const counts = { Pending: 0, Approved: 0, Rejected: 0 };
+        templates.forEach((row) => {
+            if (row.status === "Approved") counts.Approved += 1;
+            else if (row.status === "Rejected") counts.Rejected += 1;
+            else counts.Pending += 1;
+        });
+        return counts;
+    }, [templates]);
+
+    const filteredTemplates = useMemo(() => {
+        const allowed = statusesForAgreementTab(activeStatus);
+        return templates.filter((row) => allowed.includes(row.status));
+    }, [templates, activeStatus]);
 
     const templateNameBody = (rowData) => <strong>{rowData.template_name}</strong>;
 
@@ -661,25 +687,54 @@ const SGHA_List = () => {
                     />
                 </Col>
             </Row>
-            <Card className="shadow-sm border-0 p-0">
-                <DataTable
-                    value={templates}
-                    paginator
-                    rows={10}
-                    stripedRows
-                    responsiveLayout="scroll"
-                    emptyMessage="No SGH Agreement Templates found."
-                >
-                    <Column header="Sl.No" body={(_, { rowIndex }) => rowIndex + 1} style={{ width: "120px" }} />
-                    <Column field="template_name" header="Template Name" body={templateNameBody} />
-                    <Column header="Main Agreement Template" body={letterTemplateBody} />
-                    <Column header="Client" body={clientBody} />
-                    <Column header="Business" body={businessBody} />
-                    <Column header="Status" body={statusBody} />
-                    {/* <Column header="Annexure" body={annexureNameBody} /> */}
-                    <Column header="Actions" body={actionsBody} style={{ width: "120px" }} />
-                </DataTable>
-            </Card>
+            <TabView
+                className="mx-0"
+                activeIndex={AGREEMENT_TABS.indexOf(activeStatus)}
+                onTabChange={(e) => {
+                    setActiveStatus(AGREEMENT_TABS[e.index] || "Pending");
+                }}
+            >
+                {AGREEMENT_TABS.map((tab) => (
+                    <TabPanel
+                        key={tab}
+                        header={
+                            <span className="flex align-items-center gap-4">
+                                {tab}{" "}
+                                <Badge
+                                    bg={
+                                        tab === "Approved"
+                                            ? "success"
+                                            : tab === "Rejected"
+                                              ? "danger"
+                                              : "warning"
+                                    }
+                                >
+                                    {statusCounts[tab]}
+                                </Badge>
+                            </span>
+                        }
+                    >
+                        <Card className="shadow-sm border-0 p-0">
+                            <DataTable
+                                value={filteredTemplates}
+                                paginator
+                                rows={10}
+                                stripedRows
+                                responsiveLayout="scroll"
+                                emptyMessage={`No ${tab.toLowerCase()} agreements found.`}
+                            >
+                                <Column header="Sl.No" body={(_, { rowIndex }) => rowIndex + 1} style={{ width: "120px" }} />
+                                <Column field="template_name" header="Template Name" body={templateNameBody} />
+                                <Column header="Main Agreement Template" body={letterTemplateBody} />
+                                <Column header="Client" body={clientBody} />
+                                <Column header="Business" body={businessBody} />
+                                <Column header="Status" body={statusBody} />
+                                <Column header="Actions" body={actionsBody} style={{ width: "120px" }} />
+                            </DataTable>
+                        </Card>
+                    </TabPanel>
+                ))}
+            </TabView>
 
             <Sidebar position="right"
                 style={{ width: "70vw" }}

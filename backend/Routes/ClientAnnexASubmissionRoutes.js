@@ -8,6 +8,7 @@ const SubmissionVariables = require("../NewModels/SubmissionVariables");
 const Template = require("../NewModels/Template");
 const SubmissionComment = require("../NewModels/SubmissionComment");
 const SubmissionEditHistory = require("../NewModels/SubmissionEditHistory");
+const NewAdditionalCharges = require("../NewModels/NewAdditionalCharges");
 const {
   assignSessionForNewComment,
   buildSessionView,
@@ -35,6 +36,190 @@ function stripHtml(str) {
   return String(str)
     .replace(/<[^>]*>/g, "")
     .trim();
+}
+
+function parsePositiveInt(value) {
+  const n = parseInt(String(value ?? ""), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function chargeLookupKey(...parts) {
+  return parts
+    .map((part) => String(part || "").replace(/\s+/g, " ").trim().toLowerCase())
+    .join("|");
+}
+
+async function hydrateAdditionalCharges(variablesObj) {
+  if (!variablesObj || variablesObj.additional_charges == null) {
+    return variablesObj;
+  }
+  let charges = variablesObj.additional_charges;
+  if (typeof charges === "string") {
+    try {
+      charges = JSON.parse(charges);
+    } catch {
+      return variablesObj;
+    }
+  }
+  const list = Array.isArray(charges)
+    ? charges
+    : Array.isArray(charges?.selected)
+      ? charges.selected
+      : null;
+  if (!list || !list.length) return variablesObj;
+  const alreadyPriced = list.every(
+    (charge) =>
+      (charge?.rate_inr != null && charge.rate_inr !== "") ||
+      (charge?.rate_usd != null && charge.rate_usd !== ""),
+  );
+  if (alreadyPriced) return variablesObj;
+
+  const catalog = await NewAdditionalCharges.findAll({
+    attributes: [
+      "Additional_charges_id",
+      "Service_name",
+      "Charge_type",
+      "unit_or_measure",
+      "rate_inr",
+      "rate_usd",
+      "Remarks",
+    ],
+    raw: true,
+  });
+  const byId = new Map(
+    catalog.map((row) => [String(row.Additional_charges_id), row]),
+  );
+  const byKey = new Map();
+  catalog.forEach((row) => {
+    byKey.set(
+      chargeLookupKey(row.Service_name, row.Charge_type, row.unit_or_measure),
+      row,
+    );
+    byKey.set(chargeLookupKey(row.Service_name, row.Charge_type), row);
+  });
+
+  const merged = list.map((charge) => {
+    const hit =
+      (charge?.Additional_charges_id != null &&
+        byId.get(String(charge.Additional_charges_id))) ||
+      byKey.get(
+        chargeLookupKey(
+          charge.Service_name || charge.charge_name || charge.name,
+          charge.Charge_type,
+          charge.unit_or_measure,
+        ),
+      ) ||
+      byKey.get(
+        chargeLookupKey(
+          charge.Service_name || charge.charge_name || charge.name,
+          charge.Charge_type,
+        ),
+      );
+    if (!hit) return charge;
+    return {
+      ...charge,
+      rate_inr: charge.rate_inr ?? hit.rate_inr,
+      rate_usd: charge.rate_usd ?? hit.rate_usd,
+      Remarks: charge.Remarks || charge.remarks || hit.Remarks,
+    };
+  });
+
+  variablesObj.additional_charges = Array.isArray(charges)
+    ? merged
+    : { ...charges, selected: merged };
+  return variablesObj;
+}
+
+/** form_details.airport_id may be stored as a number or a string. */
+function airportFormDetailsCondition(airportId) {
+  return {
+    [Op.or]: [
+      sequelize.where(
+        sequelize.json("form_details.airport_id"),
+        airportId,
+      ),
+      sequelize.where(
+        sequelize.json("form_details.airport_id"),
+        String(airportId),
+      ),
+    ],
+  };
+}
+
+function andWhere(...clauses) {
+  const parts = clauses.filter((clause) => {
+    if (!clause || typeof clause !== "object") return false;
+    return (
+      Object.keys(clause).length > 0 ||
+      Object.getOwnPropertySymbols(clause).length > 0
+    );
+  });
+  if (parts.length === 0) return {};
+  if (parts.length === 1) return parts[0];
+  return { [Op.and]: parts };
+}
+
+function openClientStatusWhere() {
+  return {
+    [Op.or]: [{ client_status: "Pending" }, { client_status: null }],
+  };
+}
+
+/** Same mapping as frontend getClientSubmissionTab — one tab per row. */
+function getClientSubmissionTab(submission) {
+  const clientStatus = submission?.client_status || null;
+  const status = submission?.status || "Pending";
+  if (clientStatus === "Approved") return "Approved";
+  if (clientStatus === "Rejected") return "Rejected";
+  if (status === "Completed") return "Approved";
+  if (
+    status === "Cancelled" ||
+    status === "Suspended" ||
+    status === "Expired"
+  ) {
+    return "Rejected";
+  }
+  if (status === "In Progress") return "In Progress";
+  return "Pending";
+}
+
+function clientTabWhere(tab) {
+  if (tab === "Pending") {
+    return andWhere({ status: "Pending" }, openClientStatusWhere());
+  }
+  if (tab === "In Progress") {
+    return andWhere({ status: "In Progress" }, openClientStatusWhere());
+  }
+  if (tab === "Approved") {
+    return {
+      [Op.or]: [
+        { client_status: "Approved" },
+        andWhere({ status: "Completed" }, {
+          [Op.or]: [
+            { client_status: { [Op.ne]: "Rejected" } },
+            { client_status: null },
+          ],
+        }),
+      ],
+    };
+  }
+  if (tab === "Rejected") {
+    return {
+      [Op.or]: [
+        { client_status: "Rejected" },
+        andWhere(
+          { status: { [Op.in]: ["Cancelled", "Suspended", "Expired"] } },
+          {
+            [Op.or]: [
+              { client_status: { [Op.ne]: "Approved" } },
+              { client_status: null },
+            ],
+          },
+        ),
+      ],
+    };
+  }
+  return null;
 }
 
 /**
@@ -461,33 +646,33 @@ router.get("/annex-a-submissions-list", async (req, res) => {
       limit,
       offset,
       client_registration_id,
+      airport_id,
     } = req.query;
+    const airportId = parsePositiveInt(airport_id);
 
-    // Build where clause
-    const whereClause = {};
+    const baseFilters = [];
+    if (year) {
+      const yearInt = parseInt(year, 10);
+      if (!isNaN(yearInt) && yearInt >= 2000 && yearInt <= 2100) {
+        baseFilters.push({ agreement_year: yearInt });
+      }
+    }
+    if (client_registration_id) {
+      const clientId = parseInt(client_registration_id, 10);
+      if (!isNaN(clientId) && clientId > 0) {
+        baseFilters.push({ client_registration_id: clientId });
+      }
+    }
+    if (airportId) {
+      baseFilters.push(airportFormDetailsCondition(airportId));
+    }
 
-    // If client_registration_id is provided, use client_status (or status for In Progress); otherwise use status (for employee view)
+    const tabFilters = [];
     if (status) {
       if (client_registration_id) {
-        // Client view: Pending = only not yet in progress (status Pending); In Progress = internal status; Approved/Rejected = client_status
-        const validClientStatuses = [
-          "Pending",
-          "In Progress",
-          "Approved",
-          "Rejected",
-        ];
-        if (validClientStatuses.includes(status)) {
-          if (status === "In Progress") {
-            whereClause.status = "In Progress";
-          } else if (status === "Pending") {
-            whereClause.client_status = "Pending";
-            whereClause.status = "Pending"; // Exclude In Progress: only show truly pending (not yet picked up)
-          } else {
-            whereClause.client_status = status;
-          }
-        }
+        const tabWhere = clientTabWhere(status);
+        if (tabWhere) tabFilters.push(tabWhere);
       } else {
-        // Employee view: use status with values Pending, In Progress, Completed, Suspended, Cancelled, Expired
         const validStatuses = [
           "Pending",
           "In Progress",
@@ -497,25 +682,12 @@ router.get("/annex-a-submissions-list", async (req, res) => {
           "Expired",
         ];
         if (validStatuses.includes(status)) {
-          whereClause.status = status;
+          tabFilters.push({ status });
         }
       }
     }
 
-    if (year) {
-      const yearInt = parseInt(year, 10);
-      if (!isNaN(yearInt) && yearInt >= 2000 && yearInt <= 2100) {
-        whereClause.agreement_year = yearInt;
-      }
-    }
-
-    // Filter by client_registration_id if provided (for client view)
-    if (client_registration_id) {
-      const clientId = parseInt(client_registration_id, 10);
-      if (!isNaN(clientId) && clientId > 0) {
-        whereClause.client_registration_id = clientId;
-      }
-    }
+    const whereClause = andWhere(...baseFilters, ...tabFilters);
 
     // Calculate effective dates from agreement year
     // Typically: Effective From = August 1 of agreement_year, Effective To = July 31 of next year
@@ -622,45 +794,21 @@ router.get("/annex-a-submissions-list", async (req, res) => {
       };
     });
 
-    // Get counts by status for filter badges (with same filters applied)
-    const countWhereClause = {};
-    if (client_registration_id) {
-      const clientId = parseInt(client_registration_id, 10);
-      if (!isNaN(clientId) && clientId > 0) {
-        countWhereClause.client_registration_id = clientId;
-      }
-    }
-    if (year) {
-      const yearInt = parseInt(year, 10);
-      if (!isNaN(yearInt) && yearInt >= 2000 && yearInt <= 2100) {
-        countWhereClause.agreement_year = yearInt;
-      }
-    }
+    const countWhereClause = andWhere(...baseFilters);
 
-    // Build counts: client view needs Pending (only status=Pending), In Progress, Approved, Rejected
+    // Build counts: client view needs Pending, In Progress, Approved, Rejected
     let counts;
     if (client_registration_id) {
       counts = { Pending: 0, "In Progress": 0, Approved: 0, Rejected: 0 };
-      const pendingOnlyCount = await ClientAnnexASubmission.count({
-        where: {
-          ...countWhereClause,
-          client_status: "Pending",
-          status: "Pending",
-        },
+      const countRows = await ClientAnnexASubmission.findAll({
+        where: countWhereClause,
+        attributes: ["status", "client_status"],
+        raw: true,
       });
-      counts.Pending = pendingOnlyCount;
-      const inProgressCount = await ClientAnnexASubmission.count({
-        where: { ...countWhereClause, status: "In Progress" },
+      countRows.forEach((row) => {
+        const tab = getClientSubmissionTab(row);
+        if (counts[tab] != null) counts[tab] += 1;
       });
-      counts["In Progress"] = inProgressCount;
-      const approvedCount = await ClientAnnexASubmission.count({
-        where: { ...countWhereClause, client_status: "Approved" },
-      });
-      counts.Approved = approvedCount;
-      const rejectedCount = await ClientAnnexASubmission.count({
-        where: { ...countWhereClause, client_status: "Rejected" },
-      });
-      counts.Rejected = rejectedCount;
     } else {
       const statusCounts = await ClientAnnexASubmission.findAll({
         where: countWhereClause,
@@ -890,6 +1038,8 @@ router.get(
         }
       });
 
+      await hydrateAdditionalCharges(variablesObj);
+
       return res.status(200).json({
         message: "Variables retrieved successfully",
         data: variablesObj,
@@ -1080,6 +1230,8 @@ router.get(
           existingVarsObj[v.variable_name] = v.variable_value;
         }
       });
+
+      await hydrateAdditionalCharges(existingVarsObj);
 
       return res.status(200).json({
         message: "Template variables retrieved successfully",

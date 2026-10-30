@@ -20,6 +20,10 @@ import { LuTable } from 'react-icons/lu';
 import { MdCheckBox, MdFlight, MdFormatListNumbered, MdOutlineSubdirectoryArrowRight, MdSubtitles } from 'react-icons/md';
 import DOMPurify from 'dompurify';
 import api from '../../api/axios';
+import {
+  fetchCatalogAirports,
+  formatAirportFilterLabel,
+} from '../../api/clientCatalog';
 import GifLoder from '../../interfaces/GifLoder';
 import { generateSubmissionPDF } from '../../utils/generateSubmissionPDF';
 import { getSocket } from '../../context/socket';
@@ -51,6 +55,8 @@ const AgreedServicesCharges = () => {
    const [activeStatus, setActiveStatus] = useState('Pending');
    const [sortOrder, setSortOrder] = useState('DESC');
    const [perPage, setPerPage] = useState(15);
+   const [airports, setAirports] = useState([]);
+   const [selectedAirport, setSelectedAirport] = useState('');
    const [selectedSubmission, setSelectedSubmission] = useState(null);
    const [selectedStatus, setSelectedStatus] = useState(null);
    const [effectiveStartDate, setEffectiveStartDate] = useState(null);
@@ -1419,6 +1425,7 @@ const AgreedServicesCharges = () => {
                status: activeStatus,
                sortBy: sortOrder,
                limit: perPage,
+               ...(selectedAirport ? { airport_id: selectedAirport } : {}),
             },
          });
 
@@ -1436,11 +1443,25 @@ const AgreedServicesCharges = () => {
       } finally {
          setLoading(false);
       }
-   }, [activeStatus, sortOrder, perPage]);
+   }, [activeStatus, sortOrder, perPage, selectedAirport]);
 
    useEffect(() => {
       fetchSubmissions();
    }, [fetchSubmissions]);
+
+   useEffect(() => {
+      let cancelled = false;
+      fetchCatalogAirports()
+         .then((rows) => {
+            if (!cancelled) setAirports(Array.isArray(rows) ? rows : []);
+         })
+         .catch(() => {
+            if (!cancelled) setAirports([]);
+         });
+      return () => {
+         cancelled = true;
+      };
+   }, []);
 
    useEffect(() => {
       const params = new URLSearchParams(location.search);
@@ -1638,6 +1659,19 @@ const AgreedServicesCharges = () => {
                   <option value={25}>25</option>
                   <option value={50}>50</option>
                   <option value={100}>100</option>
+               </Form.Select>
+               <Form.Select
+                  aria-label="Filter by airport"
+                  style={{ width: '220px' }}
+                  value={selectedAirport}
+                  onChange={(e) => setSelectedAirport(e.target.value)}
+               >
+                  <option value="">All airports</option>
+                  {airports.map((airport) => (
+                     <option key={airport.airport_id} value={airport.airport_id}>
+                        {formatAirportFilterLabel(airport)}
+                     </option>
+                  ))}
                </Form.Select>
                <IconField iconPosition="left">
                   <InputIcon className="pi pi-search" />

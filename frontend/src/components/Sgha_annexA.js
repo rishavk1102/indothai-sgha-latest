@@ -2043,10 +2043,8 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
           {/* Dynamic Sections - rendered from allParsedSections */}
           {(() => {
             const sectionsWithContent = (allParsedSections || []).filter((s) => {
-              // Render only template-driven sections that actually have editor content.
-              // This prevents any hardcoded/fallback sections from showing up.
+              // Render template-driven sections that have editor content.
               if (!s || !s.sectionNo) return false;
-              if (String(s.sectionNo) === "1") return false;
               const hasContent = s.subsections?.some(
                 (sub) =>
                   sub?.editor?.value &&

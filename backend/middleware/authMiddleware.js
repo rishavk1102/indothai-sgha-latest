@@ -11,7 +11,9 @@ const JWT_SECRET = process.env.JWT_SECRET; // Make sure this is correctly set in
 
 // Middleware to protect routes — verifies access JWT from httpOnly cookie
 const authenticateToken = (req, res, next) => {
-  const token = req.cookies.accessToken;
+  const header = req.headers.authorization || "";
+  const bearer = /^Bearer\s+/i.test(header) ? header.replace(/^Bearer\s+/i, "").trim() : "";
+  const token = req.cookies.accessToken || bearer;
 
   if (!token) {
     // 403 so the axios client can attempt refresh-token (see frontend api/axios.js)

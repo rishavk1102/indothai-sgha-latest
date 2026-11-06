@@ -3,7 +3,19 @@ import config from "../config";
 
 const api = axios.create({
   baseURL: config.apiBASEURL,
-  withCredentials: true, // sends httpOnly cookies
+  withCredentials: true, // sends httpOnly cookies when the browser allows them
+});
+
+api.interceptors.request.use((request) => {
+  const accessToken = sessionStorage.getItem("accessToken");
+  const refreshToken = sessionStorage.getItem("refreshToken");
+  if (accessToken) {
+    request.headers.Authorization = `Bearer ${accessToken}`;
+  }
+  if (refreshToken) {
+    request.headers["X-Refresh-Token"] = refreshToken;
+  }
+  return request;
 });
 
 // Utility function to read user_type from session storage
@@ -33,8 +45,14 @@ api.interceptors.response.use(
       try {
         const user_type = getUserType();
         const query = user_type ? `?user_type=${user_type}` : "";
+        const refreshToken = sessionStorage.getItem("refreshToken");
 
-        await api.post(`/AuthRoutes/refresh-token${query}`);
+        const refreshed = await api.post(`/AuthRoutes/refresh-token${query}`, {
+          refreshToken,
+        });
+        if (refreshed.data?.accessToken) {
+          sessionStorage.setItem("accessToken", refreshed.data.accessToken);
+        }
         return api(originalRequest);
       } catch (err) {
         console.error("Token refresh failed:", err);

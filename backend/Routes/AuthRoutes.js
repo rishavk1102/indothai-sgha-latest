@@ -818,7 +818,8 @@ router.get("/status", authenticateToken, async (req, res) => {
 
 // POST /refresh-token - Generate a new access token
 router.post("/refresh-token", async (req, res) => {
-  const refreshToken = req.cookies.refreshToken;
+  const refreshToken =
+    req.cookies.refreshToken || req.body?.refreshToken || req.get("x-refresh-token");
   const { user_type } = req.query; // or req.body, based on your frontend
 
   if (!refreshToken) {
@@ -861,7 +862,7 @@ router.post("/refresh-token", async (req, res) => {
         secure: isProduction,
         sameSite: isProduction ? "None" : "Lax",
       });
-      res.status(200).json({ message: "Access token refreshed" });
+      res.status(200).json({ message: "Access token refreshed", accessToken: newAccessToken });
     } catch (error) {
       console.error("Error during refresh:", error);
       res.status(500).json({ message: "Internal server error" });
@@ -872,7 +873,8 @@ router.post("/refresh-token", async (req, res) => {
 // Logout route to clear refresh token (both paths — frontend uses /logout)
 const handleLogout = async (req, res) => {
   const { userId, user_type } = req.body;
-  const refreshToken = req.cookies.refreshToken;
+  const refreshToken =
+    req.cookies.refreshToken || req.body?.refreshToken || req.get("x-refresh-token");
 
   if (!refreshToken || !userId || !user_type) {
     return res
@@ -927,7 +929,8 @@ router.post("/logout", handleLogout);
 
 // GET /check-session - Verify if refresh token is still valid
 router.get("/check-session", async (req, res) => {
-  const refreshToken = req.cookies.refreshToken;
+  const refreshToken =
+    req.cookies.refreshToken || req.query?.refreshToken || req.get("x-refresh-token");
   const { user_type } = req.query; // 'User' or 'Client'
 
   if (!refreshToken) {

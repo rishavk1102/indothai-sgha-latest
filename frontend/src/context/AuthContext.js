@@ -64,6 +64,8 @@ export const AuthProvider = ({ children }) => {
     // Store the tokens and user details in session storage
     sessionStorage.setItem("role", authData.role);
     sessionStorage.setItem("roleId", authData.roleId);
+    if (authData.accessToken) sessionStorage.setItem("accessToken", authData.accessToken);
+    if (authData.refreshToken) sessionStorage.setItem("refreshToken", authData.refreshToken);
 
     // Immediately connect socket on login
     connectSocket()
@@ -79,6 +81,7 @@ export const AuthProvider = ({ children }) => {
       const res = await api.post(`/AuthRoutes/logout`, {
         userId: userId,
         user_type: user_type,
+        refreshToken: sessionStorage.getItem("refreshToken"),
       });
 
       if (res.status === 200) {

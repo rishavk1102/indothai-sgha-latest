@@ -1,3 +1,5 @@
+import { collectNestedListsForLi, normalizeSiblingLists } from "./nestedListHtml";
+
 const ROMAN_MARKER = /^\((?:i{1,3}|iv|vi{0,3}|ix|xi{0,3}|x)\)(?:\s|$)/i;
 const LETTER_MARKER = /^\([a-z]\)(?:\s|$)/i;
 const NUMBER_MARKER = /^(?:[1-9]|[1-9]\d)\.\s+\S/;
@@ -350,6 +352,76 @@ export function createNumberingContext(prefix = "") {
 const LITERAL_ITEM_NO = /^(\d{1,2})\.\s+/;
 const ALREADY_NUMBERED = /^(?:\d+(?:\.\d+)+\.?\s|\d{1,2}\.\s|\([a-z]{1,4}\)\s)/i;
 
+/** Editor nested lists are one small step per level, not a fixed jump. */
+function applyListDepth(lines, depth) {
+  const level = Math.min(4, Math.max(0, depth));
+  return lines.map((line, index) => {
+    const kind = lineKind(line.text);
+    const extra =
+      index > 0 && (kind === "roman" || kind === "letter" || kind === "number") ? 1 : 0;
+    return {
+      ...line,
+      list: true,
+      indent: Math.min(4, level + extra),
+    };
+  });
+}
+
+function listIndentPx(list) {
+  const style = String(list?.getAttribute?.("style") || "");
+  let px = 0;
+  const re = /(?:margin|padding)-left:\s*([\d.]+)px/gi;
+  let match;
+  while ((match = re.exec(style))) px += parseFloat(match[1]) || 0;
+  return px;
+}
+
+function lastLi(list) {
+  const items = Array.from(list?.children || []).filter((el) => /^LI$/i.test(el.tagName || ""));
+  return items[items.length - 1] || null;
+}
+
+/** Attach a following indented list under the item it belongs to, one level at a time. */
+function hostForIndentedList(list, listPx) {
+  const last = lastLi(list);
+  if (!last) return null;
+  const nested = Array.from(last.children || []).filter((el) => /^(OL|UL)$/i.test(el.tagName || ""));
+  const inner = nested[nested.length - 1];
+  if (inner && listIndentPx(inner) < listPx) {
+    const deeper = hostForIndentedList(inner, listPx);
+    if (deeper) return deeper;
+  }
+  return last;
+}
+
+/**
+ * The editor stores a nested list inside the previous item, sometimes with
+ * margin-left/padding-left, and sometimes as the next sibling list. Put those
+ * back under the item they belong to so PDF depth matches the editor.
+ */
+function absorbIndentedSiblingLists(root) {
+  normalizeSiblingLists(root);
+  let changed = true;
+  let guard = 0;
+  while (changed && guard < 30) {
+    changed = false;
+    guard += 1;
+    const lists = Array.from(root.querySelectorAll("ol, ul"));
+    for (const list of lists) {
+      if (listIndentPx(list) < 8) continue;
+      if (/^LI$/i.test(list.parentElement?.tagName || "")) continue;
+      const prev = list.previousElementSibling;
+      if (!prev || !/^(OL|UL)$/i.test(prev.tagName || "")) continue;
+      const host = hostForIndentedList(prev, listIndentPx(list));
+      if (!host) continue;
+      host.appendChild(list);
+      changed = true;
+      break;
+    }
+  }
+  return root;
+}
+
 function listToBlocks(list, ctx, depth = 0) {
   const ordered = String(list.tagName || "").toLowerCase() === "ol";
   const type = list.getAttribute("type") || "";
@@ -361,14 +433,17 @@ function listToBlocks(list, ctx, depth = 0) {
 
   let counter = Number.isFinite(start) ? start - 1 : articleNumbered ? ctx.next : 0;
   const blocks = [];
+  const children = Array.from(list.children || []);
 
-  Array.from(list.children || []).forEach((li) => {
-    if (!li || String(li.tagName || "").toLowerCase() !== "li") return;
+  for (let i = 0; i < children.length; i += 1) {
+    const li = children[i];
+    if (!li || String(li.tagName || "").toLowerCase() !== "li") continue;
 
     const value = parseInt(li.getAttribute("value"), 10);
     counter = Number.isFinite(value) ? value : counter + 1;
 
-    const nested = Array.from(li.children).filter((c) => /^(ol|ul)$/i.test(c.tagName || ""));
+    const { nestedLists, nextIndex } = collectNestedListsForLi(li, children, i);
+    i = nextIndex;
     const clone = li.cloneNode(true);
     clone.querySelectorAll("ol, ul").forEach((n) => n.remove());
     const text = elementText(clone);
@@ -398,15 +473,15 @@ function listToBlocks(list, ctx, depth = 0) {
         } else {
           if (ordered && !ALREADY_NUMBERED.test(lines[0].text)) {
             const marker = letters ? `(${String.fromCharCode(96 + counter)})` : `${counter}.`;
-            lines[0] = { indent: 2, text: `${marker} ${lines[0].text}` };
+            lines[0] = { ...lines[0], text: `${marker} ${lines[0].text}`.trim() };
           }
-          block = { type: "paragraph", lines };
+          block = { type: "paragraph", lines: applyListDepth(lines, depth) };
         }
       }
     }
 
     if (block) blocks.push(block);
-    nested.forEach((node) => {
+    nestedLists.forEach((node) => {
       const sub = listToBlocks(node, ctx, depth + 1);
       if (block && block.type === "clause") {
         sub.forEach((b) => b.lines && block.lines.push(...b.lines));
@@ -414,7 +489,7 @@ function listToBlocks(list, ctx, depth = 0) {
         blocks.push(...sub);
       }
     });
-  });
+  }
 
   if (articleNumbered) ctx.next = counter;
   return blocks;
@@ -464,6 +539,7 @@ export function parseAgreementDocument(input, { numbering } = {}) {
     const ctx = numbering || createNumberingContext("");
     const root = document.createElement("div");
     root.innerHTML = raw;
+    absorbIndentedSiblingLists(root);
     const blocks = [];
     walkHtml(root, blocks, ctx);
     if (blocks.length) return coalescePipeTables(blocks);

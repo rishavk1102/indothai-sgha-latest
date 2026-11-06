@@ -385,10 +385,24 @@ function markerPrefix(text) {
   return match ? match[0] : "";
 }
 
+function preparedClauseLines(text) {
+  if (!Array.isArray(text)) return parseClauseLines(text);
+  // List depth is already set from the editor HTML. Re-leveling by marker
+  // kind pulls "(i)" back to the margin and pushes numbered items too far.
+  if (text.some((line) => line && line.list)) {
+    return text
+      .map((line) => ({
+        text: String(line?.text || "").trim(),
+        indent: Math.min(4, Math.max(0, Number(line?.indent) || 0)),
+        list: true,
+      }))
+      .filter((line) => line.text);
+  }
+  return normalizeClauseLines(text);
+}
+
 function expandClauseLines(doc, text, textWidth, fontSize) {
-  const source = Array.isArray(text)
-  ? normalizeClauseLines(text)
-  : parseClauseLines(text);
+  const source = preparedClauseLines(text);
   const visual = [];
   const rows = source.length ? source : [{ indent: 0, text: "" }];
   rows.forEach((line) => {
@@ -428,7 +442,7 @@ export function drawClauseRow(doc, y, number, text) {
   setFont(doc, "normal", fontSize);
   const { number: numberText, markers } = splitClauseNumber(number);
   const textWidth = Math.max(24, contentWidth - clauseGutter);
-  const parsed = Array.isArray(text) ? normalizeClauseLines(text) : parseClauseLines(text);
+  const parsed = preparedClauseLines(text);
   const all = expandClauseLines(doc, prefixKeyMarker(parsed, markers), textWidth, fontSize).filter(
     (line) => line.text,
   );
@@ -476,11 +490,17 @@ export function drawClauseRow(doc, y, number, text) {
 export function drawBodyLines(doc, y, lines) {
   const fontSize = font.body;
   const lh = lineHeight(fontSize);
-  const visual = expandClauseLines(doc, lines, contentWidth - clauseGutter, fontSize).filter(
-    (line) => line.text,
-  );
+  const listBlock = Array.isArray(lines) && lines.some((line) => line && line.list);
+  const visual = expandClauseLines(
+    doc,
+    lines,
+    listBlock ? contentWidth : contentWidth - clauseGutter,
+    fontSize,
+  ).filter((line) => line.text);
   if (!visual.length) return y;
-  const alignWithClause = visual.some((line) => line.indent > 0);
+  // List depth is the only offset. Adding the clause gutter on top of it
+  // pushes nested items about 30mm in, while already-numbered "(i)" lines stay put.
+  const alignWithClause = !listBlock && visual.some((line) => line.indent > 0);
   const origin = alignWithClause ? clauseGutter : 0;
   let currentY = y;
   visual.forEach((line) => {

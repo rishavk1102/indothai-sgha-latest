@@ -8,6 +8,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import api from '../api/axios';
 import { plainTextToAgreementHtml, stringLooksLikeHtml } from '../utils/agreementDocFormat';
 import {
+  DEFAULT_CHECKBOX_SERVICE_FLAGS,
+  normalizeSiblingLists,
+  resolveCheckboxServiceFlags,
+  walkAgreementListTree,
+} from '../utils/nestedListHtml';
+import {
     FaAlignCenter,
     FaAlignLeft,
     FaAlignRight,
@@ -327,6 +333,7 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
   const serializeEditorHTML = useCallback(() => {
     if (!editorRef.current) return '';
     const clone = editorRef.current.cloneNode(true);
+    normalizeSiblingLists(clone);
     clone.querySelectorAll('.variable-table-block').forEach(el => {
       const varName = el.getAttribute('data-variable-name');
       if (varName) el.replaceWith(document.createTextNode(`{{${varName}}}`));
@@ -931,35 +938,18 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
     
     // Wait for DOM to be ready after content is set
     const timeoutId = setTimeout(() => {
-      const allLists = Array.from(editorRef.current.querySelectorAll('ol'));
+      const { flat } = walkAgreementListTree(editorRef.current);
+      const allItems = flat.map((item) => item.shortId);
+      const topLevelLists = Array.from(editorRef.current.querySelectorAll('ol, ul')).filter((list) => {
+        let parent = list.parentElement;
+        while (parent && parent !== editorRef.current) {
+          if (parent.tagName === 'OL' || parent.tagName === 'UL') return false;
+          parent = parent.parentElement;
+        }
+        return true;
+      });
       
-      if (allLists.length > 0) {
-        // Detect all list items and create IDs
-        const allItems = [];
-        let globalIndex = 1;
-        
-        const extractItems = (listElement) => {
-          if (!listElement || (listElement.tagName !== 'OL' && listElement.tagName !== 'UL')) {
-            return;
-          }
-          
-          const items = Array.from(listElement.querySelectorAll(':scope > li'));
-          items.forEach((item) => {
-            allItems.push(`item-${globalIndex}`);
-            globalIndex++;
-            
-            // Recursively process nested lists
-            const nestedListsInItem = Array.from(item.querySelectorAll(':scope > ol, :scope > ul'));
-            nestedListsInItem.forEach(nestedList => {
-              extractItems(nestedList);
-            });
-          });
-        };
-        
-        allLists.forEach(list => {
-          extractItems(list);
-        });
-        
+      if (allItems.length > 0 || topLevelLists.length > 0) {
         // Get current configs from value prop
         const valueCheckboxConfig = typeof value === 'object' && value !== null 
           ? (value.checkboxConfig || {}) 
@@ -980,26 +970,10 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
         // Check if old format exists (list-0, list-1, etc.) and convert to new format
         const hasOldFormat = Object.keys(valueCheckboxConfig).some(key => key.startsWith('list-'));
         
-        if (hasOldFormat) {
-          // Convert old format to new format - initialize all items with default values
+        if (hasOldFormat || checkboxConfigEmpty || allItems.some(id => !(id in newCheckboxConfig))) {
           allItems.forEach((itemId) => {
             if (!(itemId in newCheckboxConfig)) {
-              newCheckboxConfig[itemId] = {
-                ramp: true,
-                comp: true,
-                cargo: true
-              };
-              needsUpdate = true;
-            }
-          });
-        } else if (checkboxConfigEmpty || allItems.some(id => !(id in newCheckboxConfig))) {
-          allItems.forEach((itemId) => {
-            if (!(itemId in newCheckboxConfig)) {
-              newCheckboxConfig[itemId] = {
-                ramp: true,
-                comp: true,
-                cargo: true
-              };
+              newCheckboxConfig[itemId] = { ...DEFAULT_CHECKBOX_SERVICE_FLAGS };
               needsUpdate = true;
             } else if (typeof newCheckboxConfig[itemId] === 'boolean') {
               // Convert old boolean format to new object format
@@ -1015,7 +989,7 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
         }
         
         // Initialize comment config if empty or has missing entries (keep old format for comments)
-        const detectedListIds = allLists.map((list, index) => `list-${index}`);
+        const detectedListIds = topLevelLists.map((list, index) => `list-${index}`);
         if (commentConfigEmpty || detectedListIds.some(id => !(id in newCommentConfig))) {
           detectedListIds.forEach((listId) => {
             if (!(listId in newCommentConfig)) {
@@ -1027,21 +1001,19 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
         
         // Update states and trigger save if configs were initialized
         if (needsUpdate) {
-          console.log('[CustomEditor autoInit] needsUpdate=true, about to send serialized HTML to parent');
           setListConfigurations(newCheckboxConfig);
           setCommentConfigurations(newCommentConfig);
           
           // Serialize content (replace table blocks with {{variable}} text)
           // before sending to parent to avoid corrupting stored data.
           if (onTextChange) {
+            normalizeSiblingLists(editorRef.current);
             const clone = editorRef.current.cloneNode(true);
             clone.querySelectorAll('.variable-table-block').forEach(el => {
               const varName = el.getAttribute('data-variable-name');
               if (varName) el.replaceWith(document.createTextNode(`{{${varName}}}`));
             });
             const serializedHtml = clone.innerHTML;
-            console.log('[CustomEditor autoInit] serializedHtml length:', serializedHtml.length, 'preview:', serializedHtml.substring(0, 300));
-            console.log('[CustomEditor autoInit] serializedHtml end:', serializedHtml.substring(Math.max(0, serializedHtml.length - 300)));
             lastSentHtmlRef.current = serializedHtml;
             onTextChange({
               htmlValue: serializedHtml,
@@ -1049,8 +1021,6 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
               commentConfig: newCommentConfig
             });
           }
-        } else {
-          console.log('[CustomEditor autoInit] No update needed');
         }
       }
     }, 100); // Small delay to ensure DOM is updated
@@ -1140,13 +1110,14 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
 
   const handleContentChange = useCallback((customCheckboxConfig = null, customCommentConfig = null, customVariableDefaults = null) => {
     if (onTextChange && editorRef.current) {
+      // Keep nesting durable in stored HTML (sibling <ol> → inside preceding <li>)
+      normalizeSiblingLists(editorRef.current);
       const clone = editorRef.current.cloneNode(true);
       clone.querySelectorAll('.variable-table-block').forEach(el => {
         const varName = el.getAttribute('data-variable-name');
         if (varName) el.replaceWith(document.createTextNode(`{{${varName}}}`));
       });
       const serializedHtml = clone.innerHTML;
-      console.log('[CustomEditor handleContentChange] Sending to parent, serializedHtml length:', serializedHtml.length, 'preview:', serializedHtml.substring(0, 300));
       lastSentHtmlRef.current = serializedHtml;
       onTextChange({ 
         htmlValue: serializedHtml,
@@ -1187,120 +1158,58 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
     return lists;
   }, [listConfigurations]);
 
-  // Function to detect all list items in the editor
+  // Function to detect all list items in the editor (shared walker — no nested double-count)
   const detectListItems = useCallback(() => {
     if (!editorRef.current) return [];
-    
-    // Find all lists in the editor
-    const allLists = Array.from(editorRef.current.querySelectorAll('ol, ul'));
-    
-    // Identify top-level lists (lists that are not nested inside another list)
-    const topLevelLists = allLists.filter(list => {
-      let parent = list.parentElement;
-      while (parent && parent !== editorRef.current) {
-        if (parent.tagName === 'OL' || parent.tagName === 'UL') {
-          return false; // This list is nested inside another list
-        }
-        parent = parent.parentElement;
-      }
-      return true; // This is a top-level list
+
+    const { flat } = walkAgreementListTree(editorRef.current);
+    return flat.map((item) => {
+      const flags = resolveCheckboxServiceFlags(listConfigurations[item.shortId]);
+      return {
+        id: item.shortId,
+        index: item.displayIndex,
+        groupHeading: item.groupHeading,
+        element: item.element,
+        text: item.text,
+        childIds: item.childIds || [],
+        parentId: item.parentShortId,
+        level: item.level,
+        ramp: flags.ramp,
+        comp: flags.comp,
+        cargo: flags.cargo,
+      };
     });
-    
-    const allItems = [];
-    let globalItemCounter = 1;
-    let topLevelIndex = 0; // Track top-level item index across all lists
-    
-    // Recursive function to extract all list items with hierarchical indices
-    const extractItems = (listElement, parentIndexPath = [], isTopLevelList = false) => {
-      if (!listElement || (listElement.tagName !== 'OL' && listElement.tagName !== 'UL')) {
-        return;
-      }
-      
-      // Get all direct children - handle both <li> and nested <ol>/<ul> elements
-      const allChildren = Array.from(listElement.children);
-      let currentItemIndex = 0;
-      
-      for (let i = 0; i < allChildren.length; i++) {
-        const child = allChildren[i];
-        
-        // If this is a list item, process it
-        if (child.tagName === 'LI') {
-          const item = child;
-          const itemIndex = currentItemIndex;
-          currentItemIndex++;
-          
-          // Clone item to remove nested lists for text extraction
-          const itemClone = item.cloneNode(true);
-          const nestedListsInClone = itemClone.querySelectorAll('ol, ul');
-          nestedListsInClone.forEach(nestedList => nestedList.remove());
-          
-          const textContent = itemClone.textContent || itemClone.innerText || '';
-          const cleanText = textContent.trim().replace(/^\d+\.\s*/, '').replace(/^[a-z]\.\s*/, '').replace(/^[A-Z]\.\s*/, '');
-          
-          // Generate hierarchical index
-          let currentIndexPath;
-          if (isTopLevelList && parentIndexPath.length === 0) {
-            // Top-level item in a top-level list - use sequential numbering across all lists
-            topLevelIndex++;
-            currentIndexPath = [topLevelIndex];
-          } else {
-            // Nested item - use parent path + current index
-            currentIndexPath = [...parentIndexPath, itemIndex + 1];
-          }
-          const hierarchicalIndex = currentIndexPath.join('.');
-          
-          const itemId = `item-${globalItemCounter}`;
-          const currentConfig = listConfigurations[itemId] || {};
-          
-          allItems.push({
-            id: itemId,
-            index: hierarchicalIndex,
-            element: item,
-            text: cleanText || `Item ${hierarchicalIndex}`,
-            ramp: currentConfig.ramp !== false, // Default to true
-            comp: currentConfig.comp !== false, // Default to true
-            cargo: currentConfig.cargo !== false // Default to true
-          });
-          
-          globalItemCounter++;
-          
-          // Recursively process nested lists (they are not top-level)
-          // Check for nested lists as direct children of the <li> element
-          const nestedListsDirect = Array.from(item.children).filter(
-            child => child.tagName === 'OL' || child.tagName === 'UL'
-          );
-          
-          // Also check if the next sibling is a list (some editors structure it this way)
-          let nextSiblingList = null;
-          if (i + 1 < allChildren.length) {
-            const nextSibling = allChildren[i + 1];
-            if (nextSibling.tagName === 'OL' || nextSibling.tagName === 'UL') {
-              nextSiblingList = nextSibling;
-              i++; // Skip this list in the main loop since we're handling it here
-            }
-          }
-          
-          // Combine both types of nested lists
-          const nestedListsInItem = nestedListsDirect.length > 0 
-            ? nestedListsDirect 
-            : (nextSiblingList ? [nextSiblingList] : []);
-          
-          nestedListsInItem.forEach(nestedList => {
-            extractItems(nestedList, currentIndexPath, false);
-          });
-        }
-        // If it's a list (OL/UL) that's not a child of an LI, it's likely a sibling
-        // This case is handled above when we check for nextSiblingList
-      }
-    };
-    
-    // Process each top-level list sequentially to maintain continuous numbering
-    topLevelLists.forEach(list => {
-      extractItems(list, [], true);
-    });
-    
-    return allItems;
   }, [listConfigurations]);
+
+  // Parent toggle also updates all nested children (Setup Checkboxes)
+  const cascadeCheckboxService = useCallback((itemId, serviceType, checked) => {
+    setListConfigurations((prev) => {
+      const next = { ...prev };
+      const source = detectedListItems.find((item) => item.id === itemId);
+      const ids = new Set([itemId]);
+      if (source?.childIds?.length) {
+        source.childIds.forEach((id) => ids.add(id));
+      } else if (source?.index) {
+        detectedListItems.forEach((item) => {
+          if (
+            item.id === itemId ||
+            item.index === source.index ||
+            String(item.index).startsWith(`${source.index}.`)
+          ) {
+            ids.add(item.id);
+          }
+        });
+      }
+      ids.forEach((id) => {
+        const current = resolveCheckboxServiceFlags(next[id]);
+        next[id] = {
+          ...current,
+          [serviceType]: checked,
+        };
+      });
+      return next;
+    });
+  }, [detectedListItems]);
 
   // Function to detect commentable lists in the editor
   const detectCommentElements = useCallback(() => {
@@ -1642,6 +1551,7 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
     }
 
     if (e.key === 'Tab') {
+      e.preventDefault();
       const selection = window.getSelection();
       if (selection.rangeCount > 0) {
         const range = selection.getRangeAt(0);
@@ -1657,20 +1567,47 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
           node = node.parentNode;
         }
         
-        // Check if we're in a list item
+        // In a list: Tab/Shift+Tab indent/outdent list items
         if (listItem) {
-          e.preventDefault();
-          
           if (e.shiftKey) {
-            // Shift+Tab: Outdent
             outdentListItem(listItem);
           } else {
-            // Tab: Indent
             indentListItem(listItem);
           }
-          
-          // Normalize lists and trigger content change after indenting/outdenting
           normalizeAllLists();
+          handleContentChange();
+          return;
+        }
+
+        // Outside lists: insert/remove real tab characters (not spaces)
+        if (e.shiftKey) {
+          // Remove one tab immediately before the caret
+          if (range.collapsed && range.startContainer.nodeType === Node.TEXT_NODE) {
+            const textNode = range.startContainer;
+            const offset = range.startOffset;
+            if (offset > 0 && textNode.textContent[offset - 1] === '\t') {
+              textNode.textContent =
+                textNode.textContent.slice(0, offset - 1) +
+                textNode.textContent.slice(offset);
+              const newRange = document.createRange();
+              newRange.setStart(textNode, offset - 1);
+              newRange.collapse(true);
+              selection.removeAllRanges();
+              selection.addRange(newRange);
+              handleContentChange();
+            }
+          }
+        } else {
+          // Insert a real tab; repeated Tab adds multiple tabs
+          if (!document.execCommand('insertText', false, '\t')) {
+            range.deleteContents();
+            const tabNode = document.createTextNode('\t');
+            range.insertNode(tabNode);
+            range.setStartAfter(tabNode);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
           handleContentChange();
         }
       }
@@ -2059,7 +1996,9 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
           border: '1px solid #dee2e6',
           borderTop: 'none',
           borderRadius: '0 0 6px 6px',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+          whiteSpace: 'pre-wrap',
+          tabSize: 4,
         }}
         data-placeholder={placeholder || 'Start typing your content...'}
         suppressContentEditableWarning={true}
@@ -2190,12 +2129,13 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
                 // Use current state configurations (already updated by onChange handlers)
                 const currentConfigs = {};
                 detectedListItems.forEach((item) => {
-                  const itemConfig = listConfigurations[item.id] || { ramp: item.ramp, comp: item.comp, cargo: item.cargo };
-                  currentConfigs[item.id] = {
-                    ramp: itemConfig.ramp !== false,
-                    comp: itemConfig.comp !== false,
-                    cargo: itemConfig.cargo !== false
-                  };
+                  currentConfigs[item.id] = resolveCheckboxServiceFlags(
+                    listConfigurations[item.id] || {
+                      ramp: item.ramp,
+                      comp: item.comp,
+                      cargo: item.cargo,
+                    }
+                  );
                 });
                 
                 // Update state with captured configurations
@@ -2211,7 +2151,8 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
       >
         <div style={{ padding: '16px 0' }}>
           <p style={{ marginBottom: '16px', color: '#666' }}>
-            Select which checkboxes should display for each list item to the client.
+            Set the default checked state for Ramp / COMP / Cargo on each list item.
+            Selecting a parent also selects all of its children.
           </p>
           {detectedListItems.length === 0 ? (
             <p style={{ color: '#999', fontStyle: 'italic' }}>
@@ -2223,7 +2164,7 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '60px 1fr 80px 80px 80px',
+                  gridTemplateColumns: '110px 1fr 80px 80px 80px',
                   gap: '12px',
                   padding: '12px',
                   backgroundColor: '#e9ecef',
@@ -2246,13 +2187,36 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
               {/* Table Rows */}
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {detectedListItems.map((item) => {
-                  const itemConfig = listConfigurations[item.id] || { ramp: item.ramp, comp: item.comp, cargo: item.cargo };
+                  const itemConfig = resolveCheckboxServiceFlags(
+                    listConfigurations[item.id] || {
+                      ramp: item.ramp,
+                      comp: item.comp,
+                      cargo: item.cargo,
+                    }
+                  );
+                  const indentPx = Math.min((item.level || 0) * 16, 48);
                   return (
+                    <React.Fragment key={item.id}>
+                    {item.groupHeading?.lines?.length > 0 && (
+                      <div
+                        style={{
+                          padding: '10px 12px',
+                          backgroundColor: '#f8f9fa',
+                          borderBottom: '1px solid #dee2e6',
+                          fontWeight: 600,
+                          fontSize: '14px',
+                          color: '#343a40'
+                        }}
+                      >
+                        {item.groupHeading.lines.map((line, lineIdx) => (
+                          <div key={lineIdx}>{line}</div>
+                        ))}
+                      </div>
+                    )}
                     <div
-                      key={item.id}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '60px 1fr 80px 80px 80px',
+                        gridTemplateColumns: '110px 1fr 80px 80px 80px',
                         gap: '12px',
                         padding: '12px',
                         borderBottom: '1px solid #dee2e6',
@@ -2269,7 +2233,8 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
                       </div>
                       <div style={{ 
                         fontSize: '14px',
-                        color: '#495057'
+                        color: '#495057',
+                        paddingLeft: `${indentPx}px`
                       }}>
                         {item.text}
                       </div>
@@ -2280,16 +2245,8 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
                       }}>
                         <Checkbox
                           inputId={`${item.id}-ramp`}
-                          checked={itemConfig.ramp !== false}
-                          onChange={(e) => {
-                            setListConfigurations(prev => ({
-                              ...prev,
-                              [item.id]: {
-                                ...(prev[item.id] || {}),
-                                ramp: e.checked
-                              }
-                            }));
-                          }}
+                          checked={itemConfig.ramp}
+                          onChange={(e) => cascadeCheckboxService(item.id, 'ramp', e.checked)}
                         />
                       </div>
                       <div style={{ 
@@ -2299,16 +2256,8 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
                       }}>
                         <Checkbox
                           inputId={`${item.id}-comp`}
-                          checked={itemConfig.comp !== false}
-                          onChange={(e) => {
-                            setListConfigurations(prev => ({
-                              ...prev,
-                              [item.id]: {
-                                ...(prev[item.id] || {}),
-                                comp: e.checked
-                              }
-                            }));
-                          }}
+                          checked={itemConfig.comp}
+                          onChange={(e) => cascadeCheckboxService(item.id, 'comp', e.checked)}
                         />
                       </div>
                       <div style={{ 
@@ -2318,19 +2267,12 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
                       }}>
                         <Checkbox
                           inputId={`${item.id}-cargo`}
-                          checked={itemConfig.cargo !== false}
-                          onChange={(e) => {
-                            setListConfigurations(prev => ({
-                              ...prev,
-                              [item.id]: {
-                                ...(prev[item.id] || {}),
-                                cargo: e.checked
-                              }
-                            }));
-                          }}
+                          checked={itemConfig.cargo}
+                          onChange={(e) => cascadeCheckboxService(item.id, 'cargo', e.checked)}
                         />
                       </div>
                     </div>
+                    </React.Fragment>
                   );
                 })}
               </div>
@@ -2522,6 +2464,9 @@ const CustomEditor = ({ value, onTextChange, style, placeholder, showVariablePre
         .custom-editor [contenteditable] {
           color: #333333 !important;
           font-family: Arial, sans-serif !important;
+          white-space: pre-wrap;
+          tab-size: 4;
+          -moz-tab-size: 4;
         }
         
         .custom-editor .variable-text {

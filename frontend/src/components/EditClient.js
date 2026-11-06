@@ -23,7 +23,7 @@ const EditClient = ({ onClose, page_name, clientData }) => {
     const [selectedCountry, setSelectedCountry] = useState(null);
     const [visibleRight, setVisibleRight] = useState(false);
     const [visibleRight2, setVisibleRight2] = useState(false);
-    const { role, roleId } = useAuth(); // Get roleId from the context
+    const { role, roleId, userId } = useAuth(); // Get roleId from the context
     const [unauthorized, setUnauthorized] = useState(false);
     const [loading, setLoading] = useState(false);
     const handleDialogHide = () => {
@@ -57,12 +57,13 @@ const EditClient = ({ onClose, page_name, clientData }) => {
 
 
     useEffect(() => {
-        if (socket) {
+        if (socket && userId) {
             setLoading(true);
 
             socket.emit('fetch-businesses', {
                 role_id: roleId,
-                page_name
+                page_name,
+                user_id: userId
             });
 
             socket.on('fetch-businesses-success', (data) => {
@@ -98,7 +99,7 @@ const EditClient = ({ onClose, page_name, clientData }) => {
                 socket.off('fetch-businesses-error');
             };
         }
-    }, [socket]);
+    }, [socket, userId]);
 
     useEffect(() => {
         if (formData.business_id && socket) {

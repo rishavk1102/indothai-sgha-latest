@@ -179,9 +179,61 @@ export function formatAgreementBodyForDisplay(text) {
     .join("");
 }
 
+/** Numbered / bulleted lines that should keep hard breaks (e.g. 10.1, (a), - item). */
+function isStructuralAgreementLine(line) {
+  const trimmed = String(line || "").trim();
+  if (!trimmed) return false;
+  if (/^\d+(\.\d+)+\.?\s+\S/.test(trimmed)) return true;
+  if (/^\(\s*[a-z0-9]+\s*\)\s+\S/i.test(trimmed)) return true;
+  if (/^[a-z0-9]+\)\s+\S/i.test(trimmed)) return true;
+  if (/^[-•*]\s+\S/.test(trimmed)) return true;
+  return false;
+}
+
+function formatAgreementPlainLine(line) {
+  const trimmed = String(line || "").trim();
+  if (/^\d+(\.\d+)+\.?\s+\S/.test(trimmed)) {
+    const match = trimmed.match(/^(\d+(?:\.\d+)*\.?)\s+(.*)$/);
+    if (match) {
+      return `<strong>${escapeHtml(match[1])}</strong> ${escapeHtml(match[2])}`;
+    }
+  }
+  return escapeHtml(trimmed);
+}
+
 /**
- * Plain text → safe HTML: blank line = new <p>, single newline = <br> inside the paragraph.
- * If input already looks like HTML, returns it unchanged.
+ * Soft-wrapped PDF/import prose uses single \n mid-sentence. Join those with spaces.
+ * Keep <br> only between structural items (10.1 / 10.2) or intentional blank-line paragraphs.
+ */
+function unwrapSoftWrappedLines(lines) {
+  const items = [];
+  let current = [];
+
+  for (const line of lines) {
+    if (isStructuralAgreementLine(line) && current.length) {
+      items.push(current);
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length) items.push(current);
+
+  return items
+    .map((itemLines) =>
+      itemLines
+        .map((line) => String(line || "").trim())
+        .filter(Boolean)
+        .join(" "),
+    )
+    .filter(Boolean)
+    .map(formatAgreementPlainLine)
+    .join("<br>");
+}
+
+/**
+ * Plain text → safe HTML: blank line = new <p>; soft-wrap newlines become spaces;
+ * numbered/bullet items keep hard breaks. If input already looks like HTML, unchanged.
  */
 export function plainTextToAgreementHtml(text) {
   if (text == null || text === "") return "";
@@ -190,22 +242,10 @@ export function plainTextToAgreementHtml(text) {
 
   const blocks = s.split(/\r?\n\r?\n|\n{2,}/);
   const parts = blocks.map((block) => {
-    const blockLines = block.split(/\r?\n/);
-    const inner = blockLines
-      .map((line) => {
-        const trimmed = line.trim();
-        if (/^\d+(\.\d+)+\.?\s+\S/.test(trimmed)) {
-          const match = trimmed.match(/^(\d+(?:\.\d+)*\.?)\s+(.*)$/);
-          if (match) {
-            return `<strong>${escapeHtml(match[1])}</strong> ${escapeHtml(match[2])}`;
-          }
-        }
-        return escapeHtml(line);
-      })
-      .join("<br>");
-    if (!inner) return '<p style="margin: 0.25em 0;"><br></p>';
-    return `<p style="margin: 0.25em 0;">${inner}</p>`;
-  });
+    const inner = unwrapSoftWrappedLines(block.split(/\r?\n/));
+    if (!inner) return "";
+    return `<p style="margin: 0;">${inner}</p>`;
+  }).filter(Boolean);
   return parts.join("");
 }
 

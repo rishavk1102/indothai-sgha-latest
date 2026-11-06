@@ -13,6 +13,10 @@ import React, {
 import { Card, Table } from "react-bootstrap";
 import api from "../api/axios";
 import { stringLooksLikeHtml } from "../utils/agreementDocFormat";
+import {
+  resolveCheckboxServiceFlags,
+  walkAgreementListTree,
+} from "../utils/nestedListHtml";
 import AgreementBodyHtml from "./AgreementBodyHtml";
 import { useAppMessageDialog } from "../hooks/useAppMessageDialog";
 
@@ -196,10 +200,16 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
         newServiceTypes.comp = true;
       }
 
-      return {
+      const next = {
         ...prev,
         serviceTypes: newServiceTypes,
       };
+      setTimeout(() => {
+        if (saveCheckboxStatesRef.current) {
+          saveCheckboxStatesRef.current(next);
+        }
+      }, 0);
+      return next;
     });
   };
 
@@ -795,13 +805,13 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
         return;
       }
 
-      // Handle heading_no + heading pairs (main sections 1-8)
+      // Handle heading_no + heading pairs (main sections 1, 2, 3, …)
       if (item.type === "heading_no") {
         const nextItem = templateData[index + 1];
         if (nextItem && nextItem.type === "heading") {
           const sectionNum = String(item.value);
-          // Only process main sections (1, 2, 3, 4, 5, 6, 7, 8)
-          if (["1", "2", "3", "4", "5", "6", "7", "8"].includes(sectionNum)) {
+          // Whole numbers only (not 1.1 / 2.1 subsections)
+          if (!sectionNum.includes(".") && /^\d+$/.test(sectionNum)) {
             currentSection = {
               sectionNo: sectionNum,
               heading: nextItem.value,
@@ -1342,183 +1352,49 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
     const tempDiv = document.createElement("div");
     tempDiv.innerHTML = DOMPurify.sanitize(htmlContent);
 
-    // Find all lists in the content
-    const allLists = Array.from(tempDiv.querySelectorAll("ol, ul"));
+    const mapTreeNode = (node) => {
+      const shortItemId = node.shortId;
+      const itemId = `${sectionKey}:f${fieldIndex}:${shortItemId}`;
+      const legacyItemId = `${sectionKey}:${shortItemId}`;
+      const itemCheckboxConfig = resolveCheckboxServiceFlags(
+        checkboxConfig[itemId] ||
+          checkboxConfig[legacyItemId] ||
+          checkboxConfig[shortItemId],
+      );
 
-    // Identify top-level lists (lists that are not nested inside another list)
-    const topLevelLists = allLists.filter((list) => {
-      let parent = list.parentElement;
-      while (parent && parent !== tempDiv) {
-        if (parent.tagName === "OL" || parent.tagName === "UL") {
-          return false; // This list is nested inside another list
-        }
-        parent = parent.parentElement;
-      }
-      return true; // This is a top-level list
-    });
+      const savedState =
+        checkboxStates[sectionKey]?.[itemId] ||
+        checkboxStates[sectionKey]?.[legacyItemId];
+      const currentState = savedState || {
+        ramp: itemCheckboxConfig.ramp,
+        comp: itemCheckboxConfig.comp,
+        cargo: itemCheckboxConfig.cargo,
+        subItems: {},
+      };
 
-    let globalItemCounter = 1;
-    let topLevelIndex = 0;
+      const htmlBody = node.htmlBodyRaw
+        ? sanitizeAgreementDocHtml(node.htmlBodyRaw)
+        : "";
 
-    // Recursive function to convert list items to React components
-    const convertListItems = (
-      listElement,
-      parentIndexPath = [],
-      isTopLevelList = false,
-    ) => {
-      if (
-        !listElement ||
-        (listElement.tagName !== "OL" && listElement.tagName !== "UL")
-      ) {
-        return null;
-      }
-
-      const items = [];
-      // Get all direct children - handle both <li> and nested <ol>/<ul> elements
-      const allChildren = Array.from(listElement.children);
-      let currentItemIndex = 0;
-
-      for (let i = 0; i < allChildren.length; i++) {
-        const child = allChildren[i];
-
-        // If this is a list item, process it
-        if (child.tagName === "LI") {
-          const item = child;
-          const itemIndex = currentItemIndex;
-          currentItemIndex++;
-
-          // Clone item to remove nested lists for text extraction
-          const itemClone = item.cloneNode(true);
-          const nestedListsInClone = itemClone.querySelectorAll("ol, ul");
-          nestedListsInClone.forEach((nestedList) => nestedList.remove());
-
-          const textContent =
-            itemClone.textContent || itemClone.innerText || "";
-          const cleanText = textContent.trim();
-          const htmlBodyRaw = (itemClone.innerHTML || "").trim();
-          const htmlBody =
-            htmlBodyRaw.length > 0
-              ? sanitizeAgreementDocHtml(htmlBodyRaw)
-              : "";
-
-          // Generate hierarchical index (e.g., "1", "1.1", "1.2", "2", etc.)
-          let currentIndexPath;
-          if (isTopLevelList && parentIndexPath.length === 0) {
-            // Top-level item in a top-level list - use sequential numbering across all lists
-            topLevelIndex++;
-            currentIndexPath = [topLevelIndex];
-          } else {
-            // Nested item - use parent path + current index
-            currentIndexPath = [...parentIndexPath, itemIndex + 1];
-          }
-          const hierarchicalIndex = currentIndexPath.join(".");
-
-          // Generate item ID with section + field index to ensure correct mapping when section has multiple editors
-          // Format: sectionKey:f{fieldIndex}:item-N (e.g., "3.1:f0:item-1") so types (COMP/Ramp/Cargo) map to same item
-          const itemId = `${sectionKey}:f${fieldIndex}:item-${globalItemCounter}`;
-          globalItemCounter++;
-          const legacyItemId = itemId.replace(/:f\d+:/, ":"); // backward compat: "3.1:item-1"
-          // Admin Setup Checkboxes uses keys "item-1", "item-2", ... (no section prefix)
-          const shortItemId = itemId.includes("item-")
-            ? itemId.substring(itemId.lastIndexOf("item-"))
-            : null;
-          const itemCheckboxConfig = checkboxConfig[itemId] ||
-            checkboxConfig[legacyItemId] ||
-            (shortItemId ? checkboxConfig[shortItemId] : null) || {
-              ramp: false,
-              comp: false,
-              cargo: false,
-            };
-
-          // Get or initialize checkbox state (try new key then legacy for migration)
-          const savedState =
-            checkboxStates[sectionKey]?.[itemId] ||
-            checkboxStates[sectionKey]?.[legacyItemId];
-          const currentState = savedState || {
-            ramp: itemCheckboxConfig.ramp === true,
-            comp: itemCheckboxConfig.comp === true,
-            cargo: itemCheckboxConfig.cargo === true,
-            subItems: {},
-          };
-
-          // Process nested lists - these should be sub-items of this item
-          let subItems = null;
-
-          // Check for nested lists as direct children of the <li> element
-          const nestedListsDirect = Array.from(item.children).filter(
-            (child) => child.tagName === "OL" || child.tagName === "UL",
-          );
-
-          // Also check if the next sibling is a list (some editors structure it this way)
-          let nextSiblingList = null;
-          if (i + 1 < allChildren.length) {
-            const nextSibling = allChildren[i + 1];
-            if (nextSibling.tagName === "OL" || nextSibling.tagName === "UL") {
-              nextSiblingList = nextSibling;
-              i++; // Skip this list in the main loop since we're handling it here
-            }
-          }
-
-          // Combine both types of nested lists
-          const nestedLists =
-            nestedListsDirect.length > 0
-              ? nestedListsDirect
-              : nextSiblingList
-                ? [nextSiblingList]
-                : [];
-
-          if (nestedLists.length > 0) {
-            // Process each nested list found within this <li>
-            const allSubItems = [];
-            nestedLists.forEach((nestedList) => {
-              // Recursively process the nested list
-              const nestedItems = convertListItems(
-                nestedList,
-                currentIndexPath,
-                false,
-              );
-              if (nestedItems && nestedItems.length > 0) {
-                // Add all items from this nested list as sub-items
-                allSubItems.push(...nestedItems);
-              }
-            });
-            if (allSubItems.length > 0) {
-              subItems = allSubItems;
-            }
-          }
-
-          // Only add this item if it has text OR sub-items
-          // This prevents adding empty items
-          if (cleanText || subItems || htmlBody) {
-            const itemData = {
-              id: itemId,
-              index: hierarchicalIndex,
-              text: cleanText,
-              htmlBody: htmlBody || null,
-              ramp: currentState.ramp === true,
-              comp: currentState.comp === true,
-              cargo: currentState.cargo === true,
-              subItems: subItems, // This will be null if no nested lists, or an array if nested lists exist
-              level: parentIndexPath.length,
-            };
-            items.push(itemData);
-          }
-        }
-        // If it's a list (OL/UL) that's not a child of an LI, it's likely a sibling
-        // This case is handled above when we check for nextSiblingList
-      }
-
-      return items;
+      return {
+        id: itemId,
+        index: node.displayIndex,
+        groupHeading: node.groupHeading,
+        text: node.text,
+        htmlBody: htmlBody || null,
+        ramp: currentState.ramp === true,
+        comp: currentState.comp === true,
+        cargo: currentState.cargo === true,
+        subItems: node.subItems?.length
+          ? node.subItems.map(mapTreeNode)
+          : null,
+        level: node.level,
+      };
     };
 
-    // Process each top-level list sequentially to maintain continuous numbering
-    const allParsedItems = [];
-    topLevelLists.forEach((list) => {
-      const items = convertListItems(list, [], true);
-      if (items && items.length > 0) {
-        allParsedItems.push(...items);
-      }
-    });
+    // Shared walker: top-level only, sibling nests under parent (no duplicate flat rows)
+    const { tree, trailingHtml } = walkAgreementListTree(tempDiv, { cleanText: false });
+    const allParsedItems = tree.map(mapTreeNode);
 
     if (allParsedItems.length === 0) {
       return <AgreementBodyHtml content={htmlContent} />;
@@ -1577,8 +1453,16 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
             ).length;
 
             return (
+              <React.Fragment key={item.id}>
+              {level === 0 && item.groupHeading?.html && (
+                <li
+                  className="clause-group-heading list-unstyled sgha-doc-html mt-3 mb-1"
+                  dangerouslySetInnerHTML={{
+                    __html: sanitizeAgreementDocHtml(item.groupHeading.html),
+                  }}
+                />
+              )}
               <li
-                key={item.id}
                 className={
                   level === 0
                     ? "clause d-flex align-items-start gap-2"
@@ -1789,13 +1673,26 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
                   })()}
                 </div>
               </li>
+              </React.Fragment>
             );
           })}
         </ol>
       );
     };
 
-    return renderItems(allParsedItems, 0, null);
+    return (
+      <>
+        {renderItems(allParsedItems, 0, null)}
+        {trailingHtml && (
+          <div
+            className="clause-group-heading sgha-doc-html mt-3"
+            dangerouslySetInnerHTML={{
+              __html: sanitizeAgreementDocHtml(trailingHtml),
+            }}
+          />
+        )}
+      </>
+    );
   };
 
   // Helper function to render a section dynamically

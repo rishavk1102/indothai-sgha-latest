@@ -29,6 +29,10 @@ import {
   OTHER_AIRCRAFT_SELECT_VALUE,
 } from "../utils/clientWorkspace";
 import { shouldShowClientPrices } from "../utils/submissionDraftHydrate";
+import {
+  resolveCheckboxServiceFlags,
+  walkAgreementListTree,
+} from "../utils/nestedListHtml";
 import { CLIENT_ROUTES } from "./ClientPageChrome";
 
 function formatAnnexBHeading(headingNo, title) {
@@ -1780,6 +1784,154 @@ const Sgha_annexB = ({
     return sections;
   }, [annexATemplateContent]);
 
+  // Rows for {{annex_a_selection}}: same checked state as the Annex A screen.
+  // A box with no saved click still counts when the template default is checked.
+  const selectedAnnexARows = useMemo(() => {
+    if (!Array.isArray(annexATemplateContent)) return [];
+
+    const states = annexAStates || {};
+    const selectedServiceTypes = states.serviceTypes || {
+      comp: false,
+      ramp: false,
+      cargo: false,
+    };
+    if (
+      !selectedServiceTypes.ramp &&
+      !selectedServiceTypes.comp &&
+      !selectedServiceTypes.cargo
+    ) {
+      return [];
+    }
+
+    const isChecked = (flags) => {
+      if (!flags || typeof flags !== "object") return false;
+      if (
+        flags.checked === true &&
+        flags.ramp == null &&
+        flags.comp == null &&
+        flags.cargo == null
+      ) {
+        return true;
+      }
+      return (
+        (selectedServiceTypes.ramp && flags.ramp === true) ||
+        (selectedServiceTypes.comp && flags.comp === true) ||
+        (selectedServiceTypes.cargo && flags.cargo === true)
+      );
+    };
+
+    const findSaved = (sectionState, sectionKey, shortId) => {
+      if (!sectionState || !shortId) return null;
+      const direct = [
+        `${sectionKey}:f0:${shortId}`,
+        `${sectionKey}:${shortId}`,
+        shortId,
+      ];
+      for (const key of direct) {
+        if (sectionState[key]) return sectionState[key];
+      }
+      const match = Object.keys(sectionState).find(
+        (key) => key === shortId || key.endsWith(`:${shortId}`),
+      );
+      return match ? sectionState[match] : null;
+    };
+
+    const rows = [];
+    let currentMain = null;
+    let currentSubKey = null;
+    let currentSubName = null;
+    let editorIndex = 0;
+
+    const collectEditor = (html, checkboxConfig) => {
+      if (!currentSubKey || !html) return;
+      const root = document.createElement("div");
+      root.innerHTML = html;
+      const { flat } = walkAgreementListTree(root, { cleanText: true });
+      const sectionState = states[currentSubKey] || {};
+      const labels = [];
+      const listed = new Set();
+      flat.forEach((node) => {
+        if (!node.displayIndex) return;
+        // A listed parent already covers its children
+        if (node.parentShortId && listed.has(node.parentShortId)) {
+          listed.add(node.shortId);
+          return;
+        }
+        const saved = findSaved(sectionState, currentSubKey, node.shortId);
+        const configKey = `${currentSubKey}:f${editorIndex}:${node.shortId}`;
+        const flags = saved
+          ? saved
+          : resolveCheckboxServiceFlags(
+              checkboxConfig?.[configKey] ||
+                checkboxConfig?.[`${currentSubKey}:${node.shortId}`] ||
+                checkboxConfig?.[node.shortId],
+            );
+        if (isChecked(flags)) {
+          labels.push(String(node.displayIndex));
+          listed.add(node.shortId);
+        }
+      });
+      if (labels.length > 0) {
+        const existing = rows.find((row) => row.sortKey === currentSubKey);
+        if (existing) existing.selectedItems.push(...labels);
+        else {
+          rows.push({
+            sectionName: currentSubName || `Section ${currentSubKey}`,
+            sortKey: currentSubKey,
+            selectedItems: labels,
+          });
+        }
+      }
+      editorIndex += 1;
+    };
+
+    annexATemplateContent.forEach((item, index) => {
+      if (!item || typeof item !== "object" || !item.type) return;
+      const next = annexATemplateContent[index + 1];
+
+      if (item.type === "heading_no" && /^\d+$/.test(String(item.value).trim())) {
+        currentMain = String(item.value).trim();
+        currentSubKey = null;
+        currentSubName = null;
+        editorIndex = 0;
+        return;
+      }
+
+      // Subsections are stored as heading_no or subheading_no ("1.1") followed by a subheading
+      if (
+        (item.type === "heading_no" || item.type === "subheading_no") &&
+        currentMain
+      ) {
+        const num = String(item.value).trim();
+        if (num.includes(".")) {
+          currentSubKey = num;
+          currentSubName =
+            next?.type === "subheading"
+              ? String(next.value || "").trim() || `Section ${num}`
+              : `Section ${num}`;
+          editorIndex = 0;
+        }
+        return;
+      }
+
+      if (item.type === "editor" && currentSubKey) {
+        collectEditor(item.value, item.checkboxConfig || {});
+      }
+    });
+
+    rows.sort((a, b) => {
+      const aParts = String(a.sortKey || "").split(".").map(Number);
+      const bParts = String(b.sortKey || "").split(".").map(Number);
+      for (let i = 0; i < Math.max(aParts.length, bParts.length); i += 1) {
+        if ((aParts[i] || 0) !== (bParts[i] || 0)) {
+          return (aParts[i] || 0) - (bParts[i] || 0);
+        }
+      }
+      return 0;
+    });
+    return rows;
+  }, [annexATemplateContent, annexAStates]);
+
   // Extended section names including Annex A template data
   const extendedSectionNames = useMemo(() => {
     const names = { ...sectionNames };
@@ -1801,53 +1953,14 @@ const Sgha_annexB = ({
     return names;
   }, [sectionNames, annexAAllSections]);
 
-  // Function to render Annex A selection table with ALL subsections from template
   const renderAnnexASelectionTable = () => {
-    // Get all subsections from Annex A template
-    const allSubsections = [];
-    if (annexAAllSections && Array.isArray(annexAAllSections)) {
-      annexAAllSections.forEach((mainSection, mainIdx) => {
-        if (mainSection.subsections) {
-          mainSection.subsections.forEach((sub, subIdx) => {
-            // Generate possible keys that might be used in localStorage
-            const possibleKeys = [
-              sub.subheadingNo, // e.g., "2.1"
-              `${mainSection.sectionNo}.${subIdx + 1}`, // e.g., "2.1" (computed)
-            ].filter(Boolean);
-
-            allSubsections.push({
-              sectionKey:
-                sub.subheadingNo || `${mainSection.sectionNo}.${subIdx + 1}`,
-              possibleKeys: possibleKeys,
-              sectionName: sub.subheading || `Section ${sub.subheadingNo}`,
-              mainSectionNo: mainSection.sectionNo,
-              mainSectionHeading: mainSection.heading,
-              subIdx: subIdx,
-            });
-          });
-        }
-      });
-    }
-
-    // Sort subsections by their numeric value
-    allSubsections.sort((a, b) => {
-      const aParts = (a.sectionKey || "").split(".").map(Number);
-      const bParts = (b.sectionKey || "").split(".").map(Number);
-      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
-        if (aParts[i] !== bParts[i]) {
-          return (aParts[i] || 0) - (bParts[i] || 0);
-        }
-      }
-      return 0;
-    });
-
-    if (allSubsections.length === 0) {
+    if (selectedAnnexARows.length === 0) {
       return (
         <Table bordered className="mb-0 mt-4">
           <tbody>
             <tr>
-              <td colSpan="2" className="text-center text-muted">
-                No sections available in Annex A
+              <td className="text-center text-muted">
+                No Annex A services selected yet.
               </td>
             </tr>
           </tbody>
@@ -1864,36 +1977,18 @@ const Sgha_annexB = ({
           </tr>
         </thead>
         <tbody>
-          {allSubsections.map((subsection, idx) => {
-            // Try to find selected items using any of the possible keys
-            let selectedItems = [];
-            for (const key of subsection.possibleKeys) {
-              if (
-                annexASelectionsBySection[key] &&
-                annexASelectionsBySection[key].length > 0
-              ) {
-                selectedItems = annexASelectionsBySection[key];
-                break;
-              }
-            }
-
-            return (
-              <tr key={idx}>
-                <th style={{ width: "180px" }}>{subsection.sectionName}</th>
-                <td>
-                  {selectedItems.length > 0 ? (
-                    <div className="d-flex flex-wrap gap-2">
-                      {selectedItems.map((item, index) => (
-                        <Chip key={index} label={item} />
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-muted">-</span>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
+          {selectedAnnexARows.map((row) => (
+            <tr key={row.sortKey}>
+              <th style={{ width: "180px" }}>{row.sectionName}</th>
+              <td>
+                <div className="d-flex flex-wrap gap-2">
+                  {row.selectedItems.map((item, index) => (
+                    <Chip key={`${item}-${index}`} label={item} />
+                  ))}
+                </div>
+              </td>
+            </tr>
+          ))}
         </tbody>
       </Table>
     );

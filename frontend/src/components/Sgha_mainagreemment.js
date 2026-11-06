@@ -43,12 +43,15 @@ const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, selecte
             if (field.type === 'heading_no') {
                 const sectionNum = String(field.value);
                 
-                // Check if it's a main article number (1, 2, 3, etc.) — accept 'heading' or 'subheading' (PDF/editor use subheading)
-                if (!sectionNum.includes('.') && ['1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(sectionNum)) {
+                // Main article number (1, 2, … 12, …) — accept 'heading' or 'subheading'
+                if (!sectionNum.includes('.') && /^\d+$/.test(sectionNum)) {
                     const nextField = templateData[index + 1];
                     if (index + 1 < templateData.length && nextField && (nextField.type === 'heading' || nextField.type === 'subheading')) {
                         currentMainSection = sectionNum;
                         mainSectionHeading = nextField.value ?? '';
+                        // Important: clear subsection cursor so Article 2+ editors
+                        // do not keep attaching to the last subsection of Article 1
+                        currentSection = null;
                         
                         // Create new article section
                         currentArticle = {
@@ -238,7 +241,10 @@ const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, selecte
                                         <tr>
                                             <td colSpan="2">
                                                 {article.sections.map((section, sectionIndex) => (
-                                                    <div key={`section-${sectionIndex}`} className="mb-4">
+                                                    <div
+                                                        key={`section-${sectionIndex}`}
+                                                        className={sectionIndex < article.sections.length - 1 ? "mb-3" : undefined}
+                                                    >
                                                         {section.sectionNumber && section.sectionTitle && (
                                                             <h6>{section.sectionNumber} {section.sectionTitle}</h6>
                                                         )}

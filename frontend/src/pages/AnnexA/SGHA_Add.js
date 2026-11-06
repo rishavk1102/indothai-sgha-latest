@@ -1458,34 +1458,32 @@ const SGHA_Add = () => {
       `}</style>
       <CustomToast ref={toastRef} />
       <ConfirmDialog />
-      <Row className="mx-0 align-items-center d-flex mb-3">
-        <Col md={12} lg={5}>
-          <Breadcrumb className="mb-0">
-            <Breadcrumb.Item onClick={goBack} style={{ cursor: "pointer" }}>
-              <IoChevronBackOutline /> Back to Templates
-            </Breadcrumb.Item>
-            <Breadcrumb.Item active>Template builder</Breadcrumb.Item>
-          </Breadcrumb>
-        </Col>
-        <Col md={12} lg={7} className="d-flex justify-content-end gap-2">
-          {!selected && (
-            <>
-              <Button
-                label="Create template from PDF"
-                icon="pi pi-file-pdf"
-                onClick={() => setPdfDialogVisible(true)}
-                className="indothai-theme-button"
-              />
-              <Button
-                label="Add Year"
-                icon="pi pi-plus"
-                severity="success"
-                onClick={() => setAddYearDialogVisible(true)}
-              />
-            </>
-          )}
-        </Col>
-      </Row>
+      {!selected && (
+        <Row className="mx-0 align-items-center d-flex mb-3">
+          <Col md={12} lg={5}>
+            <Breadcrumb className="mb-0">
+              <Breadcrumb.Item onClick={goBack} style={{ cursor: "pointer" }}>
+                <IoChevronBackOutline /> Back to Templates
+              </Breadcrumb.Item>
+              <Breadcrumb.Item active>Template builder</Breadcrumb.Item>
+            </Breadcrumb>
+          </Col>
+          <Col md={12} lg={7} className="d-flex justify-content-end gap-2">
+            <Button
+              label="Create template from PDF"
+              icon="pi pi-file-pdf"
+              onClick={() => setPdfDialogVisible(true)}
+              className="indothai-theme-button"
+            />
+            <Button
+              label="Add Year"
+              icon="pi pi-plus"
+              severity="success"
+              onClick={() => setAddYearDialogVisible(true)}
+            />
+          </Col>
+        </Row>
+      )}
 
       {fromPdfBanner && (
         <div className="employee-handoff-banner mb-3">
@@ -1505,19 +1503,18 @@ const SGHA_Add = () => {
         </div>
       )}
 
+      <div className={selected ? "employee-builder-workspace" : undefined}>
       {selected && (
-        <div className="employee-builder-progress sticky-top mb-3">
-          <ClientFlowStepper
-            steps={builderDocs.map((doc) => ({
-              label: `${doc.title}${sectionHasContent(doc.title) ? " • saved" : ""}`,
-            }))}
-            activeIndex={builderDocIndex}
-            onSelect={switchBuilderDoc}
-          />
+        <div className="employee-builder-topbar">
+          <Breadcrumb className="mb-0">
+            <Breadcrumb.Item onClick={goBack} style={{ cursor: "pointer" }}>
+              <IoChevronBackOutline /> Back to Templates
+            </Breadcrumb.Item>
+            <Breadcrumb.Item active>Template builder</Breadcrumb.Item>
+          </Breadcrumb>
         </div>
       )}
-
-      <Row>
+      <Row className={selected ? "employee-builder-row mx-0" : undefined}>
         <AnimatePresence>
           {!selected ? (
             // All Years Sections
@@ -1629,16 +1626,8 @@ const SGHA_Add = () => {
           ) : (
             <>
               {/* Sidebar */}
-              <Col md={3} key="sidebar">
-                <div
-                  className="sticky-top"
-                  style={{
-                    top: "15px",
-                    maxHeight: "calc(100vh - 100px)",
-                    overflowY: "auto",
-                    overflowX: "hidden",
-                  }}
-                >
+              <Col md={3} key="sidebar" className="h-100">
+                <div className="employee-builder-sidebar">
                   <motion.ul
                     className="list-unstyled"
                     initial={{ x: -50, opacity: 0 }}
@@ -1798,22 +1787,26 @@ const SGHA_Add = () => {
               </Col>
 
               {/* Content */}
-              <Col md={9} key="content">
+              <Col md={9} key="content" className="employee-builder-main h-100">
+                <div className="employee-builder-progress">
+                  <ClientFlowStepper
+                    steps={builderDocs.map((doc) => ({
+                      label: `${doc.title}${sectionHasContent(doc.title) ? " • saved" : ""}`,
+                    }))}
+                    activeIndex={builderDocIndex}
+                    onSelect={switchBuilderDoc}
+                  />
+                </div>
                 <motion.div
-                  className="p-0 border-0 rounded"
+                  className="p-0 border-0 rounded employee-builder-scroll"
                   initial={{ x: 50, opacity: 0 }}
                   animate={{ x: 0, opacity: 1 }}
                   exit={{ x: 50, opacity: 0 }}
                   transition={{ duration: 0.4 }}
-                  style={{
-                    maxHeight: "calc(100vh - 100px)",
-                    overflowY: "auto",
-                    overflowX: "hidden",
-                  }}
                 >
-                  <Row>
-                    <Col md={12} lg={10} className="pe-lg-5">
-                      <Card className="mb-3 border-0">
+                  <Row className="g-3">
+                    <Col md={12} lg={10} className="pe-lg-3">
+                      <Card className="mb-3 border-0 employee-builder-editor">
                         <Card.Header className="bg-transparent py-3">
                           <h6 className="mb-0">
                             {pdfUploadTemplateName && selected?.templateKey
@@ -1947,10 +1940,7 @@ const SGHA_Add = () => {
 
                     {/* Right Item List */}
                     <Col md={12} lg={2}>
-                      <ul
-                        className="ItemList sticky-top"
-                        style={{ top: "15px" }}
-                      >
+                      <ul className="ItemList employee-builder-tools sticky-top" style={{ top: 0 }}>
                         <li onClick={() => addField("heading", "Heading")}>
                           <FaHeading className="me-2" /> Heading
                         </li>
@@ -2011,6 +2001,7 @@ const SGHA_Add = () => {
           )}
         </AnimatePresence>
       </Row>
+      </div>
 
       {/* Add Year Dialog */}
       <Dialog

@@ -50,12 +50,12 @@ const Layout = ({ children }) => {
     fetchPages();
   }, [roleId, role]);
   return (
-    <div>
+    <div className="app-shell">
       <Header />
-      <div style={{ display: 'flex' }}>
+      <div className="app-shell-body">
         <Sidebar_right pages={pages}/>
-        <main style={{ flexGrow: 1, padding: '30px' }}>
-          <Container fluid className='position-relative p-0'>
+        <main className="app-shell-main">
+          <Container fluid className="position-relative p-0 h-100 d-flex flex-column">
             {children}
           </Container>
         </main>

@@ -13,7 +13,10 @@
     scrollbar-width: thin;
     box-shadow: -1px 20px 20px rgba(1, 41, 112, 0.1);
     background-color: #fff;
-    height: 93.8vh;
+    height: 100%;
+    max-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 .css-dip3t8 {
     background-color: rgb(255 255 255) !important;

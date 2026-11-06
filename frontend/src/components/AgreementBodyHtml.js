@@ -54,7 +54,9 @@ export default function AgreementBodyHtml({
 }) {
   if (content == null || content === "") return null;
 
-  const html = formatAgreementBodyForDisplay(String(content));
+  const html = formatAgreementBodyForDisplay(String(content))
+    // Keep editor tabs visible in view (HTML collapses \t under normal white-space)
+    .replace(/\t/g, '<span class="sgha-doc-tab">\u00A0\u00A0\u00A0\u00A0</span>');
   if (!html) return null;
 
   return (

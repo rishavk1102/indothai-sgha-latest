@@ -1248,6 +1248,28 @@ table td p{
     padding: 13px 15px;
     text-transform: uppercase;
 }
+/* Same body size on Main Agreement, Annex A, and Annex B.
+   The accordion resets text to 1rem, headings stay at 1rem, and
+   .step-content-box p is 14px, which is why the pages looked different. */
+.main-agreement.comSty .p-accordion-content,
+.annex-a.comSty .p-accordion-content,
+.annex-b.comSty .p-accordion-content {
+    font-size: 13px;
+}
+.main-agreement.comSty .p-accordion-content :is(h1, h2, h3, h4, h5, h6),
+.annex-a.comSty :is(h1, h2, h3, h4, h5, h6),
+.annex-b.comSty .p-accordion-content :is(h1, h2, h3, h4, h5, h6),
+.main-agreement.comSty .sgha-doc-html,
+.annex-a.comSty .sgha-doc-html,
+.annex-b.comSty .sgha-doc-html,
+.main-agreement.comSty .sgha-doc-html :is(table, .sgha-doc-table),
+.annex-a.comSty .sgha-doc-html :is(table, .sgha-doc-table),
+.annex-b.comSty .sgha-doc-html :is(table, .sgha-doc-table),
+.main-agreement.comSty p,
+.annex-a.comSty p,
+.annex-b.comSty p {
+    font-size: 13px !important;
+}
 .Sghasisbar p{
     font-size: 13px;
     margin-bottom: 0;
@@ -1276,6 +1298,7 @@ table td p{
 .clauses { list-style: none; padding-left: 0; margin: .25rem 0 0; }
 .clause { margin: .35rem 0; font-size: 13px !important; }
 .clause > .num { display: inline-block; min-width: 3.2rem; }
+.clause-group-heading { font-size: 13px !important; font-weight: normal; }
 .sub { list-style: none; padding-left: 2.2rem; margin-top: .25rem; }
 .sub li { margin: .2rem 0; font-size: 13px !important; }
 .sub .num { margin-right: .35rem; font-size: 13px !important; }
@@ -1448,6 +1471,10 @@ ease;
 /* Client agreement: preserve paragraphs, line breaks, and list HTML from rich editor */
 .sgha-doc-html {
     line-height: 1.55;
+}
+.sgha-doc-html .sgha-doc-tab {
+    white-space: pre;
+    display: inline;
 }
 .sgha-doc-html p {
     margin: 0 0 0.65em;
@@ -1818,11 +1845,107 @@ ease;
     color: #5c5c5c;
     font-size: 14px;
 }
-.employee-builder-progress {
+/* Builder workspace: fill <main>, lock page scroll, only one inner pane scrolls */
+html:has(.employee-builder-workspace),
+body:has(.employee-builder-workspace) {
+    overflow: hidden !important;
+    height: 100%;
+    overscroll-behavior: none;
+}
+main.app-shell-main:has(.employee-builder-workspace),
+main:has(.employee-builder-workspace) {
+    overflow: hidden !important;
+    display: flex;
+    flex-direction: column;
+}
+main:has(.employee-builder-workspace) > .container-fluid {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.employee-builder-workspace {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+.employee-builder-topbar {
+    flex: 0 0 auto;
     background: #fff;
-    padding: 10px 0 4px;
-    z-index: 4;
-    top: 64px;
+    padding: 0 0 10px;
+    border-bottom: 1px solid #eee;
+    z-index: 2;
+}
+.employee-builder-row {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    margin-top: 12px !important;
+}
+.employee-builder-row > [class*="col-"] {
+    height: 100%;
+    min-height: 0;
+}
+.employee-builder-main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+}
+.employee-builder-progress {
+    flex: 0 0 auto;
+    background: #fff;
+    padding: 8px 4px 10px;
+    margin-bottom: 0;
+    border-bottom: 1px solid #eee;
+    width: 100%;
+    box-sizing: border-box;
+}
+.employee-builder-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-top: 12px;
+    scrollbar-gutter: stable;
+}
+.employee-builder-progress .client-flow-stepper {
+    margin-bottom: 0;
+    flex-wrap: wrap;
+}
+.employee-builder-progress .client-flow-stepper li {
+    flex: 1 1 140px;
+    min-width: 0;
+    max-width: 100%;
+}
+.employee-builder-progress .client-flow-stepper__label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.employee-builder-sidebar {
+    background: #fff;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding-right: 8px;
+}
+.employee-builder-tools {
+    background: #fff;
+    padding-bottom: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+.employee-builder-editor {
+    position: relative;
 }
 .employee-hub-hero {
     margin-bottom: 20px;

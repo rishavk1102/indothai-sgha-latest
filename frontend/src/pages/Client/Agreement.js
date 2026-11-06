@@ -23,6 +23,10 @@ import {
   loadClientDraft,
   saveClientDraft,
 } from '../../utils/clientWorkspace';
+import {
+  resolveCheckboxServiceFlags,
+  walkAgreementListTree,
+} from '../../utils/nestedListHtml';
 
 const Agreement = () => {
   const navigate = useNavigate();
@@ -243,126 +247,26 @@ const Agreement = () => {
         try {
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = DOMPurify.sanitize(htmlString, { ALLOWED_TAGS: ['ol', 'ul', 'li'] });
-            
-            // Find all lists in the content
-            const allLists = Array.from(tempDiv.querySelectorAll('ol, ul'));
-            
-            // Identify top-level lists (lists that are not nested inside another list)
-            const topLevelLists = allLists.filter(list => {
-                let parent = list.parentElement;
-                while (parent && parent !== tempDiv) {
-                    if (parent.tagName === 'OL' || parent.tagName === 'UL') {
-                        return false;
-                    }
-                    parent = parent.parentElement;
-                }
-                return true;
-            });
-            
-            let globalItemCounter = 1;
-            let topLevelIndex = 0;
-            const itemsMap = {}; // Map of itemId -> { text, index, subItems }
-            
-            // Recursive function to convert list items (same logic as Annex A)
-            const convertListItems = (listElement, parentIndexPath = [], isTopLevelList = false) => {
-                if (!listElement || (listElement.tagName !== 'OL' && listElement.tagName !== 'UL')) {
-                    return [];
-                }
-                
-                const items = [];
-                const allChildren = Array.from(listElement.children);
-                let currentItemIndex = 0;
-                
-                for (let i = 0; i < allChildren.length; i++) {
-                    const child = allChildren[i];
-                    
-                    // If this is a list item, process it
-                    if (child.tagName === 'LI') {
-                        const item = child;
-                        const itemIndex = currentItemIndex;
-                        currentItemIndex++;
-                        
-                        // Clone item to remove nested lists for text extraction
-                        const itemClone = item.cloneNode(true);
-                        const nestedListsInClone = itemClone.querySelectorAll('ol, ul');
-                        nestedListsInClone.forEach(nestedList => nestedList.remove());
-                        
-                        const textContent = itemClone.textContent || itemClone.innerText || '';
-                        const cleanText = textContent.trim();
-                        
-                        // Generate hierarchical index (e.g., "1", "1.1", "1.2", "2", etc.)
-                        let currentIndexPath;
-                        if (isTopLevelList && parentIndexPath.length === 0) {
-                            topLevelIndex++;
-                            currentIndexPath = [topLevelIndex];
-                        } else {
-                            currentIndexPath = [...parentIndexPath, itemIndex + 1];
-                        }
-                        const hierarchicalIndex = currentIndexPath.join('.');
-                        
-                        // Generate item ID with section prefix to match Sgha_annexA format
-                        // Format: sectionKey:item-N (e.g., "1.1:item-1", "2.1:item-1")
-                        const itemId = sectionKey ? `${sectionKey}:item-${globalItemCounter}` : `item-${globalItemCounter}`;
-                        globalItemCounter++;
-                        
-                        // Process nested lists - these should be sub-items of this item
-                        let subItems = null;
-                        
-                        // Check for nested lists as direct children of the <li> element
-                        const nestedListsDirect = Array.from(item.children).filter(
-                            child => child.tagName === 'OL' || child.tagName === 'UL'
-                        );
-                        
-                        // Also check if the next sibling is a list
-                        let nextSiblingList = null;
-                        if (i + 1 < allChildren.length) {
-                            const nextSibling = allChildren[i + 1];
-                            if (nextSibling.tagName === 'OL' || nextSibling.tagName === 'UL') {
-                                nextSiblingList = nextSibling;
-                                i++; // Skip this list in the main loop
-                            }
-                        }
-                        
-                        // Combine both types of nested lists
-                        const nestedLists = nestedListsDirect.length > 0 
-                            ? nestedListsDirect 
-                            : (nextSiblingList ? [nextSiblingList] : []);
-                        
-                        if (nestedLists.length > 0) {
-                            const allSubItems = [];
-                            nestedLists.forEach((nestedList) => {
-                                const nestedItems = convertListItems(nestedList, currentIndexPath, false);
-                                if (nestedItems && nestedItems.length > 0) {
-                                    allSubItems.push(...nestedItems);
-                                }
-                            });
-                            if (allSubItems.length > 0) {
-                                subItems = allSubItems;
-                            }
-                        }
-                        
-                        // Only add this item if it has text OR sub-items
-                        if (cleanText || subItems) {
-                            const itemData = {
-                                id: itemId,
-                                index: hierarchicalIndex,
-                                text: cleanText,
-                                subItems: subItems
-                            };
-                            items.push(itemData);
-                            itemsMap[itemId] = itemData;
-                        }
-                    }
-                }
-                
-                return items;
+
+            const itemsMap = {};
+            const mapNode = (node) => {
+                const itemId = sectionKey
+                    ? `${sectionKey}:${node.shortId}`
+                    : node.shortId;
+                const itemData = {
+                    id: itemId,
+                    index: node.displayIndex,
+                    text: node.text,
+                    subItems: node.subItems?.length
+                        ? node.subItems.map(mapNode)
+                        : null,
+                };
+                itemsMap[itemId] = itemData;
+                return itemData;
             };
-            
-            // Process each top-level list sequentially to maintain continuous numbering
-            topLevelLists.forEach(list => {
-                const items = convertListItems(list, [], true);
-                // Items are already stored in itemsMap during processing
-            });
+
+            const { tree } = walkAgreementListTree(tempDiv, { cleanText: false });
+            tree.forEach(mapNode);
             
             return { items: itemsMap };
         } catch (error) {
@@ -649,26 +553,26 @@ const Agreement = () => {
             };
 
             // Helper: is item selected by default in template (checkboxConfig) for current service types
+            // Missing config defaults to all checked (same as Setup Checkboxes).
             const isDefaultSelectedInTemplate = (checkboxConfig, itemId, sectionKey, itemNum) => {
-                if (!checkboxConfig || typeof checkboxConfig !== 'object') return false;
                 const possibleKeys = itemNum
                     ? [
                         itemId,
                         `${sectionKey}:item-${itemNum}`,
                         `${sectionKey}:f0:item-${itemNum}`,
                         `item-${itemNum}`,
-                        ...Object.keys(checkboxConfig).filter((k) => k.endsWith(`:item-${itemNum}`) || k === `item-${itemNum}`)
+                        ...Object.keys(checkboxConfig || {}).filter((k) => k.endsWith(`:item-${itemNum}`) || k === `item-${itemNum}`)
                     ]
                     : [itemId];
-                let config = null;
+                let configEntry = null;
                 for (const k of possibleKeys) {
-                    if (checkboxConfig[k] && typeof checkboxConfig[k] === 'object') {
-                        config = checkboxConfig[k];
+                    if (checkboxConfig && checkboxConfig[k] != null) {
+                        configEntry = checkboxConfig[k];
                         break;
                     }
                 }
-                if (!config) return false;
-                return (selectedServiceTypes.ramp && config.ramp === true) || (selectedServiceTypes.comp && config.comp === true) || (selectedServiceTypes.cargo && config.cargo === true);
+                const config = resolveCheckboxServiceFlags(configEntry);
+                return (selectedServiceTypes.ramp && config.ramp) || (selectedServiceTypes.comp && config.comp) || (selectedServiceTypes.cargo && config.cargo);
             };
 
             const sectionLabelsFallback = {

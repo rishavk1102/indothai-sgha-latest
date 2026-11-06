@@ -40,6 +40,7 @@ import {
   formatAirportFilterLabel,
 } from "../../api/clientCatalog";
 import { persistClientEditSession } from "../../utils/clientWorkspace";
+import { getSocket } from "../../context/socket";
 import {
   buildDraftFromSubmissionRecord,
   canClientEditSubmission,
@@ -440,10 +441,13 @@ const Sgha_reportsummary = () => {
     [parseHTMLContent],
   );
 
-  // Fetch variables when a row is expanded
-  const fetchVariables = useCallback(async (submissionId) => {
+  // Fetch variables when a row is expanded. Silent refreshes keep the current
+  // values on screen instead of flashing the loading state.
+  const fetchVariables = useCallback(async (submissionId, { silent = false } = {}) => {
     try {
-      setLoadingVariables((prev) => ({ ...prev, [submissionId]: true }));
+      if (!silent) {
+        setLoadingVariables((prev) => ({ ...prev, [submissionId]: true }));
+      }
       const response = await api.get(
         `/api/client/annex-a-submissions/${submissionId}/variables/template`,
       );
@@ -460,10 +464,14 @@ const Sgha_reportsummary = () => {
       }
     } catch (error) {
       console.error("Error fetching variables:", error);
-      setSubmissionVariables((prev) => ({ ...prev, [submissionId]: {} }));
-      setTemplateVariables((prev) => ({ ...prev, [submissionId]: [] }));
+      if (!silent) {
+        setSubmissionVariables((prev) => ({ ...prev, [submissionId]: {} }));
+        setTemplateVariables((prev) => ({ ...prev, [submissionId]: [] }));
+      }
     } finally {
-      setLoadingVariables((prev) => ({ ...prev, [submissionId]: false }));
+      if (!silent) {
+        setLoadingVariables((prev) => ({ ...prev, [submissionId]: false }));
+      }
     }
   }, []);
 
@@ -480,6 +488,7 @@ const Sgha_reportsummary = () => {
     expandedSubmission?.agreement_year <= 2100
       ? Number(expandedSubmission.agreement_year)
       : 2025;
+  const expandedUpdatedAt = expandedSubmission?.updated_at || null;
 
   useEffect(() => {
     const fetchTemplateData = async () => {
@@ -489,7 +498,7 @@ const Sgha_reportsummary = () => {
         return;
       }
 
-      // Fetch variables for this submission
+      // Fetch variables for this submission (again after the agreement is updated)
       fetchVariables(expandedRow);
 
       try {
@@ -522,7 +531,47 @@ const Sgha_reportsummary = () => {
     };
 
     fetchTemplateData();
-  }, [expandedRow, expandedAgreementYear, parseTemplateData, fetchVariables]);
+  }, [
+    expandedRow,
+    expandedAgreementYear,
+    expandedUpdatedAt,
+    parseTemplateData,
+    fetchVariables,
+  ]);
+
+  useEffect(() => {
+    if (!expandedRow) return undefined;
+    const refreshOpenPricing = () => {
+      fetchVariables(expandedRow, { silent: true });
+    };
+    window.addEventListener("focus", refreshOpenPricing);
+    const poll = setInterval(refreshOpenPricing, 4000);
+    let socket;
+    try {
+      socket = getSocket();
+    } catch (e) {
+      socket = null;
+    }
+    const onVariablesUpdated = (data) => {
+      if (String(data?.submission_id) !== String(expandedRow)) return;
+      if (data.variables && typeof data.variables === "object") {
+        setSubmissionVariables((prev) => ({
+          ...prev,
+          [expandedRow]: {
+            ...(prev[expandedRow] || {}),
+            ...data.variables,
+          },
+        }));
+      }
+      fetchVariables(expandedRow, { silent: true });
+    };
+    socket?.on("submission-variables-updated", onVariablesUpdated);
+    return () => {
+      window.removeEventListener("focus", refreshOpenPricing);
+      clearInterval(poll);
+      socket?.off("submission-variables-updated", onVariablesUpdated);
+    };
+  }, [expandedRow, fetchVariables]);
 
   // Get text for an item number
   const getItemText = (itemNumber) => {
@@ -1306,7 +1355,14 @@ const Sgha_reportsummary = () => {
                                             const varValue =
                                               submissionVariables[
                                                 submission.submission_id
-                                              ]?.[varName] || "";
+                                              ]?.[varName];
+                                            const displayValue =
+                                              varValue == null ||
+                                              varValue === ""
+                                                ? "N/A"
+                                                : typeof varValue === "object"
+                                                  ? JSON.stringify(varValue)
+                                                  : String(varValue);
 
                                             return (
                                               <li
@@ -1323,12 +1379,7 @@ const Sgha_reportsummary = () => {
                                                     :
                                                   </label>
                                                   <span className="small">
-                                                    {typeof varValue ===
-                                                    "object"
-                                                      ? JSON.stringify(varValue)
-                                                      : String(
-                                                          varValue || "N/A",
-                                                        )}
+                                                    {displayValue}
                                                   </span>
                                                 </div>
                                               </li>

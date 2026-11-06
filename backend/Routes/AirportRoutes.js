@@ -13,6 +13,42 @@ const { PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 // Multer setup for file uploads
 const upload = multer({ storage: multer.memoryStorage() });
 
+// Public lookup for the client registration page (no login yet).
+router.get('/get-airports', async (req, res) => {
+    try {
+        const search = String(req.query.search || '').trim().slice(0, 80);
+        const where = {};
+        if (search) {
+            const term = `%${search.replace(/[%_]/g, '')}%`;
+            where[Op.or] = [
+                { name: { [Op.like]: term } },
+                { iata: { [Op.like]: term } },
+                { icao: { [Op.like]: term } },
+                { city: { [Op.like]: term } },
+            ];
+        }
+
+        const airports = await Airport.findAll({
+            where,
+            attributes: ['airport_id', 'name', 'iata', 'icao', 'city'],
+            order: [['name', 'ASC'], ['airport_id', 'ASC']],
+            limit: 200,
+        });
+
+        if (!airports.length) {
+            return res.status(204).send();
+        }
+
+        return res.status(200).json(airports);
+    } catch (error) {
+        console.error('Failed to search airports:', error);
+        return res.status(500).json({
+            message: 'Failed to search airports',
+            error: error.message,
+        });
+    }
+});
+
 // Add Airport
 router.post('/add_airport/:page_name', authenticateToken, checkPermission('add'), upload.single('icon'), async (req, res) => {
     const {

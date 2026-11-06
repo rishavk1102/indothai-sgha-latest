@@ -1607,6 +1607,13 @@ const AgreedServicesCharges = () => {
                `/api/client/annex-a-submissions/${selectedSubmission.submission_id}/variables`,
                { variables: variablesToUpdate }
             );
+            setSubmissionVariables((prev) => ({
+               ...prev,
+               [selectedSubmission.submission_id]: {
+                  ...(prev[selectedSubmission.submission_id] || {}),
+                  ...variablesToUpdate,
+               },
+            }));
          }
          
          // Close dialog

@@ -65,23 +65,20 @@ useEffect(() => {
   const fetchAirports = async () => {
     try {
       const response = await axios.get(`${config.apiBASEURL}/airports/get-airports`, {
-        params: { search: debouncedSearchTerm }
+        params: debouncedSearchTerm ? { search: debouncedSearchTerm } : {},
       });
-      if (response.status === 200) {
-        setAirportOptions(response.data);
-      } else if (response.status === 204) {
+      if (response.status === 204 || !response.data) {
         setAirportOptions([]);
+        return;
       }
+      setAirportOptions(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
       console.error('Error fetching airports:', error);
+      setAirportOptions([]);
     }
   };
 
-  if (debouncedSearchTerm) {
-    fetchAirports();
-  } else {
-    setAirportOptions([]);
-  }
+  fetchAirports();
 }, [debouncedSearchTerm]);
 
 

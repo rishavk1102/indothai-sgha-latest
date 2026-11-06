@@ -1308,14 +1308,23 @@ router.put(
           },
         );
 
+        const storedValue = variable?.variable_value ?? valueStr;
         try {
-          updatedVariables[varName] = JSON.parse(variable.variable_value);
+          updatedVariables[varName] = JSON.parse(storedValue);
         } catch {
-          updatedVariables[varName] = variable.variable_value;
+          updatedVariables[varName] = storedValue;
         }
       }
 
       console.log(`✅ Variables updated for submission ${submission_id}`);
+
+      const io = getIO();
+      if (io) {
+        io.emit("submission-variables-updated", {
+          submission_id: submissionIdInt,
+          variables: updatedVariables,
+        });
+      }
 
       return res.status(200).json({
         message: "Variables updated successfully",

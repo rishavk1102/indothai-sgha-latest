@@ -513,17 +513,20 @@ function collectAnnexASelections(selections) {
 }
 
 /**
- * Selected Annex A clauses as PDF rows, read from the same list tree as the
- * Annex A screen so numbers and texts match it. Returns { "1.2": [{ number, lines }] }.
+ * Annex A PDF rows from the same list tree as the editor.
+ * - Static text (group headings / trailing lines, no checkbox) always prints
+ * - Checkbox list items print only when selected
+ * Returns { "1.1": [{ number, lines }], ... } including static-only subsections.
  */
 function buildAnnexATemplateRows(templateFields, grouped) {
   const rowsBySection = {};
   forEachAnnexAEditor(templateFields, ({ html, mainKey, sectionKey }) => {
-    const picked = grouped?.[mainKey]?.[sectionKey];
-    if (!picked) return;
+    const picked = grouped?.[mainKey]?.[sectionKey] || {};
     const root = document.createElement("div");
     root.innerHTML = DOMPurify.sanitize(html);
-    const { tree } = walkAgreementListTree(root, { cleanText: true });
+    const { tree, trailingLines } = walkAgreementListTree(root, {
+      cleanText: true,
+    });
     if (!rowsBySection[sectionKey]) rowsBySection[sectionKey] = [];
     const rows = rowsBySection[sectionKey];
 
@@ -531,17 +534,48 @@ function buildAnnexATemplateRows(templateFields, grouped) {
       const key = annexAClauseKey(sectionKey, node.index);
       if (!key) return false;
       const letterKey = letterClauseKey(key);
-      return picked[key] === true || (!!letterKey && picked[letterKey] === true);
+      return (
+        picked[key] === true || (!!letterKey && picked[letterKey] === true)
+      );
     };
     const nodeText = (node) =>
       node.text === `Item ${node.displayIndex}` ? "" : node.text;
     const fullNumber = (node) => {
       const display = String(node.displayIndex || node.index);
-      return display.startsWith(`${sectionKey}.`) ? display : `${sectionKey}.${display}`;
+      return display.startsWith(`${sectionKey}.`)
+        ? display
+        : `${sectionKey}.${display}`;
+    };
+    const pushStaticLines = (lines) => {
+      (lines || []).forEach((line) => {
+        const text = String(line || "").replace(/\s+/g, " ").trim();
+        if (!text) return;
+        const numbered = text.match(/^(\d+(?:\.\d+){1,})\.?\s*([\s\S]*)$/);
+        if (numbered) {
+          rows.push({
+            number: numbered[1],
+            level: 0,
+            lines: [
+              {
+                text: String(numbered[2] || "").trim(),
+                indent: 0,
+                list: true,
+              },
+            ],
+          });
+          return;
+        }
+        rows.push({
+          number: "",
+          level: 0,
+          lines: [{ text, indent: 0, list: true }],
+        });
+      });
     };
 
     const visit = (node, row) => {
       let current = row;
+      // Only checkbox items are gated by selection; static lines are separate.
       if (isPicked(node)) {
         if (!row) {
           current = {
@@ -561,7 +595,19 @@ function buildAnnexATemplateRows(templateFields, grouped) {
       }
       (node.subItems || []).forEach((child) => visit(child, current));
     };
-    tree.forEach((node) => visit(node, null));
+
+    tree.forEach((node) => {
+      // Static headings above each list (e.g. "1.1.1", "1.2.1 …") — no checkbox.
+      if (node.level === 0 && node.groupHeading?.lines?.length) {
+        pushStaticLines(node.groupHeading.lines);
+      }
+      visit(node, null);
+    });
+    // Trailing static clauses after the last list (e.g. 1.1.2 / 1.1.3 / 1.1.4).
+    pushStaticLines(trailingLines);
+
+    // Drop empty subsections (no static text and nothing selected).
+    if (!rows.length) delete rowsBySection[sectionKey];
   });
   return rowsBySection;
 }
@@ -1369,6 +1415,8 @@ export const generateSubmissionPDF = async (
       }
 
       // Process Annex A sections. Selections live on "1.1" / "2.1" keys.
+      // Template rows include static (no-checkbox) clauses even when nothing
+      // in that subsection is checked — those must still print.
       const annexAByArticle = collectAnnexASelections(
         submission.checkbox_selections,
       );
@@ -1376,12 +1424,25 @@ export const generateSubmissionPDF = async (
         annexATemplateFields,
         annexAByArticle,
       );
-      Object.keys(annexAByArticle)
+      const sectionKeysForPdf = new Set([
+        ...Object.keys(templateRows),
+        ...Object.keys(annexAByArticle).flatMap((main) =>
+          Object.keys(annexAByArticle[main] || {}).filter((k) =>
+            /^\d+\.\d+/.test(k),
+          ),
+        ),
+      ]);
+      const sectionsByMain = {};
+      sectionKeysForPdf.forEach((sectionKey) => {
+        const main = String(sectionKey).split(".")[0];
+        if (!/^\d+$/.test(main)) return;
+        if (!sectionsByMain[main]) sectionsByMain[main] = [];
+        sectionsByMain[main].push(sectionKey);
+      });
+
+      Object.keys(sectionsByMain)
         .sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
         .forEach((mainSectionNum) => {
-          const mainSection = annexAByArticle[mainSectionNum];
-          if (!mainSection || typeof mainSection !== "object") return;
-
           const mainTitle = finalSectionTitles[mainSectionNum] || "";
           yPos = drawSectionHeading(
             doc,
@@ -1389,11 +1450,11 @@ export const generateSubmissionPDF = async (
             `SECTION ${mainSectionNum}. ${mainTitle}`.trim(),
           );
 
-          Object.keys(mainSection)
-            .sort(naturalSort)
-            .forEach((sectionKey) => {
-              const sectionData = mainSection[sectionKey];
-              if (!sectionData || Object.keys(sectionData).length === 0) return;
+          sectionsByMain[mainSectionNum].sort(naturalSort).forEach((sectionKey) => {
+              const sectionData = annexAByArticle[mainSectionNum]?.[sectionKey] || {};
+              const hasTemplateRows = !!templateRows[sectionKey]?.length;
+              const hasSelections = Object.keys(sectionData).length > 0;
+              if (!hasTemplateRows && !hasSelections) return;
 
               const sectionTitle = finalSectionTitles[sectionKey] || "";
               yPos = drawSubsectionRow(
@@ -1405,7 +1466,7 @@ export const generateSubmissionPDF = async (
                   sectionKey,
               );
 
-              if (templateRows[sectionKey]?.length) {
+              if (hasTemplateRows) {
                 templateRows[sectionKey].forEach((row) => {
                   yPos = drawClauseRow(doc, yPos, row.number, row.lines);
                 });

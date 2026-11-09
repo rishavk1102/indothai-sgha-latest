@@ -353,25 +353,29 @@ function wrapClauseNumber(doc, number, width) {
 function drawShadedRow(doc, y, number, title, fillColor, titleBold) {
   const fontSize = font.body;
   const lh = lineHeight(fontSize);
-  const textX = margin.left + clauseGutter;
-  const textWidth = contentWidth - clauseGutter;
+  const numberText = String(number || "").trim();
+  const titleText = String(title || "").trim();
+  // One flush-left label in the bar: "1.1 Representation" or "Scheduled Flights".
+  // Do not use the clause gutter — that left a large empty gap before the title.
+  const label =
+    numberText && titleText
+      ? `${numberText}  ${titleText}`
+      : numberText || titleText;
+  // Match body clause numbers (margin.left) — no gutter / pad before the label.
+  const textX = margin.left;
+  const textWidth = Math.max(8, contentWidth);
   setFont(doc, titleBold ? "bold" : "normal", fontSize);
-  const titleLines = doc.splitTextToSize(String(title || ""), textWidth - 1);
-  const numLines = doc.splitTextToSize(String(number || ""), clauseNumberWidth - 1);
-  const n = Math.max(titleLines.length, numLines.length, 1);
+  const labelLines = doc.splitTextToSize(label, textWidth);
+  const n = Math.max(labelLines.length, 1);
   const h = n * lh + 1.6;
   const currentY = ensureSpace(doc, y + 1.2, h);
 
   fill(doc, fillColor);
   doc.rect(margin.left, currentY, contentWidth, h, "F");
 
-  setFont(doc, "bold", fontSize);
-  rgb(doc, color.black);
-  numLines.forEach((line, i) => {
-    doc.text(line, margin.left + 1, currentY + 0.8 + lh * (i + 0.75));
-  });
   setFont(doc, titleBold ? "bold" : "normal", fontSize);
-  titleLines.forEach((line, i) => {
+  rgb(doc, color.black);
+  labelLines.forEach((line, i) => {
     doc.text(line, textX, currentY + 0.8 + lh * (i + 0.75));
   });
   return currentY + h + 1.4;

@@ -254,10 +254,28 @@ const Agreement = () => {
             tempDiv.innerHTML = DOMPurify.sanitize(htmlString);
 
             const itemsMap = {};
+            const staticItems = [];
+            const pushStaticLines = (lines) => {
+                (lines || []).forEach((line) => {
+                    const text = String(line || "").replace(/\s+/g, " ").trim();
+                    if (!text) return;
+                    const numbered = text.match(/^(\d+(?:\.\d+){1,})\.?\s*([\s\S]*)$/);
+                    staticItems.push({
+                        id: `static-${staticItems.length}-${numbered?.[1] || "x"}`,
+                        number: numbered ? numbered[1] : text,
+                        text: numbered ? String(numbered[2] || "").trim() : text,
+                        subItems: [],
+                        isStatic: true,
+                    });
+                });
+            };
             const mapNode = (node) => {
                 const itemId = sectionKey
                     ? `${sectionKey}:${node.shortId}`
                     : node.shortId;
+                if (node.level === 0 && node.groupHeading?.lines?.length) {
+                    pushStaticLines(node.groupHeading.lines);
+                }
                 const itemData = {
                     id: itemId,
                     index: node.displayIndex,
@@ -271,13 +289,14 @@ const Agreement = () => {
                 return itemData;
             };
 
-            const { tree } = walkAgreementListTree(tempDiv, { cleanText: false });
+            const { tree, trailingLines } = walkAgreementListTree(tempDiv, { cleanText: false });
             tree.forEach(mapNode);
+            pushStaticLines(trailingLines);
             
-            return { items: itemsMap };
+            return { items: itemsMap, staticItems };
         } catch (error) {
             console.error('Error parsing HTML content:', error);
-            return { items: {} };
+            return { items: {}, staticItems: [] };
         }
     };
 
@@ -604,17 +623,25 @@ const Agreement = () => {
                 // Parse the HTML content for this section to get item text (real clause content)
                 const parsedContent = parseHTMLContent(sectionInfo.editorContent, sectionKey);
                 const itemsMap = parsedContent?.items || {};
+                const staticItems = parsedContent?.staticItems || [];
                 
                 console.log('[Summary] Processing section', sectionKey, {
                     label: sectionInfo.label,
                     hasEditorContent: !!sectionInfo.editorContent,
                     itemsMapCount: Object.keys(itemsMap).length,
+                    staticCount: staticItems.length,
                     savedStateKeys: Object.keys(sectionStates)
                 });
                 
                 const addedItemIds = new Set();
                 const consumedSavedKeys = new Set(); // keys from sectionStates already matched in main loop (avoid duplicate in fallback)
                 const itemsArray = Object.values(itemsMap);
+
+                // Static clauses (no checkbox) always belong in the summary.
+                staticItems.forEach((item) => {
+                    checkedItems.push(item);
+                    addedItemIds.add(item.id);
+                });
                 
                 // Add items that are selected (saved state OR default in template); use template text for display
                 itemsArray.forEach((parsedItem, arrayIndex) => {
@@ -823,6 +850,7 @@ const Agreement = () => {
                 
                 console.log(`[Summary] Final items for ${sectionKey}:`, checkedItems.length);
 
+                // Keep sections that have checked items and/or static (no-checkbox) text.
                 if (checkedItems.length > 0) {
                     summary.sections.push({
                         section: sectionInfo.label || sectionKey,

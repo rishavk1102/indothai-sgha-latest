@@ -29,11 +29,14 @@ import {
   OTHER_AIRCRAFT_SELECT_VALUE,
 } from "../utils/clientWorkspace";
 import { selectHandlingCompany } from "../utils/sghaClauseParser";
-import { shouldShowClientPrices } from "../utils/submissionDraftHydrate";
 import {
-  resolveCheckboxServiceFlags,
-  walkAgreementListTree,
-} from "../utils/nestedListHtml";
+  buildAnnexASubmissionSelections,
+  forEachAnnexAEditor,
+  isAnnexAFlagsSelected,
+  resolveAnnexAItemFlags,
+} from "../utils/annexASelection";
+import { shouldShowClientPrices } from "../utils/submissionDraftHydrate";
+import { walkAgreementListTree } from "../utils/nestedListHtml";
 import { CLIENT_ROUTES } from "./ClientPageChrome";
 
 function formatAnnexBHeading(headingNo, title) {
@@ -211,8 +214,21 @@ const Sgha_annexB = ({
   const [loadingAdditionalCharges, setLoadingAdditionalCharges] =
     useState(false);
   // Multi-select: selected additional charge ids (for additional_charges variable)
+  const savedAdditionalChargeIds = (() => {
+    const airportId = selectedCities[0]?.airport_id;
+    const ids =
+      airportId != null ? formData?.[airportId]?.selected_additional_charge_ids : null;
+    return Array.isArray(ids) ? ids : [];
+  })();
+  const savedAdditionalChargeKey = savedAdditionalChargeIds.join(",");
   const [selectedAdditionalChargeIds, setSelectedAdditionalChargeIds] =
-    useState([]);
+    useState(savedAdditionalChargeIds);
+
+  // Edit sessions can load formData after mount; take the saved ticks once they arrive.
+  useEffect(() => {
+    if (!savedAdditionalChargeKey) return;
+    setSelectedAdditionalChargeIds(savedAdditionalChargeKey.split(","));
+  }, [savedAdditionalChargeKey]);
 
   // State for Annex A checkbox states - initialize from localStorage if available
   const [annexAStates, setAnnexAStates] = useState(() => {
@@ -705,133 +721,92 @@ const Sgha_annexB = ({
         );
 
         // Transform the state to nested structure: { "1": { "1.1": { "1.1.1": true } }, "2": { "2.1": { "2.1.1": true } } }
+        // Selection rule matches Annex A summary: ramp/comp/cargo === true for active service types
+        // (legacy checked-only objects still count).
         const transformToNestedStructure = (state) => {
           const nested = {};
+          const serviceTypes = state.serviceTypes || {
+            comp: false,
+            ramp: false,
+            cargo: false,
+          };
 
-          // Preserve serviceTypes at the top level
           if (state.serviceTypes) {
             nested.serviceTypes = state.serviceTypes;
           }
 
-          // Group sections by their top-level number
+          const isSelected = (clause) => {
+            if (clause === true) return true;
+            if (!clause || typeof clause !== "object") return false;
+            const hasServiceType =
+              clause.ramp !== undefined ||
+              clause.comp !== undefined ||
+              clause.cargo !== undefined;
+            if (
+              clause.checked === true &&
+              clause.ramp == null &&
+              clause.comp == null &&
+              clause.cargo == null
+            ) {
+              return true;
+            }
+            if (!hasServiceType) return false;
+            return (
+              (!!serviceTypes.ramp && clause.ramp === true) ||
+              (!!serviceTypes.comp && clause.comp === true) ||
+              (!!serviceTypes.cargo && clause.cargo === true)
+            );
+          };
+
+          const collectSelectedClauses = (sectionObj) => {
+            const sectionData = {};
+            if (!sectionObj || typeof sectionObj !== "object") return sectionData;
+            Object.keys(sectionObj).forEach((clauseKey) => {
+              const clause = sectionObj[clauseKey];
+              if (!isSelected(clause)) return;
+              sectionData[clauseKey] = true;
+              if (clause && typeof clause === "object" && clause.subItems) {
+                Object.keys(clause.subItems).forEach((subItemKey) => {
+                  if (isSelected(clause.subItems[subItemKey])) {
+                    sectionData[subItemKey] = true;
+                  }
+                });
+              }
+            });
+            return sectionData;
+          };
+
           const sectionsByNumber = {};
 
-          // Process all keys in the state
           Object.keys(state).forEach((key) => {
-            // Skip serviceTypes
-            if (key === "serviceTypes") {
-              return;
-            }
+            if (key === "serviceTypes") return;
 
-            // Check if key matches section pattern with subsections (e.g., "1.1", "2.3", "3.1")
             const sectionMatch = key.match(/^(\d+)\.(\d+)$/);
             if (sectionMatch) {
-              const topLevelNumber = sectionMatch[1]; // e.g., "1" from "1.1"
-              const sectionKey = key; // e.g., "1.1"
-
-              // Initialize the top-level section if it doesn't exist
+              const topLevelNumber = sectionMatch[1];
               if (!sectionsByNumber[topLevelNumber]) {
                 sectionsByNumber[topLevelNumber] = {};
               }
-
-              // Process the section data
-              if (state[sectionKey] && typeof state[sectionKey] === "object") {
-                const sectionData = {};
-
-                // Process each clause in the section
-                Object.keys(state[sectionKey]).forEach((clauseKey) => {
-                  const clause = state[sectionKey][clauseKey];
-
-                  // If clause is checked, add it to the nested structure
-                  if (
-                    clause &&
-                    typeof clause === "object" &&
-                    clause.checked === true
-                  ) {
-                    sectionData[clauseKey] = true;
-
-                    // Handle subItems (e.g., "1.1.1.a", "1.1.1.b")
-                    if (
-                      clause.subItems &&
-                      typeof clause.subItems === "object"
-                    ) {
-                      Object.keys(clause.subItems).forEach((subItemKey) => {
-                        const subItem = clause.subItems[subItemKey];
-                        if (
-                          subItem &&
-                          typeof subItem === "object" &&
-                          subItem.checked === true
-                        ) {
-                          sectionData[subItemKey] = true;
-                        }
-                      });
-                    }
-                  }
-                });
-
-                // Only add section if it has checked items
-                if (Object.keys(sectionData).length > 0) {
-                  sectionsByNumber[topLevelNumber][sectionKey] = sectionData;
-                }
+              const sectionData = collectSelectedClauses(state[key]);
+              if (Object.keys(sectionData).length > 0) {
+                sectionsByNumber[topLevelNumber][key] = sectionData;
               }
-            } else {
-              // Handle sections stored as single numbers (e.g., "2", "3") or other patterns
-              // Check if it's a single number
-              const singleNumberMatch = key.match(/^(\d+)$/);
-              if (
-                singleNumberMatch &&
-                state[key] &&
-                typeof state[key] === "object"
-              ) {
-                const topLevelNumber = singleNumberMatch[1]; // e.g., "2" from "2"
+              return;
+            }
 
-                // Initialize the top-level section if it doesn't exist
-                if (!sectionsByNumber[topLevelNumber]) {
-                  sectionsByNumber[topLevelNumber] = {};
-                }
-
-                // Process the section data - it might be a direct object with clauses
-                const sectionData = {};
-                Object.keys(state[key]).forEach((clauseKey) => {
-                  const clause = state[key][clauseKey];
-
-                  // If clause is checked, add it to the nested structure
-                  if (
-                    clause &&
-                    typeof clause === "object" &&
-                    clause.checked === true
-                  ) {
-                    sectionData[clauseKey] = true;
-
-                    // Handle subItems
-                    if (
-                      clause.subItems &&
-                      typeof clause.subItems === "object"
-                    ) {
-                      Object.keys(clause.subItems).forEach((subItemKey) => {
-                        const subItem = clause.subItems[subItemKey];
-                        if (
-                          subItem &&
-                          typeof subItem === "object" &&
-                          subItem.checked === true
-                        ) {
-                          sectionData[subItemKey] = true;
-                        }
-                      });
-                    }
-                  }
-                });
-
-                // If section has data, add it directly under the top-level number
-                if (Object.keys(sectionData).length > 0) {
-                  // Use the key itself as the subsection key, or create a default structure
-                  sectionsByNumber[topLevelNumber][key] = sectionData;
-                }
+            const singleNumberMatch = key.match(/^(\d+)$/);
+            if (singleNumberMatch && state[key] && typeof state[key] === "object") {
+              const topLevelNumber = singleNumberMatch[1];
+              if (!sectionsByNumber[topLevelNumber]) {
+                sectionsByNumber[topLevelNumber] = {};
+              }
+              const sectionData = collectSelectedClauses(state[key]);
+              if (Object.keys(sectionData).length > 0) {
+                sectionsByNumber[topLevelNumber][key] = sectionData;
               }
             }
           });
 
-          // Add all grouped sections to nested structure
           Object.keys(sectionsByNumber).forEach((topLevelNumber) => {
             if (Object.keys(sectionsByNumber[topLevelNumber]).length > 0) {
               nested[topLevelNumber] = sectionsByNumber[topLevelNumber];
@@ -841,7 +816,9 @@ const Sgha_annexB = ({
           return nested;
         };
 
-        const transformedState = transformToNestedStructure(parsedState);
+        const transformedState = Array.isArray(annexATemplateContent)
+          ? buildAnnexASubmissionSelections(annexATemplateContent, parsedState)
+          : transformToNestedStructure(parsedState);
 
         console.log("Transformed Annex A state:", transformedState);
         console.log(
@@ -1839,121 +1816,48 @@ const Sgha_annexB = ({
       return [];
     }
 
-    const isChecked = (flags) => {
-      if (!flags || typeof flags !== "object") return false;
-      if (
-        flags.checked === true &&
-        flags.ramp == null &&
-        flags.comp == null &&
-        flags.cargo == null
-      ) {
-        return true;
-      }
-      return (
-        (selectedServiceTypes.ramp && flags.ramp === true) ||
-        (selectedServiceTypes.comp && flags.comp === true) ||
-        (selectedServiceTypes.cargo && flags.cargo === true)
-      );
-    };
-
-    const findSaved = (sectionState, sectionKey, shortId) => {
-      if (!sectionState || !shortId) return null;
-      const direct = [
-        `${sectionKey}:f0:${shortId}`,
-        `${sectionKey}:${shortId}`,
-        shortId,
-      ];
-      for (const key of direct) {
-        if (sectionState[key]) return sectionState[key];
-      }
-      const match = Object.keys(sectionState).find(
-        (key) => key === shortId || key.endsWith(`:${shortId}`),
-      );
-      return match ? sectionState[match] : null;
-    };
-
     const rows = [];
-    let currentMain = null;
-    let currentSubKey = null;
-    let currentSubName = null;
-    let editorIndex = 0;
 
-    const collectEditor = (html, checkboxConfig) => {
-      if (!currentSubKey || !html) return;
-      const root = document.createElement("div");
-      root.innerHTML = html;
-      const { flat } = walkAgreementListTree(root, { cleanText: true });
-      const sectionState = states[currentSubKey] || {};
-      const labels = [];
-      const listed = new Set();
-      flat.forEach((node) => {
-        if (!node.displayIndex) return;
-        // A listed parent already covers its children
-        if (node.parentShortId && listed.has(node.parentShortId)) {
-          listed.add(node.shortId);
-          return;
+    forEachAnnexAEditor(
+      annexATemplateContent,
+      ({ html, checkboxConfig, sectionKey, sectionName }) => {
+        const root = document.createElement("div");
+        root.innerHTML = html;
+        const { flat } = walkAgreementListTree(root, { cleanText: true });
+        const labels = [];
+        const listed = new Set();
+        flat.forEach((node) => {
+          if (!node.displayIndex) return;
+          // A listed parent already covers its children
+          if (node.parentShortId && listed.has(node.parentShortId)) {
+            listed.add(node.shortId);
+            return;
+          }
+          const flags = resolveAnnexAItemFlags(
+            states,
+            sectionKey,
+            node,
+            0,
+            checkboxConfig,
+          );
+          if (isAnnexAFlagsSelected(flags, selectedServiceTypes)) {
+            labels.push(String(node.displayIndex));
+            listed.add(node.shortId);
+          }
+        });
+        if (labels.length > 0) {
+          const existing = rows.find((row) => row.sortKey === sectionKey);
+          if (existing) existing.selectedItems.push(...labels);
+          else {
+            rows.push({
+              sectionName: sectionName || `Section ${sectionKey}`,
+              sortKey: sectionKey,
+              selectedItems: labels,
+            });
+          }
         }
-        const saved = findSaved(sectionState, currentSubKey, node.shortId);
-        const configKey = `${currentSubKey}:f${editorIndex}:${node.shortId}`;
-        const flags = saved
-          ? saved
-          : resolveCheckboxServiceFlags(
-              checkboxConfig?.[configKey] ||
-                checkboxConfig?.[`${currentSubKey}:${node.shortId}`] ||
-                checkboxConfig?.[node.shortId],
-            );
-        if (isChecked(flags)) {
-          labels.push(String(node.displayIndex));
-          listed.add(node.shortId);
-        }
-      });
-      if (labels.length > 0) {
-        const existing = rows.find((row) => row.sortKey === currentSubKey);
-        if (existing) existing.selectedItems.push(...labels);
-        else {
-          rows.push({
-            sectionName: currentSubName || `Section ${currentSubKey}`,
-            sortKey: currentSubKey,
-            selectedItems: labels,
-          });
-        }
-      }
-      editorIndex += 1;
-    };
-
-    annexATemplateContent.forEach((item, index) => {
-      if (!item || typeof item !== "object" || !item.type) return;
-      const next = annexATemplateContent[index + 1];
-
-      if (item.type === "heading_no" && /^\d+$/.test(String(item.value).trim())) {
-        currentMain = String(item.value).trim();
-        currentSubKey = null;
-        currentSubName = null;
-        editorIndex = 0;
-        return;
-      }
-
-      // Subsections are stored as heading_no or subheading_no ("1.1") followed by a subheading
-      if (
-        (item.type === "heading_no" || item.type === "subheading_no") &&
-        currentMain
-      ) {
-        const num = String(item.value).trim();
-        if (num.includes(".")) {
-          currentSubKey = num;
-          currentSubName =
-            next?.type === "subheading"
-              ? String(next.value || "").trim() || `Section ${num}`
-              : `Section ${num}`;
-          editorIndex = 0;
-        }
-        return;
-      }
-
-      if (item.type === "editor" && currentSubKey) {
-        collectEditor(item.value, item.checkboxConfig || {});
-      }
-    });
+      },
+    );
 
     rows.sort((a, b) => {
       const aParts = String(a.sortKey || "").split(".").map(Number);

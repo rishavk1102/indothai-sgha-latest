@@ -45,6 +45,7 @@ import {
   buildDraftFromSubmissionRecord,
   canClientEditSubmission,
   getClientSubmissionTab,
+  mergeAdditionalChargesIntoDraft,
   mergeAircraftVariableIntoDraft,
   shouldShowClientPrices,
 } from "../../utils/submissionDraftHydrate";
@@ -150,7 +151,9 @@ const Sgha_reportsummary = () => {
         const varsRes = await api.get(
           `/api/client/annex-a-submissions/${sid}/variables`,
         );
-        draft = mergeAircraftVariableIntoDraft(draft, varsRes.data?.data || {});
+        const savedVariables = varsRes.data?.data || {};
+        draft = mergeAircraftVariableIntoDraft(draft, savedVariables);
+        draft = mergeAdditionalChargesIntoDraft(draft, savedVariables);
       } catch (varsErr) {
         console.warn("[ReportSummary] Variables not loaded for edit:", varsErr);
       }

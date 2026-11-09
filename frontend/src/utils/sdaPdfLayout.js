@@ -1037,23 +1037,24 @@ export function resolveCoverModel(submission = {}, clientDetails = null, handlin
     filled(submission.client_name) ||
     filled(fd.company_name);
 
+  // The agreement's own form wins over the client profile, as on the Main Agreement screen.
   const carrierOffice =
-    principalOffice(clientDetails) ||
     principalOffice(fd) ||
-    joinAddress(clientDetails, [
-      "address1",
-      "address2",
-      "city",
-      "state",
-      "pincode",
-      "country",
-    ]) ||
+    principalOffice(clientDetails) ||
     joinAddress(fd, [
       "address_line_1",
       "address_line_2",
       "city",
       "state",
       "post_code",
+      "country",
+    ]) ||
+    joinAddress(clientDetails, [
+      "address1",
+      "address2",
+      "city",
+      "state",
+      "pincode",
       "country",
     ]);
 
@@ -1088,9 +1089,9 @@ export function resolveCoverModel(submission = {}, clientDetails = null, handlin
     if (value == null || String(value).trim() === "") return;
     extras.push({ label, value: String(value).trim(), link: !!link });
   };
-  push("Contact name", submission.contact_name || fd.contact_person);
-  push("Contact email", submission.contact_email || fd.email, true);
-  push("Contact phone", submission.contact_phone || fd.phone_number);
+  push("Contact name", fd.contact_person || submission.contact_name);
+  push("Contact email", fd.email || submission.contact_email, true);
+  push("Contact phone", fd.phone_number || submission.contact_phone);
   push("Service type", submission.service_type);
   push("Agreement year", submission.agreement_year);
   push("Status", submission.status);

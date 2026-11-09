@@ -1,3 +1,4 @@
+import { ANNEX_A_FROM_SUBMISSION_KEY } from "./annexASelection";
 import { OTHER_AIRCRAFT_SELECT_VALUE } from "./clientWorkspace";
 
 /** Tab an agreement belongs on in My Submissions. Each row maps to exactly one tab. */
@@ -31,61 +32,38 @@ export function shouldShowClientPrices(submission) {
   return tab === "In Progress" || tab === "Approved" || tab === "Rejected";
 }
 
-function isSubItemClauseKey(clauseKey) {
-  return /^\d+\.\d+\.\d+\.[a-zA-Z0-9.]+$/.test(String(clauseKey));
-}
-
-function parentClauseKeyFromSubItem(subItemKey) {
-  const parts = String(subItemKey).split(".");
-  if (parts.length < 4) return null;
-  return parts.slice(0, 3).join(".");
-}
-
-/** Inverse of Annex B nested checkbox payload → flat Annex A localStorage shape. */
+/**
+ * Inverse of the nested checkbox_selections payload → flat Annex A localStorage shape.
+ * Each selected clause key ("1.1.3", "1.1.3.1") gets the submission's service flags;
+ * Annex A matches them to list items by number.
+ */
 export function nestedCheckboxSelectionsToAnnexAState(nested) {
-  if (!nested || typeof nested !== "object") {
-    return { serviceTypes: { comp: false, ramp: false, cargo: false } };
-  }
+  const serviceTypes =
+    nested?.serviceTypes && typeof nested.serviceTypes === "object"
+      ? { ...nested.serviceTypes }
+      : { comp: false, ramp: false, cargo: false };
+  const flat = { serviceTypes, [ANNEX_A_FROM_SUBMISSION_KEY]: true };
+  if (!nested || typeof nested !== "object") return flat;
 
-  const flat = {};
-  if (nested.serviceTypes && typeof nested.serviceTypes === "object") {
-    flat.serviceTypes = { ...nested.serviceTypes };
-  } else {
-    flat.serviceTypes = { comp: false, ramp: false, cargo: false };
-  }
+  const selectedFlags = {
+    checked: true,
+    ramp: !!serviceTypes.ramp,
+    comp: !!serviceTypes.comp,
+    cargo: !!serviceTypes.cargo,
+  };
 
   Object.keys(nested).forEach((topKey) => {
-    if (topKey === "serviceTypes") return;
+    if (topKey === "serviceTypes" || topKey.startsWith("_")) return;
     const topVal = nested[topKey];
     if (!topVal || typeof topVal !== "object") return;
 
     Object.keys(topVal).forEach((sectionKey) => {
       const sectionData = topVal[sectionKey];
       if (!sectionData || typeof sectionData !== "object") return;
-
       if (!flat[sectionKey]) flat[sectionKey] = {};
-
       Object.keys(sectionData).forEach((clauseKey) => {
         if (sectionData[clauseKey] !== true) return;
-
-        if (isSubItemClauseKey(clauseKey)) {
-          const parentKey = parentClauseKeyFromSubItem(clauseKey);
-          if (!parentKey) return;
-          if (!flat[sectionKey][parentKey]) {
-            flat[sectionKey][parentKey] = { checked: true, subItems: {} };
-          } else if (typeof flat[sectionKey][parentKey] === "object") {
-            flat[sectionKey][parentKey].checked = true;
-            if (!flat[sectionKey][parentKey].subItems) {
-              flat[sectionKey][parentKey].subItems = {};
-            }
-          }
-          flat[sectionKey][parentKey].subItems[clauseKey] = { checked: true };
-        } else {
-          flat[sectionKey][clauseKey] = {
-            ...(flat[sectionKey][clauseKey] || {}),
-            checked: true,
-          };
-        }
+        flat[sectionKey][clauseKey] = { ...selectedFlags };
       });
     });
   });
@@ -221,6 +199,38 @@ export function mergeAircraftVariableIntoDraft(draft, variables) {
   return {
     ...draft,
     formData: { ...draft.formData, [airportId]: row },
+  };
+}
+
+/** Saved additional charges -> ids Annex B uses to tick Paragraph 2 rows. */
+export function mergeAdditionalChargesIntoDraft(draft, variables) {
+  if (!draft?.formData || !variables?.additional_charges) return draft;
+  const airportId = draft.selectedCities?.[0]?.airport_id;
+  if (airportId == null) return draft;
+
+  let charges = variables.additional_charges;
+  if (typeof charges === "string") {
+    try {
+      charges = JSON.parse(charges);
+    } catch {
+      return draft;
+    }
+  }
+  if (charges && !Array.isArray(charges) && Array.isArray(charges.selected)) {
+    charges = charges.selected;
+  }
+  if (!Array.isArray(charges)) return draft;
+
+  const ids = charges
+    .map((charge) => charge?.Additional_charges_id)
+    .filter((id) => id != null && id !== "")
+    .map(String);
+  return {
+    ...draft,
+    formData: {
+      ...draft.formData,
+      [airportId]: { ...draft.formData[airportId], selected_additional_charge_ids: ids },
+    },
   };
 }
 

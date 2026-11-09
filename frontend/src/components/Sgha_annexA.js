@@ -13,10 +13,8 @@ import React, {
 import { Card, Table } from "react-bootstrap";
 import api from "../api/axios";
 import { stringLooksLikeHtml } from "../utils/agreementDocFormat";
-import {
-  resolveCheckboxServiceFlags,
-  walkAgreementListTree,
-} from "../utils/nestedListHtml";
+import { walkAgreementListTree } from "../utils/nestedListHtml";
+import { resolveAnnexAItemFlags } from "../utils/annexASelection";
 import AgreementBodyHtml from "./AgreementBodyHtml";
 import { useAppMessageDialog } from "../hooks/useAppMessageDialog";
 
@@ -1024,18 +1022,7 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
               )}
             </div>
           </Card.Body>
-          <Card.Footer className="d-flex justify-content-between bg-white border-0 shadow-0">
-            <div className="w-75 d-flex gap-2">
-              <Button
-                variant="outline-success"
-                onClick={saveCheckboxStates}
-                label="Save States"
-                className="py-1"
-                outlined
-                severity="success"
-                icon="pi pi-save"
-              />
-            </div>
+          <Card.Footer className="d-flex justify-content-end bg-white border-0 shadow-0">
             <div>
               <Button
                 icon="pi pi-chevron-left"
@@ -1355,22 +1342,13 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
     const mapTreeNode = (node) => {
       const shortItemId = node.shortId;
       const itemId = `${sectionKey}:f${fieldIndex}:${shortItemId}`;
-      const legacyItemId = `${sectionKey}:${shortItemId}`;
-      const itemCheckboxConfig = resolveCheckboxServiceFlags(
-        checkboxConfig[itemId] ||
-          checkboxConfig[legacyItemId] ||
-          checkboxConfig[shortItemId],
+      const currentState = resolveAnnexAItemFlags(
+        checkboxStates,
+        sectionKey,
+        node,
+        fieldIndex,
+        checkboxConfig,
       );
-
-      const savedState =
-        checkboxStates[sectionKey]?.[itemId] ||
-        checkboxStates[sectionKey]?.[legacyItemId];
-      const currentState = savedState || {
-        ramp: itemCheckboxConfig.ramp,
-        comp: itemCheckboxConfig.comp,
-        cargo: itemCheckboxConfig.cargo,
-        subItems: {},
-      };
 
       const htmlBody = node.htmlBodyRaw
         ? sanitizeAgreementDocHtml(node.htmlBodyRaw)
@@ -1488,8 +1466,11 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
                           const legacyId = item.id.replace(/:f\d+:/, ":");
                           const currentItemState =
                             prev[sectionKey]?.[item.id] ||
-                            prev[sectionKey]?.[legacyId] ||
-                            {};
+                            prev[sectionKey]?.[legacyId] || {
+                              ramp: item.ramp === true,
+                              comp: item.comp === true,
+                              cargo: item.cargo === true,
+                            };
                           const existingSubItems =
                             currentItemState.subItems || {};
                           let updated = {
@@ -1543,8 +1524,11 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
                           const legacyId = item.id.replace(/:f\d+:/, ":");
                           const currentItemState =
                             prev[sectionKey]?.[item.id] ||
-                            prev[sectionKey]?.[legacyId] ||
-                            {};
+                            prev[sectionKey]?.[legacyId] || {
+                              ramp: item.ramp === true,
+                              comp: item.comp === true,
+                              cargo: item.cargo === true,
+                            };
                           const existingSubItems =
                             currentItemState.subItems || {};
                           let updated = {
@@ -1598,8 +1582,11 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
                           const legacyId = item.id.replace(/:f\d+:/, ":");
                           const currentItemState =
                             prev[sectionKey]?.[item.id] ||
-                            prev[sectionKey]?.[legacyId] ||
-                            {};
+                            prev[sectionKey]?.[legacyId] || {
+                              ramp: item.ramp === true,
+                              comp: item.comp === true,
+                              cargo: item.cargo === true,
+                            };
                           const existingSubItems =
                             currentItemState.subItems || {};
                           let updated = {
@@ -2035,18 +2022,7 @@ const Sgha_annexA = ({ templateYear = 2025, templateName = null }) => {
                         </div>
                       </div>
                     </Card.Body>
-                    <Card.Footer className="d-flex justify-content-between bg-white border-0 shadow-0">
-                      <div className="w-75 d-flex gap-2">
-                        <Button
-                          variant="outline-success"
-                          onClick={saveCheckboxStates}
-                          label="Save States"
-                          className="py-1"
-                          outlined
-                          severity="success"
-                          icon="pi pi-save"
-                        />
-                      </div>
+                    <Card.Footer className="d-flex justify-content-end bg-white border-0 shadow-0">
                       <div>
                         <Button
                           icon="pi pi-chevron-left"

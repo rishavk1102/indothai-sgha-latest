@@ -27,6 +27,10 @@ import {
   resolveCheckboxServiceFlags,
   walkAgreementListTree,
 } from '../../utils/nestedListHtml';
+import {
+  ANNEX_A_FROM_SUBMISSION_KEY,
+  annexAClauseKey,
+} from '../../utils/annexASelection';
 
 const Agreement = () => {
   const navigate = useNavigate();
@@ -246,7 +250,8 @@ const Agreement = () => {
         
         try {
             const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = DOMPurify.sanitize(htmlString, { ALLOWED_TAGS: ['ol', 'ul', 'li'] });
+            // Keep div/p/br: clause numbers before each list are read from those lines.
+            tempDiv.innerHTML = DOMPurify.sanitize(htmlString);
 
             const itemsMap = {};
             const mapNode = (node) => {
@@ -256,6 +261,7 @@ const Agreement = () => {
                 const itemData = {
                     id: itemId,
                     index: node.displayIndex,
+                    clauseKey: annexAClauseKey(sectionKey, node.index),
                     text: node.text,
                     subItems: node.subItems?.length
                         ? node.subItems.map(mapNode)
@@ -539,6 +545,8 @@ const Agreement = () => {
                 cargo: false
             };
             
+            const restoredFromSubmission = !!states[ANNEX_A_FROM_SUBMISSION_KEY];
+
             // Helper function to check if an item is selected (new format ramp/comp/cargo or legacy checked)
             const isItemSelected = (item) => {
                 if (!item || typeof item !== 'object') return false;
@@ -656,8 +664,16 @@ const Agreement = () => {
                         }
                     }
                     
+                    if (!savedItemState && parsedItem.clauseKey && sectionStates[parsedItem.clauseKey]) {
+                        savedItemState = sectionStates[parsedItem.clauseKey];
+                        consumedSavedKeys.add(parsedItem.clauseKey);
+                    }
+
                     const isSelectedInSavedState = isItemSelected(savedItemState);
-                    const isDefaultSelected = !savedItemState && isDefaultSelectedInTemplate(checkboxConfig, itemId, sectionKey, itemNum);
+                    const isDefaultSelected =
+                        !savedItemState &&
+                        !restoredFromSubmission &&
+                        isDefaultSelectedInTemplate(checkboxConfig, itemId, sectionKey, itemNum);
                     const isMainItemSelected = isSelectedInSavedState || isDefaultSelected;
                     
                     // Also check for sub-items selection
@@ -698,8 +714,18 @@ const Agreement = () => {
                                     }
                                 }
                             }
+                            if (!subItemState && parsedSubItem.clauseKey) {
+                                subItemState = sectionStates[parsedSubItem.clauseKey] || null;
+                            }
+                            const subItemNum = typeof subItemId === 'string'
+                                ? subItemId.match(/item-(\d+)/)?.[1]
+                                : null;
+                            const subDefaultSelected =
+                                !subItemState &&
+                                !restoredFromSubmission &&
+                                isDefaultSelectedInTemplate(checkboxConfig, subItemId, sectionKey, subItemNum);
                             
-                            if (isItemSelected(subItemState)) {
+                            if (isItemSelected(subItemState) || subDefaultSelected) {
                                 hasSelectedSubItems = true;
                                 if (!addedItemIds.has(subItemId)) {
                                     addedItemIds.add(subItemId);

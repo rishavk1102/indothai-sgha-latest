@@ -4,6 +4,12 @@ import logoImage from "../assets/images/logo.png";
 import footerImage from "../assets/images/indothai_pdf_footer.png";
 import { SDA_PDF } from "./sdaPdfConfig";
 import {
+  annexAClauseKey,
+  forEachAnnexAEditor,
+  letterClauseKey,
+} from "./annexASelection";
+import { walkAgreementListTree } from "./nestedListHtml";
+import {
   applyLetterhead,
   collapseRepeatedArticleBlocks,
   defaultClosingSignatureLines,
@@ -421,19 +427,28 @@ function orderNumberedSections(list) {
   );
 }
 
-function isClauseSelected(item, serviceTypes) {
+function isClauseSelected(item, serviceTypes = {}) {
   if (item === true) return true;
   if (!item || typeof item !== "object") return false;
-  if (item.checked === true) return true;
   const hasServiceType =
     item.ramp !== undefined ||
     item.comp !== undefined ||
     item.cargo !== undefined;
+  // Legacy only: checked with no per-service flags.
+  if (
+    item.checked === true &&
+    item.ramp == null &&
+    item.comp == null &&
+    item.cargo == null
+  ) {
+    return true;
+  }
   if (!hasServiceType) return false;
-  if (serviceTypes.ramp && item.ramp !== false) return true;
-  if (serviceTypes.comp && item.comp !== false) return true;
-  if (serviceTypes.cargo && item.cargo !== false) return true;
-  return false;
+  return (
+    (!!serviceTypes.ramp && item.ramp === true) ||
+    (!!serviceTypes.comp && item.comp === true) ||
+    (!!serviceTypes.cargo && item.cargo === true)
+  );
 }
 
 /**
@@ -495,6 +510,60 @@ function collectAnnexASelections(selections) {
     }
   });
   return grouped;
+}
+
+/**
+ * Selected Annex A clauses as PDF rows, read from the same list tree as the
+ * Annex A screen so numbers and texts match it. Returns { "1.2": [{ number, lines }] }.
+ */
+function buildAnnexATemplateRows(templateFields, grouped) {
+  const rowsBySection = {};
+  forEachAnnexAEditor(templateFields, ({ html, mainKey, sectionKey }) => {
+    const picked = grouped?.[mainKey]?.[sectionKey];
+    if (!picked) return;
+    const root = document.createElement("div");
+    root.innerHTML = DOMPurify.sanitize(html);
+    const { tree } = walkAgreementListTree(root, { cleanText: true });
+    if (!rowsBySection[sectionKey]) rowsBySection[sectionKey] = [];
+    const rows = rowsBySection[sectionKey];
+
+    const isPicked = (node) => {
+      const key = annexAClauseKey(sectionKey, node.index);
+      if (!key) return false;
+      const letterKey = letterClauseKey(key);
+      return picked[key] === true || (!!letterKey && picked[letterKey] === true);
+    };
+    const nodeText = (node) =>
+      node.text === `Item ${node.displayIndex}` ? "" : node.text;
+    const fullNumber = (node) => {
+      const display = String(node.displayIndex || node.index);
+      return display.startsWith(`${sectionKey}.`) ? display : `${sectionKey}.${display}`;
+    };
+
+    const visit = (node, row) => {
+      let current = row;
+      if (isPicked(node)) {
+        if (!row) {
+          current = {
+            number: fullNumber(node),
+            level: node.level,
+            lines: [{ text: nodeText(node), indent: 0, list: true }],
+          };
+          rows.push(current);
+        } else {
+          const marker = `${String(node.displayIndex).split(".").pop()}.`;
+          row.lines.push({
+            text: `${marker} ${nodeText(node)}`.trim(),
+            indent: Math.min(4, Math.max(1, node.level - row.level)),
+            list: true,
+          });
+        }
+      }
+      (node.subItems || []).forEach((child) => visit(child, current));
+    };
+    tree.forEach((node) => visit(node, null));
+  });
+  return rowsBySection;
 }
 
 /** A run of Annex A sections (2, then 4, then 3) is drawn as 2, 3, 4. */
@@ -929,20 +998,17 @@ export const generateSubmissionPDF = async (
     let finalItemTextMap = itemTextMap;
     let finalSectionTitles = sectionTitles;
 
-    if (
-      Object.keys(itemTextMap).length === 0 ||
-      Object.keys(sectionTitles).length === 0
-    ) {
-      const templateData = await fetchAnnexATemplateData(
-        submission.agreement_year || 2025,
-      );
-      if (Object.keys(itemTextMap).length === 0) {
-        finalItemTextMap = templateData.itemTextMap || {};
-      }
-      if (Object.keys(sectionTitles).length === 0) {
-        finalSectionTitles = templateData.sectionTitles || {};
-      }
+    const templateData = await fetchAnnexATemplateData(
+      submission.agreement_year || 2025,
+      submission.form_details?.template_name,
+    );
+    if (Object.keys(itemTextMap).length === 0) {
+      finalItemTextMap = templateData.itemTextMap || {};
     }
+    if (Object.keys(sectionTitles).length === 0) {
+      finalSectionTitles = templateData.sectionTitles || {};
+    }
+    const annexATemplateFields = templateData.fields || [];
 
     const doc = newSdaDocument();
 
@@ -1306,6 +1372,10 @@ export const generateSubmissionPDF = async (
       const annexAByArticle = collectAnnexASelections(
         submission.checkbox_selections,
       );
+      const templateRows = buildAnnexATemplateRows(
+        annexATemplateFields,
+        annexAByArticle,
+      );
       Object.keys(annexAByArticle)
         .sort((a, b) => parseInt(a, 10) - parseInt(b, 10))
         .forEach((mainSectionNum) => {
@@ -1334,6 +1404,13 @@ export const generateSubmissionPDF = async (
                   sectionTitle ||
                   sectionKey,
               );
+
+              if (templateRows[sectionKey]?.length) {
+                templateRows[sectionKey].forEach((row) => {
+                  yPos = drawClauseRow(doc, yPos, row.number, row.lines);
+                });
+                return;
+              }
 
               const items = Object.keys(sectionData)
                 .filter((key) => sectionData[key] === true)
@@ -1499,32 +1576,6 @@ export const generateSubmissionPDF = async (
               });
             });
         });
-    }
-
-    try {
-      const annexATemplate = await fetchAnnexATemplateData(
-        templateYear,
-        templateName,
-      );
-      const annexAArticles = buildArticlesFromTemplate(annexATemplate.fields, {
-        sort: true,
-      });
-      annexAArticles.forEach((article) => {
-        const nonEmptySections = orderNumberedSections(article.sections).filter(hasContent);
-        if (!nonEmptySections.length) return;
-        yPos = drawParagraphBanner(
-          doc,
-          yPos,
-          `SECTION ${article.articleNumber}. ${(article.articleTitle || "").toUpperCase()}`.trim(),
-        );
-        nonEmptySections.forEach((section) => {
-          yPos = drawTemplateSectionHeading(doc, yPos, section);
-          renderHtmlBody(section.content);
-        });
-        yPos += 2;
-      });
-    } catch (error) {
-      console.error("Error rendering Annex A template:", error);
     }
 
     /* ------------------------------ ANNEX B ------------------------------ */

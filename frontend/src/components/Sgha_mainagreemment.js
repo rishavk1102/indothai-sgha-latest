@@ -6,21 +6,60 @@ import { Sidebar } from 'primereact/sidebar';
 import { Checkbox } from "primereact/checkbox";
 import api from '../api/axios';
 import AgreementBodyHtml from './AgreementBodyHtml';
-import { getSelectedAirportOffice } from '../utils/clientWorkspace';
+import {
+    buildFormDetailsAirportFields,
+    getSelectedAirportOffice,
+} from '../utils/clientWorkspace';
+import { selectHandlingCompany } from '../utils/sghaClauseParser';
 import { useAuth } from '../context/AuthContext';
 
 const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, selectedCities = [], formData = {} }) => {
     const { username } = useAuth();
     const firstAirportId = selectedCities[0]?.airport_id;
+    const airportForm = (firstAirportId && formData[firstAirportId]) || {};
     const clientCompanyName =
-        (firstAirportId && formData[firstAirportId]?.company_name) ||
+        airportForm.company_name ||
         username ||
         '';
+    const clientOffice = [airportForm.city, airportForm.country || airportForm.state]
+        .filter(Boolean)
+        .join(", ");
+    const [handlingCompanyName, setHandlingCompanyName] = useState("");
     const [visibleRight, setVisibleRight] = useState(false);
     const [templateData, setTemplateData] = useState(null);
     const [loadingTemplate, setLoadingTemplate] = useState(false);
     const [mainAgreementSections, setMainAgreementSections] = useState([]);
     const airportOffice = getSelectedAirportOffice(selectedCities, formData) || getSelectedAirportOffice(selectedCities) || "";
+
+    useEffect(() => {
+        let cancelled = false;
+        const loadHandlingCompany = async () => {
+            try {
+                const airportFields = buildFormDetailsAirportFields(selectedCities, formData);
+                if (!airportFields.airport_id && !airportFields.airport_city) {
+                    if (!cancelled) setHandlingCompanyName("");
+                    return;
+                }
+                const businessResponse = await api.get("/business/fetch_businesses_test", {
+                    params: { limit: 100 },
+                });
+                const matched = selectHandlingCompany(
+                    businessResponse.data?.data || [],
+                    { form_details: airportFields },
+                );
+                if (!cancelled) {
+                    setHandlingCompanyName(matched?.name || "");
+                }
+            } catch (error) {
+                console.error("Error fetching handling company:", error);
+                if (!cancelled) setHandlingCompanyName("");
+            }
+        };
+        loadHandlingCompany();
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedCities, formData]);
 
     // Parse Main Agreement template data to extract sections
     const parseMainAgreementData = useCallback((templateData) => {
@@ -189,15 +228,16 @@ const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, selecte
                         <Table className="table" borderless>
                             <tbody>
                             <tr>
-                                <td className="d-flex gap-2">
+                                <td className="d-flex gap-2 align-items-center">
                                 <span>An Agreement made between :</span>
-                                <b className="mb-0">Malindo Airways SDN BHD</b>
+                                <b className="mb-0">{clientCompanyName || "Carrier"}</b>
+                                <i className="pi pi-lock text-muted" title="This name cannot be changed" style={{ fontSize: '12px' }} />
                                 </td>
                             </tr>
                             <tr>
                                 <td className="d-flex gap-2">
                                 <span>having its principal office at·</span>
-                                <b className="mb-0">Petaling Jaya, Malaysia</b>
+                                <b className="mb-0">{clientOffice || "—"}</b>
                                 </td>
                             </tr>
                             <tr>
@@ -206,8 +246,7 @@ const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, selecte
                             <tr>
                                 <td className="d-flex gap-2 align-items-center">
                                 <span>and:</span>
-                                <b className="mb-0">{clientCompanyName || 'INDOTHAI KOLKATA PRIVATE LIMITED'}</b>
-                                <i className="pi pi-lock text-muted" title="This name cannot be changed" style={{ fontSize: '12px' }} />
+                                <b className="mb-0">{handlingCompanyName}</b>
                                 </td>
                             </tr>
                             <tr>
@@ -334,23 +373,13 @@ const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, selecte
                 <h5 className="py-4 border-bottom mb-4">Edit Main Agreemnet</h5>
                 <Form.Group className="mb-3" controlId="formBasicEmail">
                     <Form.Label>An Agreement made between :</Form.Label>
-                    <Form.Control type="text" placeholder="Malindo Airways SDN BHD" />
-                </Form.Group>
-        
-                <Form.Group className="mb-3" controlId="formBasicEmail">
-                    <Form.Label>having its principal office at :</Form.Label>
-                    <Form.Control type="text" placeholder="Petaling Jaya, Malaysia" />
-                </Form.Group>
-        
-                <Form.Group className="mb-3" controlId="formBasicEmail">
-                    <Form.Label>hereinafter referred to as the 'Carrier' or the 'Handling Company' as the case may be, and:</Form.Label>
                     <div className="position-relative">
                         <Form.Control
                             type="text"
                             value={clientCompanyName}
                             disabled
                             readOnly
-                            placeholder="Company name"
+                            placeholder="Carrier company name"
                             title="This name cannot be changed"
                             style={{ paddingRight: '2.25rem' }}
                         />
@@ -370,8 +399,18 @@ const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, selecte
                 </Form.Group>
         
                 <Form.Group className="mb-3" controlId="formBasicEmail">
+                    <Form.Label>having its principal office at :</Form.Label>
+                    <Form.Control type="text" value={clientOffice} disabled readOnly placeholder="Carrier office" />
+                </Form.Group>
+        
+                <Form.Group className="mb-3" controlId="formHandlingCompany">
+                    <Form.Label>hereinafter referred to as the 'Carrier' or the 'Handling Company' as the case may be, and:</Form.Label>
+                    <Form.Control type="text" value={handlingCompanyName} disabled readOnly />
+                </Form.Group>
+        
+                <Form.Group className="mb-3" controlId="formHandlingOffice">
                     <Form.Label>having its principal office at·</Form.Label>
-                    <Form.Control type="text" placeholder={airportOffice || "Selected airport"} />
+                    <Form.Control type="text" value={airportOffice || "Selected airport"} disabled readOnly />
                 </Form.Group>
                 <div className="d-flex justify-content-end gap-2">
                     <Button
@@ -379,6 +418,7 @@ const Sgha_mainagreemment = ({ templateYear = 2025, templateName = null, selecte
                     label="Cancel"
                     className="py-2"
                     severity="secondary"
+                    onClick={() => setVisibleRight(false)}
                     />
                     <Button
                     icon="pi pi-check"

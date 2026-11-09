@@ -14,6 +14,7 @@ const {
   logo,
   watermark,
   footerImage,
+  footerAddress,
   font,
   color,
   clauseNumberWidth,
@@ -1269,9 +1270,13 @@ export function applyLetterhead(doc, logoDataUrl, footerDataUrl) {
   const markY = (page.height - markH) / 2;
   const markOpacity = watermark?.opacity ?? 0.08;
   const footerW = footerImage?.width || page.width;
-  const footerH = footerImage?.height || 13.3;
+  const footerH = footerImage?.height || 12;
   const footerX = (page.width - footerW) / 2;
   const footerY = page.height - footerH;
+  const addressLines = Array.isArray(footerAddress?.lines) ? footerAddress.lines : [];
+  const addressSize = footerAddress?.fontSize || 6.5;
+  const addressGap = footerAddress?.lineGap || 3.2;
+  const addressBlockH = addressLines.length ? addressLines.length * addressGap + 1.5 : 0;
 
   for (let i = 1; i <= total; i += 1) {
     doc.setPage(i);
@@ -1296,6 +1301,27 @@ export function applyLetterhead(doc, logoDataUrl, footerDataUrl) {
         // Watermark is optional; letterhead and body still stand.
       }
     }
+    if (addressLines.length) {
+      rgb(doc, color.black);
+      let addressY = footerY - addressBlockH + addressGap;
+      addressLines.forEach((line) => {
+        const runs = Array.isArray(line)
+          ? line
+              .map((part) => ({
+                text: String(part?.text ?? ""),
+                bold: !!part?.bold,
+              }))
+              .filter((part) => part.text)
+          : [{ text: String(line || ""), bold: false }];
+        let lineWidth = 0;
+        runs.forEach((run) => {
+          setFont(doc, run.bold ? "bold" : "normal", addressSize);
+          lineWidth += doc.getTextWidth(run.text);
+        });
+        drawRunLine(doc, runs, (page.width - lineWidth) / 2, addressY, addressSize, color.black);
+        addressY += addressGap;
+      });
+    }
     if (footerDataUrl) {
       try {
         doc.addImage(footerDataUrl, "PNG", footerX, footerY, footerW, footerH);
@@ -1305,9 +1331,9 @@ export function applyLetterhead(doc, logoDataUrl, footerDataUrl) {
     }
     setFont(doc, "normal", font.footer);
     rgb(doc, color.footer);
-    // Page number sits just above the footer strip.
-    const pageNoY = footerDataUrl
-      ? Math.max(contentBottom - 1, footerY - 2.2)
+    // Page number sits above the address + footer strip.
+    const pageNoY = footerDataUrl || addressLines.length
+      ? Math.max(contentBottom - 1, footerY - addressBlockH - 2.2)
       : page.height - margin.footer;
     doc.text(String(i), page.width - margin.right, pageNoY, {
       align: "right",

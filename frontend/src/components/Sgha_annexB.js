@@ -28,6 +28,7 @@ import {
   getSelectedAirportOffice,
   OTHER_AIRCRAFT_SELECT_VALUE,
 } from "../utils/clientWorkspace";
+import { selectHandlingCompany } from "../utils/sghaClauseParser";
 import { shouldShowClientPrices } from "../utils/submissionDraftHydrate";
 import {
   resolveCheckboxServiceFlags,
@@ -88,10 +89,45 @@ const Sgha_annexB = ({
   }, [role]);
 
   const firstAirportId = selectedCities[0]?.airport_id;
+  const airportForm = (firstAirportId && formData[firstAirportId]) || {};
   const clientCompanyName =
-    (firstAirportId && formData[firstAirportId]?.company_name) ||
+    airportForm.company_name ||
     username ||
     "";
+  const clientOffice = [airportForm.city, airportForm.country || airportForm.state]
+    .filter(Boolean)
+    .join(", ");
+  const [handlingCompanyName, setHandlingCompanyName] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadHandlingCompany = async () => {
+      try {
+        const airportFields = buildFormDetailsAirportFields(selectedCities, formData);
+        if (!airportFields.airport_id && !airportFields.airport_city) {
+          if (!cancelled) setHandlingCompanyName("");
+          return;
+        }
+        const businessResponse = await api.get("/business/fetch_businesses_test", {
+          params: { limit: 100 },
+        });
+        const matched = selectHandlingCompany(
+          businessResponse.data?.data || [],
+          { form_details: airportFields },
+        );
+        if (!cancelled) {
+          setHandlingCompanyName(matched?.name || "");
+        }
+      } catch (error) {
+        console.error("Error fetching handling company:", error);
+        if (!cancelled) setHandlingCompanyName("");
+      }
+    };
+    loadHandlingCompany();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCities, formData]);
 
   const isClientNameVariable = (variableName) => {
     const n = String(variableName || "")
@@ -2252,38 +2288,29 @@ const Sgha_annexB = ({
                   </td>
                 </tr>
                 <tr>
-                  <td className="">
-                    <span>between: </span>
-                    <b className="mb-0">Malindo Airways SDN BHD</b>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="">
-                    <span>having its principal office at:</span>
-                    <b className="mb-0"></b>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="">
-                    <span>having its principal office at·</span>
-                    <b className="mb-0">Petaling Jaya, Malaysia</b>
-                  </td>
-                </tr>
-                <tr>
-                  <td>hereinafter referred to as the 'Carrier'</td>
-                  <b className="mb-0"></b>
-                </tr>
-                <tr>
                   <td className="d-flex align-items-center gap-2">
-                    <span>and:</span>
-                    <b className="mb-0">
-                      {clientCompanyName || "INDOTHAI KOLKATA PRIVATE LIMITED"}
-                    </b>
+                    <span>between: </span>
+                    <b className="mb-0">{clientCompanyName || "Carrier"}</b>
                     <i
                       className="pi pi-lock text-muted"
                       title="This name cannot be changed"
                       style={{ fontSize: "12px" }}
                     />
+                  </td>
+                </tr>
+                <tr>
+                  <td className="">
+                    <span>having its principal office at:</span>
+                    <b className="mb-0">{clientOffice || "—"}</b>
+                  </td>
+                </tr>
+                <tr>
+                  <td>hereinafter referred to as the 'Carrier'</td>
+                </tr>
+                <tr>
+                  <td className="d-flex align-items-center gap-2">
+                    <span>and:</span>
+                    <b className="mb-0">{handlingCompanyName}</b>
                   </td>
                 </tr>
                 <tr>
@@ -2294,8 +2321,9 @@ const Sgha_annexB = ({
                 </tr>
                 <tr>
                   <td>
-                    the Carrier and/or the Handling Company may hereinafter be
-                    referred to as the "Party(ies)" effective from:
+                    hereinafter referred to as the 'Handling Company'. The Carrier
+                    and/or the Handling Company may hereinafter be referred to as
+                    the "Party(ies)" effective from:
                   </td>
                 </tr>
 

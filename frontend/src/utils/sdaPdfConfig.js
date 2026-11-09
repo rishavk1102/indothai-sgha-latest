@@ -16,8 +16,8 @@ export const SDA_PDF = {
     left: 12.7,
     right: 12.7,
     top: 18,
-    // Room for the IndoThai footer strip (~13mm) plus a short gap above it.
-    bottom: 20,
+    // Room for address lines + IndoThai footer strip.
+    bottom: 30,
     header: 8,
     footer: 10,
   },
@@ -34,10 +34,32 @@ export const SDA_PDF = {
     height: 58,
     opacity: 0.18,
   },
-  /** Full-width footer banner (indothai_pdf_footer.png, 2168×137). */
+  /** Full-width color bar (indothai_pdf_footer.png, 2168×137). */
   footerImage: {
     width: 210,
-    height: 13.3,
+    height: 12,
+  },
+  /** Drawn centered just above the color bar on every page. Keys are bold. */
+  footerAddress: {
+    fontSize: 8,
+    lineGap: 3.8,
+    lines: [
+      [
+        { text: "Registered Office : ", bold: true },
+        {
+          text: "Silver Arcade, Room No S-2, 2nd Floor, 5 JBS Halden Avenue, Kolkata-700 105, ",
+          bold: false,
+        },
+        { text: "P ", bold: true },
+        { text: "+91 33 2251 7247/8", bold: false },
+      ],
+      [
+        { text: "E ", bold: true },
+        { text: "info@indothai.in     ", bold: false },
+        { text: "CIN : ", bold: true },
+        { text: "U93090WB2021PTC243001", bold: false },
+      ],
+    ],
   },
   font: {
     family: "helvetica",

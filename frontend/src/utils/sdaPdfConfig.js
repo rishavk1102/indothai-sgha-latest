@@ -31,7 +31,7 @@ export const SDA_PDF = {
   watermark: {
     width: 96,
     height: 58,
-    opacity: 0.08,
+    opacity: 0.18,
   },
   font: {
     family: "helvetica",

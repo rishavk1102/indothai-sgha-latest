@@ -27,6 +27,12 @@ export const SDA_PDF = {
     height: 16.9,
     y: 8,
   },
+  /** Same mark, larger and centered, drawn faintly on every page. */
+  watermark: {
+    width: 96,
+    height: 58,
+    opacity: 0.08,
+  },
   font: {
     family: "helvetica",
     title: 22,

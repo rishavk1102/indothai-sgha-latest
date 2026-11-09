@@ -12,6 +12,7 @@ const {
   margin,
   contentTop,
   logo,
+  watermark,
   font,
   color,
   clauseNumberWidth,
@@ -1261,6 +1262,12 @@ export function drawCover(doc, y, model) {
 
 export function applyLetterhead(doc, logoDataUrl) {
   const total = doc.getNumberOfPages();
+  const markW = watermark?.width || 96;
+  const markH = watermark?.height || 58;
+  const markX = (page.width - markW) / 2;
+  const markY = (page.height - markH) / 2;
+  const markOpacity = watermark?.opacity ?? 0.08;
+
   for (let i = 1; i <= total; i += 1) {
     doc.setPage(i);
     if (logoDataUrl) {
@@ -1269,6 +1276,19 @@ export function applyLetterhead(doc, logoDataUrl) {
         doc.addImage(logoDataUrl, "PNG", logoX, logo.y, logo.width, logo.height);
       } catch (error) {
         // Logo is optional at paint time; body content still stands.
+      }
+      try {
+        // Same mark, faint and centered, as a page watermark.
+        if (typeof doc.saveGraphicsState === "function" && doc.GState) {
+          doc.saveGraphicsState();
+          doc.setGState(new doc.GState({ opacity: markOpacity }));
+          doc.addImage(logoDataUrl, "PNG", markX, markY, markW, markH);
+          doc.restoreGraphicsState();
+        } else {
+          doc.addImage(logoDataUrl, "PNG", markX, markY, markW, markH);
+        }
+      } catch (error) {
+        // Watermark is optional; letterhead and body still stand.
       }
     }
     setFont(doc, "normal", font.footer);

@@ -396,9 +396,32 @@ function preparedClauseLines(text) {
         indent: Math.min(4, Math.max(0, Number(line?.indent) || 0)),
         list: true,
       }))
-      .filter((line) => line.text);
+      .filter((line) => line.text || line.blank);
   }
   return normalizeClauseLines(text);
+}
+
+/** Text between these marks is drawn bold (filled Annex B variable values). */
+export const PDF_BOLD_OPEN = "\uE000";
+export const PDF_BOLD_CLOSE = "\uE001";
+const BOLD_MARKS = /[\uE000\uE001]/g;
+const HAS_BOLD = /[\uE000\uE001]/;
+
+function boldRuns(text) {
+  const runs = [];
+  let bold = false;
+  let current = "";
+  for (const ch of String(text || "")) {
+    if (ch === PDF_BOLD_OPEN || ch === PDF_BOLD_CLOSE) {
+      if (current) runs.push({ text: current, bold });
+      current = "";
+      bold = ch === PDF_BOLD_OPEN;
+      continue;
+    }
+    current += ch;
+  }
+  if (current) runs.push({ text: current, bold });
+  return runs;
 }
 
 function expandClauseLines(doc, text, textWidth, fontSize) {
@@ -406,9 +429,27 @@ function expandClauseLines(doc, text, textWidth, fontSize) {
   const visual = [];
   const rows = source.length ? source : [{ indent: 0, text: "" }];
   rows.forEach((line) => {
+    if (line.blank) {
+      visual.push({ text: "", indent: 0, blank: true });
+      return;
+    }
     const indent = clauseIndent(line.indent);
     const avail = Math.max(20, textWidth - indent);
     setFont(doc, "normal", fontSize);
+    if (HAS_BOLD.test(line.text)) {
+      const plain = line.text.replace(BOLD_MARKS, "");
+      const hang = markerPrefix(plain) ? doc.getTextWidth(markerPrefix(plain)) : 0;
+      const wrapped = wrapRuns(doc, boldRuns(line.text), Math.max(16, avail - hang), fontSize);
+      wrapped.forEach((tokens, i) => {
+        const runs = i > 0 ? tokens.filter((t, k) => k > 0 || !/^\s+$/.test(t.text)) : tokens;
+        visual.push({
+          text: runs.map((t) => t.text).join(""),
+          runs,
+          indent: indent + (i === 0 ? 0 : hang),
+        });
+      });
+      return;
+    }
     const prefix = markerPrefix(line.text);
     if (!prefix) {
       const wrapped = doc.splitTextToSize(line.text || "", avail);
@@ -444,7 +485,7 @@ export function drawClauseRow(doc, y, number, text) {
   const textWidth = Math.max(24, contentWidth - clauseGutter);
   const parsed = preparedClauseLines(text);
   const all = expandClauseLines(doc, prefixKeyMarker(parsed, markers), textWidth, fontSize).filter(
-    (line) => line.text,
+    (line) => line.text || line.blank,
   );
   if (!all.length && !numberText) return y;
 
@@ -466,7 +507,16 @@ export function drawClauseRow(doc, y, number, text) {
     currentY = ensureSpace(doc, currentY, lh);
     const baseline = currentY + lh * 0.75;
     if (numLines[i]) doc.text(numLines[i], margin.left, baseline);
-    if (lines[i]) {
+    if (lines[i] && lines[i].runs) {
+      drawRunLine(
+        doc,
+        lines[i].runs,
+        margin.left + clauseGutter + lines[i].indent,
+        baseline,
+        fontSize,
+        color.black,
+      );
+    } else if (lines[i] && lines[i].text) {
       drawLineWithEmails(
         doc,
         lines[i].text,
@@ -496,7 +546,7 @@ export function drawBodyLines(doc, y, lines) {
     lines,
     listBlock ? contentWidth : contentWidth - clauseGutter,
     fontSize,
-  ).filter((line) => line.text);
+  ).filter((line) => line.text || line.blank);
   if (!visual.length) return y;
   // List depth is the only offset. Adding the clause gutter on top of it
   // pushes nested items about 30mm in, while already-numbered "(i)" lines stay put.
@@ -507,7 +557,9 @@ export function drawBodyLines(doc, y, lines) {
     currentY = ensureSpace(doc, currentY, lh);
     setFont(doc, "normal", fontSize);
     rgb(doc, color.black);
-    doc.text(line.text, margin.left + origin + line.indent, currentY + lh * 0.75);
+    const x = margin.left + origin + line.indent;
+    if (line.runs) drawRunLine(doc, line.runs, x, currentY + lh * 0.75, fontSize, color.black);
+    else if (line.text) doc.text(line.text, x, currentY + lh * 0.75);
     currentY += lh;
   });
   return currentY + 0.8;
@@ -532,7 +584,7 @@ function signatureKind(text) {
 }
 
 function signaturePieces(doc, line) {
-  const text = String(line?.text || "").trim();
+  const text = String(line?.text || "").replace(BOLD_MARKS, "").trim();
   if (!text) return [];
   const fontSize = font.body;
   setFont(doc, "normal", fontSize);
@@ -777,6 +829,10 @@ export function drawAgreementBlocks(doc, y, blocks, options = {}) {
 
   (blocks || []).forEach((block) => {
     if (!block) return;
+    if (block.blank) {
+      currentY += lineHeight(font.body);
+      return;
+    }
     if (block.type === "clause") {
       currentY = drawClauseRow(doc, currentY, block.number || "", block.lines || "");
       return;
@@ -853,7 +909,7 @@ export function drawDataTable(doc, y, headers, rows, colWidths, opts = {}) {
 
   const wrapCell = (value, width, style) => {
     setFont(doc, style, fontSize);
-    const raw = value == null || value === "" ? "" : String(value);
+    const raw = value == null || value === "" ? "" : String(value).replace(BOLD_MARKS, "");
     const maxW = Math.max(4, width - cellPadX * 2);
     const lines = raw.split(/\r?\n/).flatMap((part) => {
       if (!part) return [""];

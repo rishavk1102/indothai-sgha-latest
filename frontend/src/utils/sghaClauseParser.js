@@ -12,10 +12,17 @@ function lineKind(text) {
 }
 
 export function normalizeClauseLines(lines) {
-  const items = (lines || [])
-    .map((l) => (typeof l === "string" ? l : String(l?.text || "")).trim())
-    .filter(Boolean)
-    .map((text) => ({ text, kind: lineKind(text) }));
+  const items = [];
+  (lines || []).forEach((line) => {
+    const text = (typeof line === "string" ? line : String(line?.text ?? "")).trim();
+    if (!text) {
+      if (items.length && items[items.length - 1].kind !== "blank") {
+        items.push({ text: "", kind: "blank" });
+      }
+      return;
+    }
+    items.push({ text, kind: lineKind(text) });
+  });
   if (!items.length) return [];
 
   const has = (k) => items.some((i) => i.kind === k);
@@ -38,6 +45,7 @@ export function normalizeClauseLines(lines) {
   let prevKind = null;
   let afterTail = false;
   return items.map(({ text, kind }, i) => {
+    if (kind === "blank") return { indent: 0, text: "", blank: true };
     let indent = prev;
     if (kind === "letter") {
       indent = letterLevel;
@@ -254,6 +262,23 @@ function rowsToBlocks(rows) {
     .map((text) => ({ type: "paragraph", lines: parseClauseLines(text) }));
 }
 
+function pushBlankLine(blocks) {
+  const last = blocks[blocks.length - 1];
+  if (!last || last.blank) return;
+  blocks.push({
+    type: "paragraph",
+    blank: true,
+    lines: [{ indent: 0, text: "", blank: true }],
+  });
+}
+
+function isBlankBlock(el) {
+  const tag = String(el?.tagName || "").toLowerCase();
+  if (!/^(p|div|h[1-6]|li)$/.test(tag)) return false;
+  if (el.querySelector && el.querySelector("table, ul, ol, img")) return false;
+  return !(el.textContent || "").replace(/\u00a0/g, " ").trim();
+}
+
 function parsePlainAgreement(text) {
   const lines = String(text || "")
     .replace(/\u00a0/g, " ")
@@ -309,7 +334,15 @@ function parsePlainAgreement(text) {
     }
     if (!String(lines[index] || "").trim()) {
       flushParagraph();
+      pushBlankLine(blocks);
       index += 1;
+      while (
+        index < lines.length &&
+        !String(lines[index] || "").trim() &&
+        !isPipeLine(lines[index])
+      ) {
+        index += 1;
+      }
       continue;
     }
     paragraph.push(lines[index]);
@@ -504,6 +537,10 @@ function walkHtml(node, blocks, ctx) {
       return;
     }
     if (child.nodeType !== 1) return;
+    if (isBlankBlock(child)) {
+      pushBlankLine(blocks);
+      return;
+    }
     const tag = String(child.tagName || "").toLowerCase();
     if (tag === "table") {
       const rows = Array.from(child.querySelectorAll("tr")).map((tr) =>

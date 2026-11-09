@@ -16,6 +16,8 @@ import {
   drawSubsectionRow,
   drawWrappedText,
   newSdaDocument,
+  PDF_BOLD_CLOSE,
+  PDF_BOLD_OPEN,
   resolveCoverModel,
   subsectionLabel,
 } from "./sdaPdfLayout";
@@ -908,6 +910,29 @@ export const generateSubmissionPDF = async (
           );
     };
 
+    // Plain Annex B variables are written into the sentence as bold text, e.g. "surcharge of 11 %".
+    const TABLE_VARIABLES = ["annex_a_selection", "aircraft_options", "additional_charges"];
+    const escapeInline = (value) =>
+      String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const inlineAnnexBValues = (html, values) => {
+      if (!html || typeof html !== "string") return html;
+      const pattern =
+        /(<span\b[^>]*>)?\{\{\s*([^}]+?)\s*\}\}(<\/span>)?((?:\s|&nbsp;)*%)?/gi;
+      return html.replace(pattern, (match, _open, rawName, _close, percent, offset, whole) => {
+        const name = String(rawName || "").trim();
+        if (TABLE_VARIABLES.includes(name)) return match;
+        const value = values ? values[name] : undefined;
+        if (value === undefined || value === null || value === "") return percent || "";
+        let text = typeof value === "object" ? JSON.stringify(value) : String(value).trim();
+        if (percent && !text.endsWith("%")) text = `${text} %`;
+        const before = whole.slice(0, offset).replace(/<[^>]*>$/g, "").slice(-1);
+        const after = whole.slice(offset + match.length, offset + match.length + 1);
+        const lead = before && !/\s/.test(before) ? " " : "";
+        const tail = after && /[A-Za-z0-9]/.test(after) ? " " : "";
+        return `${lead}${PDF_BOLD_OPEN}${escapeInline(text)}${PDF_BOLD_CLOSE}${tail}`;
+      });
+    };
+
     // Split Annex B editor HTML by {{ variable }} placeholders (same logic as Sgha_annexB)
     const splitAnnexBContentByVariables = (html) => {
       if (!html || typeof html !== "string")
@@ -1495,7 +1520,9 @@ export const generateSubmissionPDF = async (
               seenSectionContent.add(contentKey);
               yPos = drawTemplateSectionHeading(doc, yPos, section);
               if (section.content) {
-                const parts = splitAnnexBContentByVariables(section.content);
+                const parts = splitAnnexBContentByVariables(
+                  inlineAnnexBValues(section.content, variables),
+                );
                 doc.setFontSize(10);
                 doc.setFont("helvetica", "normal");
                 parts.forEach((part) => {

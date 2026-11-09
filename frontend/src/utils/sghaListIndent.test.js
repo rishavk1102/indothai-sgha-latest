@@ -8,6 +8,7 @@ function rows(html, numbering) {
       text: line.text,
       indent: line.indent,
       list: !!line.list,
+      blank: !!line.blank || !!block.blank,
     })),
   );
 }
@@ -105,6 +106,30 @@ describe("pdf list indent", () => {
       "false|1|(a) on arrival",
       "false|2|(i) at the gate",
     ]);
+  });
+
+  test("a blank line between 3.10.1 and 3.10.2 is kept", () => {
+    const html = `
+      <p>3.10.1 The carrier arrives.</p>
+      <p><br></p>
+      <p>3.10.2 The carrier departs.</p>
+    `;
+    const got = rows(html).map((row) => `${row.blank ? "blank" : row.text}`);
+    expect(got).toEqual([
+      "3.10.1 The carrier arrives.",
+      "blank",
+      "3.10.2 The carrier departs.",
+    ]);
+  });
+
+  test("one line break stays a new line and two line breaks leave a gap", () => {
+    const single = rows("<p>3.10.1 First sentence.<br>Second sentence.</p>").map((row) => row.text);
+    expect(single).toEqual(["3.10.1 First sentence.", "Second sentence."]);
+
+    const doubled = rows("<p>3.10.1 First sentence.<br><br>Second sentence.</p>").map((row) =>
+      row.blank ? "blank" : row.text,
+    );
+    expect(doubled).toEqual(["3.10.1 First sentence.", "blank", "Second sentence."]);
   });
 
   test("article numbering still uses the clause column", () => {

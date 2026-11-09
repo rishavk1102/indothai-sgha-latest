@@ -13,6 +13,7 @@ const {
   contentTop,
   logo,
   watermark,
+  footerImage,
   font,
   color,
   clauseNumberWidth,
@@ -1260,13 +1261,17 @@ export function drawCover(doc, y, model) {
   return currentY + 2;
 }
 
-export function applyLetterhead(doc, logoDataUrl) {
+export function applyLetterhead(doc, logoDataUrl, footerDataUrl) {
   const total = doc.getNumberOfPages();
   const markW = watermark?.width || 96;
   const markH = watermark?.height || 58;
   const markX = (page.width - markW) / 2;
   const markY = (page.height - markH) / 2;
   const markOpacity = watermark?.opacity ?? 0.08;
+  const footerW = footerImage?.width || page.width;
+  const footerH = footerImage?.height || 13.3;
+  const footerX = (page.width - footerW) / 2;
+  const footerY = page.height - footerH;
 
   for (let i = 1; i <= total; i += 1) {
     doc.setPage(i);
@@ -1291,9 +1296,20 @@ export function applyLetterhead(doc, logoDataUrl) {
         // Watermark is optional; letterhead and body still stand.
       }
     }
+    if (footerDataUrl) {
+      try {
+        doc.addImage(footerDataUrl, "PNG", footerX, footerY, footerW, footerH);
+      } catch (error) {
+        // Footer image is optional; page numbers still stand.
+      }
+    }
     setFont(doc, "normal", font.footer);
     rgb(doc, color.footer);
-    doc.text(String(i), page.width - margin.right, page.height - margin.footer, {
+    // Page number sits just above the footer strip.
+    const pageNoY = footerDataUrl
+      ? Math.max(contentBottom - 1, footerY - 2.2)
+      : page.height - margin.footer;
+    doc.text(String(i), page.width - margin.right, pageNoY, {
       align: "right",
     });
   }

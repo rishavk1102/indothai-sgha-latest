@@ -16,7 +16,8 @@ export const SDA_PDF = {
     left: 12.7,
     right: 12.7,
     top: 18,
-    bottom: 16,
+    // Room for the IndoThai footer strip (~13mm) plus a short gap above it.
+    bottom: 20,
     header: 8,
     footer: 10,
   },
@@ -32,6 +33,11 @@ export const SDA_PDF = {
     width: 96,
     height: 58,
     opacity: 0.18,
+  },
+  /** Full-width footer banner (indothai_pdf_footer.png, 2168×137). */
+  footerImage: {
+    width: 210,
+    height: 13.3,
   },
   font: {
     family: "helvetica",

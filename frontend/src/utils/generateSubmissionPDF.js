@@ -1,6 +1,7 @@
 import DOMPurify from "dompurify";
 import api from "../api/axios";
 import logoImage from "../assets/images/logo.png";
+import footerImage from "../assets/images/indothai_pdf_footer.png";
 import { SDA_PDF } from "./sdaPdfConfig";
 import {
   applyLetterhead,
@@ -33,6 +34,26 @@ import {
 
 /** Set to true to log the raw stored HTML of Annex B articles 9+ (to inspect list shapes). */
 const DEBUG_RAW_ANNEX_B = false;
+
+/** Sgha_<client>_<YYYY-MM-DD>_<HH-mm-ss>.pdf */
+function buildSubmissionPdfFileName(submission) {
+  const raw =
+    submission?.client_name ||
+    submission?.form_details?.company_name ||
+    submission?.company_name ||
+    "client";
+  const client =
+    String(raw)
+      .replace(/[^\w\-]+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "")
+      .slice(0, 60) || "client";
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  const date = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const time = `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+  return `Sgha_${client}_${date}_${time}.pdf`;
+}
 
 /** Natural sort so 2.1.2 comes before 2.1.10. */
 const naturalSort = (a, b) =>
@@ -69,8 +90,48 @@ function formatPdfCell(value, prefix = "") {
   return `${prefix}${value}`;
 }
 
-function formatChargeRateCell(charge) {
-  if (!charge || typeof charge !== "object") return "Rs —\n$ —";
+/** Submission rate from New SGHA: "INR" or "USD". Null keeps both columns when prices show. */
+function resolveSubmissionCurrency(submission) {
+  let fd = submission?.form_details;
+  if (typeof fd === "string") {
+    try {
+      fd = JSON.parse(fd);
+    } catch (e) {
+      fd = null;
+    }
+  }
+  let raw = fd?.rate || submission?.rate || fd?.currency || "";
+  // Drafts sometimes store one object per airport id.
+  if (!raw && fd && typeof fd === "object" && !Array.isArray(fd)) {
+    const nested = Object.values(fd).find(
+      (value) => value && typeof value === "object" && value.rate,
+    );
+    raw = nested?.rate || "";
+  }
+  const rate = String(raw).trim().toUpperCase();
+  if (!rate) return null;
+  if (rate === "INR" || rate === "RS" || rate === "₹" || rate.includes("INR")) {
+    return "INR";
+  }
+  if (
+    rate === "USD" ||
+    rate === "DOLLAR" ||
+    rate === "DOLLARS" ||
+    rate === "$" ||
+    rate.includes("USD") ||
+    rate.includes("DOLLAR")
+  ) {
+    return "USD";
+  }
+  return null;
+}
+
+function formatChargeRateCell(charge, currency = null) {
+  if (!charge || typeof charge !== "object") {
+    if (currency === "INR") return "Rs —";
+    if (currency === "USD") return "$ —";
+    return "Rs —\n$ —";
+  }
   const inr =
     charge.rate_inr != null && charge.rate_inr !== ""
       ? formatPdfCell(charge.rate_inr, "Rs ")
@@ -79,6 +140,8 @@ function formatChargeRateCell(charge) {
     charge.rate_usd != null && charge.rate_usd !== ""
       ? formatPdfCell(charge.rate_usd, "$ ")
       : "$ —";
+  if (currency === "INR") return inr;
+  if (currency === "USD") return usd;
   return `${inr}\n${usd}`;
 }
 
@@ -90,7 +153,12 @@ function parseAdditionalChargesList(raw) {
   return [];
 }
 
-function additionalChargesTableRow(charge, index, includePrices = true) {
+function additionalChargesTableRow(
+  charge,
+  index,
+  includePrices = true,
+  currency = null,
+) {
   const base = [
     String(index + 1),
     charge?.Service_name || charge?.charge_name || charge?.name || "—",
@@ -100,7 +168,7 @@ function additionalChargesTableRow(charge, index, includePrices = true) {
   if (!includePrices) return base;
   return [
     ...base,
-    formatChargeRateCell(charge),
+    formatChargeRateCell(charge, currency),
     charge?.Remarks || charge?.remarks || "—",
   ];
 }
@@ -237,10 +305,37 @@ function aircraftOptionsCategoryLabel(data) {
   return label || data.Category_name || "—";
 }
 
-function aircraftOptionsTableRow(data, includePrices = true) {
+function aircraftOptionsTableSpec(includePrices, currency = null) {
+  if (!includePrices) {
+    return {
+      headers: ["Aircraft", "Region", "MOTW", "Limit"],
+      widths: [70, 30, 28, 27],
+    };
+  }
+  if (currency === "INR") {
+    return {
+      headers: ["Aircraft", "Region", "MOTW", "Limit", "INR"],
+      widths: [58, 28, 24, 26, 28],
+    };
+  }
+  if (currency === "USD") {
+    return {
+      headers: ["Aircraft", "Region", "MOTW", "Limit", "USD"],
+      widths: [58, 28, 24, 26, 28],
+    };
+  }
+  return {
+    headers: ["Aircraft", "Region", "MOTW", "Limit", "INR", "USD"],
+    widths: [50, 24, 20, 22, 20, 19],
+  };
+}
+
+function aircraftOptionsTableRow(data, includePrices = true, currency = null) {
+  const emptyPrices =
+    currency === "INR" || currency === "USD" ? ["—"] : ["—", "—"];
   if (!data || typeof data !== "object") {
     return includePrices
-      ? ["—", "—", "—", "—", "—", "—"]
+      ? ["—", "—", "—", "—", ...emptyPrices]
       : ["—", "—", "—", "—"];
   }
   if (data.is_other) {
@@ -250,7 +345,7 @@ function aircraftOptionsTableRow(data, includePrices = true) {
       data.Category_name ||
       "Other";
     return includePrices
-      ? [name, "—", "—", "—", "—", "—"]
+      ? [name, "—", "—", "—", ...emptyPrices]
       : [name, "—", "—", "—"];
   }
   const aircraft = [data.Aircraft_name, data.Aircraft_model]
@@ -264,6 +359,12 @@ function aircraftOptionsTableRow(data, includePrices = true) {
     formatPdfCell(data.Limit_per_incident),
   ];
   if (!includePrices) return base;
+  if (currency === "INR") {
+    return [...base, formatPdfCell(data.Price_per_Limit_inr, "Rs ")];
+  }
+  if (currency === "USD") {
+    return [...base, formatPdfCell(data.Price_per_Limit_usd, "$ ")];
+  }
   return [
     ...base,
     formatPdfCell(data.Price_per_Limit_inr, "Rs "),
@@ -819,7 +920,10 @@ export const generateSubmissionPDF = async (
   options = {},
 ) => {
   const { openInNewTab = true, hidePrices = false } = options;
-  const includeAircraftPrices = !hidePrices;
+  const priceCurrency = resolveSubmissionCurrency(submission);
+  // Selected INR/USD always gets its column. hidePrices only hides amounts when
+  // the client has not chosen a rate yet (Pending with no rate on the form).
+  const includeAircraftPrices = !hidePrices || !!priceCurrency;
   try {
     // Fetch Annex A template data if not provided
     let finalItemTextMap = itemTextMap;
@@ -1559,28 +1663,31 @@ export const generateSubmissionPDF = async (
                       data = typeof data === "string" ? JSON.parse(data) : data;
                       const rows = Array.isArray(data)
                         ? data.map((a) =>
-                            aircraftOptionsTableRow(a, includeAircraftPrices),
+                            aircraftOptionsTableRow(
+                              a,
+                              includeAircraftPrices,
+                              priceCurrency,
+                            ),
                           )
-                        : [aircraftOptionsTableRow(data, includeAircraftPrices)];
+                        : [
+                            aircraftOptionsTableRow(
+                              data,
+                              includeAircraftPrices,
+                              priceCurrency,
+                            ),
+                          ];
                       if (rows.length === 0) return;
+                      const aircraftSpec = aircraftOptionsTableSpec(
+                        includeAircraftPrices,
+                        priceCurrency,
+                      );
                       checkPageBreak(20);
                       yPos = drawSimpleTable(
                         margin,
                         yPos,
-                        includeAircraftPrices
-                          ? [
-                              "Aircraft",
-                              "Region",
-                              "MOTW",
-                              "Limit",
-                              "INR",
-                              "USD",
-                            ]
-                          : ["Aircraft", "Region", "MOTW", "Limit"],
+                        aircraftSpec.headers,
                         rows,
-                        includeAircraftPrices
-                          ? [50, 24, 20, 22, 20, 19]
-                          : [70, 30, 28, 27],
+                        aircraftSpec.widths,
                         { fontSize: 8, rowHeight: 7 },
                       );
                     } catch (e) {
@@ -1604,7 +1711,12 @@ export const generateSubmissionPDF = async (
                         variables.additional_charges,
                       );
                       const rows = arr.map((c, i) =>
-                        additionalChargesTableRow(c, i, includeAircraftPrices),
+                        additionalChargesTableRow(
+                          c,
+                          i,
+                          includeAircraftPrices,
+                          priceCurrency,
+                        ),
                       );
                       if (rows.length === 0) return;
                       const spec = additionalChargesTableSpec(
@@ -1640,14 +1752,26 @@ export const generateSubmissionPDF = async (
                     const displayName = part.variableName
                       .replace(/_/g, " ")
                       .replace(/\b\w/g, (l) => l.toUpperCase());
-                    doc.setFont("helvetica", "bold");
-                    doc.text(`${displayName}:`, margin, yPos);
-                    doc.setFont("helvetica", "normal");
                     const valueStr =
                       typeof val === "object" ? JSON.stringify(val) : String(val);
-                    yPos += 4;
-                    yPos = addText(valueStr, margin, yPos, { fontSize: 10 });
-                    yPos += 3;
+                    const label = `${displayName}:`;
+                    doc.setFontSize(10);
+                    doc.setFont("helvetica", "bold");
+                    doc.text(label, margin, yPos);
+                    const labelW = Math.min(95, doc.getTextWidth(label) + 2);
+                    doc.setFont("helvetica", "normal");
+                    const valueLines = doc.splitTextToSize(
+                      valueStr,
+                      Math.max(24, maxWidth - labelW),
+                    );
+                    (valueLines.length ? valueLines : [""]).forEach((line, i) => {
+                      if (i > 0) {
+                        checkPageBreak(6);
+                        yPos += 5;
+                      }
+                      doc.text(line, margin + labelW, yPos);
+                    });
+                    yPos += 5;
                   }
                 });
                 yPos += 3;
@@ -1679,25 +1803,44 @@ export const generateSubmissionPDF = async (
         });
         if (filledCustomVars.length > 0) {
           yPos = drawParagraphBanner(doc, yPos, "ADDITIONAL DETAILS");
-          filledCustomVars.forEach((varName) => {
-            checkPageBreak(10);
+          const detailRows = filledCustomVars.map((varName) => {
             const varValue = variables[varName];
             const displayName = varName
               .replace(/_/g, " ")
               .replace(/\b\w/g, (l) => l.toUpperCase());
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "bold");
-            doc.text(`${displayName}:`, margin, yPos);
-            doc.setFont("helvetica", "normal");
             const valueStr =
               typeof varValue === "object"
                 ? JSON.stringify(varValue)
                 : String(varValue);
-            yPos = addText(valueStr, margin + 40, yPos, {
-              fontSize: 10,
-              maxWidth: maxWidth - 40,
+            return { label: `${displayName}:`, value: valueStr };
+          });
+          doc.setFontSize(10);
+          doc.setFont("helvetica", "bold");
+          const labelCol = Math.min(
+            95,
+            Math.max(
+              36,
+              ...detailRows.map((row) => doc.getTextWidth(row.label) + 2),
+            ),
+          );
+          detailRows.forEach((row) => {
+            checkPageBreak(8);
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(10);
+            doc.text(row.label, margin, yPos);
+            doc.setFont("helvetica", "normal");
+            const valueLines = doc.splitTextToSize(
+              row.value,
+              Math.max(24, maxWidth - labelCol),
+            );
+            (valueLines.length ? valueLines : [""]).forEach((line, i) => {
+              if (i > 0) {
+                checkPageBreak(6);
+                yPos += 5;
+              }
+              doc.text(line, margin + labelCol, yPos);
             });
-            yPos += 3;
+            yPos += 5;
           });
           yPos += 2;
         }
@@ -1764,7 +1907,12 @@ export const generateSubmissionPDF = async (
             if (chargesData.length > 0) {
               const spec = additionalChargesTableSpec(includeAircraftPrices);
               const rows = chargesData.map((c, i) =>
-                additionalChargesTableRow(c, i, includeAircraftPrices),
+                additionalChargesTableRow(
+                  c,
+                  i,
+                  includeAircraftPrices,
+                  priceCurrency,
+                ),
               );
               yPos = drawSimpleTable(
                 margin,
@@ -1818,31 +1966,47 @@ export const generateSubmissionPDF = async (
       : defaultClosingSignatureLines(coverModel);
     yPos = drawSignatureSection(doc, yPos, signatureLines);
 
-    // Letterhead (logo, top right) and page number on every page.
+    // Letterhead (logo, top right), footer strip, and page number on every page.
+    const loadImageDataUrl = async (src) => {
+      const response = await fetch(src);
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    };
     let logoDataURL = null;
+    let footerDataURL = null;
     try {
-      const response = await fetch(logoImage);
-      if (response.ok) {
-        const blob = await response.blob();
-        logoDataURL = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-      }
+      logoDataURL = await loadImageDataUrl(logoImage);
     } catch (error) {
       console.error("Error loading letterhead logo:", error);
     }
-    applyLetterhead(doc, logoDataURL);
+    try {
+      footerDataURL = await loadImageDataUrl(footerImage);
+    } catch (error) {
+      console.error("Error loading PDF footer image:", error);
+    }
+    applyLetterhead(doc, logoDataURL, footerDataURL);
 
+    const fileName = buildSubmissionPdfFileName(submission);
+    try {
+      doc.setProperties({
+        title: fileName.replace(/\.pdf$/i, ""),
+        subject: "SGHA Annex B submission",
+      });
+    } catch (e) {
+      // Title is optional; download name still applies.
+    }
     const pdfBlob = doc.output("blob");
     if (openInNewTab) {
       const pdfUrl = URL.createObjectURL(pdfBlob);
       window.open(pdfUrl, "_blank");
       setTimeout(() => URL.revokeObjectURL(pdfUrl), 100);
     } else {
-      const fileName = `Annex-A-Submission-${submission.submission_id || "export"}.pdf`;
       doc.save(fileName);
     }
   } catch (error) {

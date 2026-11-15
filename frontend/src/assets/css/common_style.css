@@ -1787,6 +1787,18 @@ ease;
     flex-wrap: wrap;
     margin-bottom: 16px;
 }
+.create-nonschedule-fhr .form-select,
+.create-nonschedule-fhr .p-calendar,
+.create-nonschedule-fhr .p-inputtext,
+.create-nonschedule-fhr .p-inputtextarea {
+    width: 100%;
+}
+.create-nonschedule-fhr h6 {
+    font-weight: 600;
+}
+.fhr-nonschedule-page {
+    max-width: 1100px;
+}
 .employee-page-header__title {
     margin: 8px 0 0;
     font-size: 22px;

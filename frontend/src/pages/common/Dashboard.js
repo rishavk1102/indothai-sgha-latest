@@ -39,6 +39,20 @@ import CompanyAircraft from '../Admin/CompanyAircraft';
 import SGHA_Add from '../AnnexA/SGHA_Add';
 import ClientDashboard from '../Client/ClientDashboard';
 import PdfUploads from '../Admin/PdfUploads';
+import Draft from '../fhr/Draft';
+import Pending from '../fhr/Pending';
+import Submitted from '../fhr/Submitted';
+import Completed from '../fhr/Completed';
+import Cancelled from '../fhr/Cancelled';
+import Import_fhr from '../fhr/Import_fhr';
+import Non_Schedule_FHR from '../fhr/Non_Schedule_FHR';
+import Edit_Fhr from '../fhr/Edit_Fhr';
+import SghaTariffs from '../Admin/SghaTariffs';
+import Billing from '../Admin/Billing';
+import ClientFhrs from '../Client/ClientFhrs';
+import ClientTariffs from '../Client/ClientTariffs';
+import ClientInvoices from '../Client/ClientInvoices';
+import Upcoming_flights from './Upcoming_flights';
 
 const RoleHomeRedirect = () => {
   const { role } = useAuth();
@@ -110,6 +124,10 @@ const Dashboard = () => {
         <Route path="services_price" element={<EmployeeRoute element={Services_Price} />} />
 
         <Route path="additional_charge" element={<EmployeeRoute element={AdditionalCharges} />} />
+        <Route path="sgha_tariffs" element={<EmployeeRoute element={SghaTariffs} />} />
+        <Route path="sgha_tariffs/:tariff_id" element={<EmployeeRoute element={SghaTariffs} />} />
+        <Route path="billing" element={<EmployeeRoute element={Billing} />} />
+        <Route path="billing/:invoice_id" element={<EmployeeRoute element={Billing} />} />
 
         <Route path="agreed_services_charges" element={<EmployeeRoute element={AgreedServicesCharges} />} />
 
@@ -117,10 +135,26 @@ const Dashboard = () => {
         <Route path="createSGHATemplate" element={<EmployeeRoute element={SGHA_Add} />} />
         <Route path="pdfUploads" element={<EmployeeRoute element={PdfUploads} />} />
 
+        <Route path="upcoming_flights" element={<EmployeeRoute element={Upcoming_flights} />} />
+        <Route path="FHR_draft" element={<EmployeeRoute element={Draft} />} />
+        <Route path="FHR_pending" element={<EmployeeRoute element={Pending} />} />
+        <Route path="FHR_submitted" element={<EmployeeRoute element={Submitted} />} />
+        <Route path="FHR_completed" element={<EmployeeRoute element={Completed} />} />
+        <Route path="FHR_cancelled" element={<EmployeeRoute element={Cancelled} />} />
+        <Route path="FHR_import" element={<EmployeeRoute element={Import_fhr} />} />
+        <Route path="FHR_nonschedule" element={<EmployeeRoute element={Non_Schedule_FHR} />} />
+        <Route path="edit_fhr/:fhr_id" element={<EmployeeRoute element={Edit_Fhr} />} />
+
         <Route path="home" element={<ClientOnlyRoute element={Home} />} />
         <Route path="agreement" element={<ClientOnlyRoute element={Agreement} />} />
         <Route path="reportsummary" element={<ClientOnlyRoute element={Sgha_reportsummary} />} />
         <Route path="ClientDashboard" element={<ClientOnlyRoute element={ClientDashboard} />} />
+        <Route path="client_fhrs" element={<ClientOnlyRoute element={ClientFhrs} />} />
+        <Route path="client_fhrs/:fhr_id" element={<ClientOnlyRoute element={ClientFhrs} />} />
+        <Route path="client_tariffs" element={<ClientOnlyRoute element={ClientTariffs} />} />
+        <Route path="client_tariffs/:tariff_id" element={<ClientOnlyRoute element={ClientTariffs} />} />
+        <Route path="client_invoices" element={<ClientOnlyRoute element={ClientInvoices} />} />
+        <Route path="client_invoices/:invoice_id" element={<ClientOnlyRoute element={ClientInvoices} />} />
 
         <Route path="*" element={<ProtectedRoute element={RoleHomeRedirect} />} />
       </Routes>

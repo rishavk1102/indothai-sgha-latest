@@ -37,17 +37,32 @@ const ClientAnnexBSubmissionRoutes = require("./Routes/ClientAnnexBSubmissionRou
 const ClientCatalogRoutes = require("./Routes/ClientCatalogRoutes");
 const CommentNotificationRoutes = require("./Routes/CommentNotificationRoutes");
 const PdfUploadsRoutes = require("./Routes/PdfUploadsRoutes");
+const ChargeTypeRoutes = require("./Routes/Aircraft_Charge_Routes");
+const FHRImportRoutes = require("./Routes/ExportExcelRoutes");
+const FHRRoutes = require("./Routes/FHR_Routes");
+const EditFHRRoutes = require("./Routes/EditFhrRoutes");
+const SghaTariffRoutes = require("./Routes/SghaTariffRoutes");
+const BillingRoutes = require("./Routes/BillingRoutes");
+const ClientPortalRoutes = require("./Routes/ClientPortalRoutes");
 const ensureCommentSchema = require("./services/ensureCommentSchema");
 
 // Import models so they are registered with Sequelize for sync
 require("./NewModels/SubmissionEditHistory");
 require("./NewModels/CommentSession");
 require("./NewModels/CommentNotification");
+require("./NewModels/SghaTariff");
+require("./NewModels/SghaTariffLine");
+require("./NewModels/FhrRating");
+require("./NewModels/FhrChargeLine");
+require("./NewModels/Invoice");
+require("./NewModels/InvoiceLine");
+require("./NewModels/InvoiceFhr");
 
 // Import association initializer
 const createUserAssociations = require("./Flow/UserAssociations");
 const createAnnexureAssociations = require("./Flow/AnnexureAssociations");
 const createAnnxAssociations = require("./Flow/AnnxAssociation");
+const createFHRAssociations = require("./Flow/FHRAssociations");
 
 const app = express();
 
@@ -123,7 +138,14 @@ app.use("/api/client", ClientAnnexASubmissionRoutes);
 app.use("/api/client", ClientAnnexBSubmissionRoutes);
 app.use("/api/client", ClientCatalogRoutes);
 app.use("/api/client", CommentNotificationRoutes);
+app.use("/api/client", ClientPortalRoutes);
 app.use("/api/pdf-uploads", PdfUploadsRoutes);
+app.use("/charge-types", ChargeTypeRoutes);
+app.use("/FHR_Import", FHRImportRoutes);
+app.use("/FHR", FHRRoutes);
+app.use("/edit_fhr", EditFHRRoutes);
+app.use("/sgha-tariffs", SghaTariffRoutes);
+app.use("/billing", BillingRoutes);
 
 // Test DB connection
 app.get("/database-connection", async (req, res) => {
@@ -171,6 +193,13 @@ app.use((req, res, next) => {
       req.path.startsWith('/sgha_template_content') ||
       req.path.startsWith('/template_years') ||
       req.path.startsWith('/api/client') ||
+      req.path.startsWith('/api/pdf-uploads') ||
+      req.path.startsWith('/charge-types') ||
+      req.path.startsWith('/FHR_Import') ||
+      req.path.startsWith('/FHR') ||
+      req.path.startsWith('/edit_fhr') ||
+      req.path.startsWith('/sgha-tariffs') ||
+      req.path.startsWith('/billing') ||
       req.path.startsWith('/database-connection')) {
     return next();
   }
@@ -188,6 +217,7 @@ app.use((req, res, next) => {
 createUserAssociations();
 createAnnexureAssociations();
 createAnnxAssociations();
+createFHRAssociations();
 
 // Function to test database connection with retries
 async function connectDatabase(maxRetries = 3, retryDelay = 5000) {

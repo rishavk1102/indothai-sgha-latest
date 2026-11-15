@@ -4,6 +4,9 @@ export const CLIENT_ROUTES = {
   agreement: "/dashboard/agreement",
   submissions: "/dashboard/reportsummary",
   agreements: "/dashboard/sgha_list",
+  fhrs: "/dashboard/client_fhrs",
+  tariffs: "/dashboard/client_tariffs",
+  invoices: "/dashboard/client_invoices",
 };
 
 export const CLIENT_HOME = CLIENT_ROUTES.hub;
@@ -15,6 +18,9 @@ export const CLIENT_PAGE_PERMISSION_NAMES = {
   agreement: "CLIENT_NEW_SGHA",
   submissions: "CLIENT_SUBMISSIONS",
   agreements: "CLIENT_AGREEMENTS",
+  fhrs: "CLIENT_FHRS",
+  tariffs: "CLIENT_TARIFFS",
+  invoices: "CLIENT_INVOICES",
 };
 
 const DRAFT_KEY = "sgha_client_draft";
@@ -44,6 +50,27 @@ const CLIENT_MENU_CORE = [
     name: "My Submissions",
     icon_url: "FiInbox",
     match: ["reportsummary", "report summary", "my submissions"],
+  },
+  {
+    key: "fhrs",
+    path: CLIENT_ROUTES.fhrs,
+    name: "My FHRs",
+    icon_url: "FiClipboard",
+    match: ["client_fhrs", "my fhrs"],
+  },
+  {
+    key: "tariffs",
+    path: CLIENT_ROUTES.tariffs,
+    name: "My Tariffs",
+    icon_url: "FiDollarSign",
+    match: ["client_tariffs", "my tariffs"],
+  },
+  {
+    key: "invoices",
+    path: CLIENT_ROUTES.invoices,
+    name: "My Invoices",
+    icon_url: "FiFileText",
+    match: ["client_invoices", "my invoices"],
   },
 ];
 

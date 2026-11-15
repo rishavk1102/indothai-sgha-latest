@@ -132,6 +132,7 @@ export const AuthProvider = ({ children }) => {
         logout,
         loading,
         imgUrl,
+        socketConnected,
       }}
     >
       {!loading && children}

@@ -973,6 +973,38 @@ router.put("/annex-a-submissions/:submission_id/status", async (req, res) => {
       `✅ ${updatedField} updated for submission ${submission_id}${effectiveFromDate ? `, effective_from: ${effectiveFromDate.toISOString()}` : ""}${effectiveToDate ? `, effective_to: ${effectiveToDate.toISOString()}` : ""}`,
     );
 
+    let tariffSnapshot = null;
+    // Freeze negotiated prices when an SGHA is marked Completed.
+    if (status === "Completed") {
+      try {
+        const {
+          snapshotTariffFromSubmission,
+        } = require("../services/sghaTariffSnapshot");
+        tariffSnapshot = await snapshotTariffFromSubmission(submissionIdInt, {
+          effective_from: submission.effective_from,
+          effective_to: submission.effective_to,
+          approved_by: req.user?.user_id || req.user?.id || null,
+        });
+        console.log(
+          `📦 Tariff snapshot for submission ${submission_id}:`,
+          tariffSnapshot?.reason,
+          tariffSnapshot?.tariff?.tariff_id
+            ? `tariff_id=${tariffSnapshot.tariff.tariff_id}`
+            : "",
+        );
+      } catch (tariffError) {
+        console.error(
+          `⚠️ Status updated but tariff snapshot failed for submission ${submission_id}:`,
+          tariffError.message,
+        );
+        tariffSnapshot = {
+          created: false,
+          reason: "snapshot_error",
+          error: tariffError.message,
+        };
+      }
+    }
+
     return res.status(200).json({
       message: "Status updated successfully",
       data: {
@@ -982,6 +1014,15 @@ router.put("/annex-a-submissions/:submission_id/status", async (req, res) => {
         effective_from: submission.effective_from,
         effective_to: submission.effective_to,
         updated_at: submission.updated_at,
+        tariff_snapshot: tariffSnapshot
+          ? {
+              created: tariffSnapshot.created,
+              reason: tariffSnapshot.reason,
+              tariff_id: tariffSnapshot.tariff?.tariff_id || null,
+              line_count: tariffSnapshot.lineCount || tariffSnapshot.tariff?.lines?.length || 0,
+              error: tariffSnapshot.error || null,
+            }
+          : null,
       },
     });
   } catch (error) {

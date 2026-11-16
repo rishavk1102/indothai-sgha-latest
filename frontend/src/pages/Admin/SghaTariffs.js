@@ -1,26 +1,22 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import {
-  Badge,
-  Breadcrumb,
-  Card,
-  Col,
-  Form,
-  Row,
-  Table,
-} from "react-bootstrap";
+import { Badge, Card, Col, Form, Row, Table } from "react-bootstrap";
 import { Button } from "primereact/button";
 import { Dialog } from "primereact/dialog";
 import { InputText } from "primereact/inputtext";
-import { IoChevronBackOutline } from "react-icons/io5";
+import { IconField } from "primereact/iconfield";
+import { InputIcon } from "primereact/inputicon";
 import api from "../../api/axios";
 import GifLoder from "../../interfaces/GifLoder";
 import {
+  EmployeePageHeader,
+  EmployeeRelatedLinks,
   EMPLOYEE_ROUTES,
   PAGE_PERMISSION_NAMES,
-} from "../../utils/employeeWorkspace";
+} from "../../components/EmployeePageChrome";
 
 const PAGE_NAME = PAGE_PERMISSION_NAMES.sghaTariffs;
+
 const money = (value, currency = "INR") => {
   const n = Number(value);
   if (!Number.isFinite(n)) return "—";
@@ -50,7 +46,11 @@ const SghaTariffs = () => {
   const [tariffs, setTariffs] = useState([]);
   const [selected, setSelected] = useState(null);
   const [statusFilter, setStatusFilter] = useState("Active");
+  const [kindFilter, setKindFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [walkupAirportId, setWalkupAirportId] = useState("");
+  const [airports, setAirports] = useState([]);
+  const [busyWalkup, setBusyWalkup] = useState(false);
 
   const encodedPage = encodeURIComponent(PAGE_NAME);
 
@@ -62,6 +62,7 @@ const SghaTariffs = () => {
       try {
         const params = {};
         if (statusFilter) params.status = statusFilter;
+        if (kindFilter) params.kind = kindFilter;
         const res = await api.get(`/sgha-tariffs/tariffs/${encodedPage}`, {
           params,
         });
@@ -83,12 +84,33 @@ const SghaTariffs = () => {
     return () => {
       cancelled = true;
     };
-  }, [encodedPage, statusFilter]);
+  }, [encodedPage, statusFilter, kindFilter]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadAirports = async () => {
+      try {
+        const res = await api.get("/airports/get-airports");
+        const rows = Array.isArray(res.data)
+          ? res.data
+          : Array.isArray(res.data?.airports)
+            ? res.data.airports
+            : [];
+        if (!cancelled) setAirports(rows);
+      } catch {
+        if (!cancelled) setAirports([]);
+      }
+    };
+    loadAirports();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!tariffIdParam) {
       setSelected(null);
-      return;
+      return undefined;
     }
     let cancelled = false;
     const loadOne = async () => {
@@ -148,29 +170,71 @@ const SghaTariffs = () => {
     navigate(EMPLOYEE_ROUTES.sghaTariffs);
   };
 
+  const refreshWalkup = async () => {
+    if (!walkupAirportId) {
+      setError("Select an airport to build the walk-up tariff");
+      return;
+    }
+    setBusyWalkup(true);
+    setError("");
+    try {
+      await api.post(`/sgha-tariffs/tariffs/${encodedPage}/walkup`, {
+        airport_id: Number(walkupAirportId),
+        currency: "INR",
+      });
+      setKindFilter("Walkup");
+      setStatusFilter("Active");
+      const res = await api.get(`/sgha-tariffs/tariffs/${encodedPage}`, {
+        params: { status: "Active", kind: "Walkup" },
+      });
+      setTariffs(Array.isArray(res.data?.tariffs) ? res.data.tariffs : []);
+    } catch (err) {
+      setError(
+        err.response?.data?.message ||
+          err.message ||
+          "Could not create walk-up tariff"
+      );
+    } finally {
+      setBusyWalkup(false);
+    }
+  };
+
+  const relatedLinks = [
+    { label: "Billing", to: EMPLOYEE_ROUTES.billing },
+    { label: "Additional charges", to: EMPLOYEE_ROUTES.additionalCharges },
+    { label: "Services price", to: EMPLOYEE_ROUTES.servicesPrice },
+  ];
+
   if (loading && !tariffs.length && !selected) {
-    return <GifLoder />;
+    return (
+      <div className="loderDiv">
+        <GifLoder />
+      </div>
+    );
   }
 
   if (tariffIdParam && selected) {
     const lines = Array.isArray(selected.lines) ? selected.lines : [];
     return (
-      <div className="container-fluid py-3">
-        <Row className="align-items-center mb-3">
-          <Col>
-            <Breadcrumb className="mb-1">
-              <Breadcrumb.Item onClick={closeDetail} style={{ cursor: "pointer" }}>
-                SGHA Tariffs
-              </Breadcrumb.Item>
-              <Breadcrumb.Item active>
-                Tariff #{selected.tariff_id}
-              </Breadcrumb.Item>
-            </Breadcrumb>
-            <h4 className="mb-0">
-              Frozen tariff v{selected.version}{" "}
-              <Badge bg={statusTone(selected.status)}>{selected.status}</Badge>
-            </h4>
-            <div className="text-muted small mt-1">
+      <>
+        <EmployeePageHeader
+          title={`Tariff v${selected.version}`}
+          backTo={EMPLOYEE_ROUTES.sghaTariffs}
+          backLabel="SGHA Tariffs"
+          items={[{ label: `Tariff #${selected.tariff_id}` }]}
+          extra={
+            <Badge bg={statusTone(selected.status)} className="align-self-center">
+              {selected.status}
+            </Badge>
+          }
+        />
+        <EmployeeRelatedLinks links={relatedLinks} />
+
+        {error ? <div className="alert alert-danger">{error}</div> : null}
+
+        <Card className="mb-3 border-0 shadow-sm">
+          <Card.Body>
+            <div className="text-muted small mb-3">
               Submission #{selected.submission_id}
               {selected.client?.name ? ` · ${selected.client.name}` : ""}
               {selected.airport?.iata
@@ -180,195 +244,242 @@ const SghaTariffs = () => {
                   : ""}
               {selected.currency ? ` · ${selected.currency}` : ""}
             </div>
-          </Col>
-          <Col xs="auto">
-            <Button
-              type="button"
-              className="p-button-outlined p-button-secondary"
-              onClick={closeDetail}
-            >
-              <IoChevronBackOutline className="me-1" />
-              Back to list
-            </Button>
-          </Col>
-        </Row>
-
-        <Card className="mb-3">
-          <Card.Body>
             <Row className="g-3 small">
-              <Col md={3}>
+              <Col sm={6} md={3}>
                 <div className="text-muted">Effective from</div>
-                <div>{selected.effective_from || "—"}</div>
+                <div className="fw-semibold">{selected.effective_from || "—"}</div>
               </Col>
-              <Col md={3}>
+              <Col sm={6} md={3}>
                 <div className="text-muted">Effective to</div>
-                <div>{selected.effective_to || "—"}</div>
+                <div className="fw-semibold">{selected.effective_to || "—"}</div>
               </Col>
-              <Col md={3}>
+              <Col sm={6} md={3}>
                 <div className="text-muted">Approved at</div>
-                <div>
+                <div className="fw-semibold">
                   {selected.approved_at
                     ? new Date(selected.approved_at).toLocaleString()
                     : "—"}
                 </div>
               </Col>
-              <Col md={3}>
+              <Col sm={6} md={3}>
                 <div className="text-muted">Business</div>
-                <div>{selected.business?.name || "—"}</div>
+                <div className="fw-semibold">{selected.business?.name || "—"}</div>
               </Col>
             </Row>
           </Card.Body>
         </Card>
 
-        <Card>
-          <Card.Header>Line items ({lines.length})</Card.Header>
-          <Card.Body className="p-0">
-            <Table responsive hover className="mb-0 align-middle">
-              <thead>
-                <tr>
-                  <th>Code</th>
-                  <th>Description</th>
-                  <th>Type</th>
-                  <th>Unit</th>
-                  <th className="text-end">Rate</th>
-                  <th className="text-end">Included qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((line) => (
-                  <tr key={line.tariff_line_id}>
-                    <td>{line.service_code}</td>
-                    <td>{line.description}</td>
-                    <td>{line.line_type}</td>
-                    <td>{line.unit || "—"}</td>
-                    <td className="text-end">
-                      {money(line.rate, selected.currency)}
-                    </td>
-                    <td className="text-end">
-                      {line.included_qty != null ? line.included_qty : "—"}
-                    </td>
-                  </tr>
-                ))}
-                {!lines.length && (
+        <div className="pricing-section-card">
+          <div className="pricing-section-card__head">
+            <h6>Line items ({lines.length})</h6>
+            <Button
+              type="button"
+              label="Back to list"
+              icon="pi pi-arrow-left"
+              className="p-button-outlined p-button-secondary p-button-sm"
+              onClick={closeDetail}
+            />
+          </div>
+          <div className="pricing-section-card__body">
+            <div className="table-responsive">
+              <Table striped hover className="align-middle mb-0 pricing-data-table">
+                <thead>
                   <tr>
-                    <td colSpan={6} className="text-center text-muted py-4">
-                      No line items on this tariff.
-                    </td>
+                    <th className="col-code">Code</th>
+                    <th>Description</th>
+                    <th className="col-code">Type</th>
+                    <th className="col-code">Unit</th>
+                    <th className="col-money text-end">Rate</th>
+                    <th className="col-money text-end">Included qty</th>
                   </tr>
-                )}
-              </tbody>
-            </Table>
-          </Card.Body>
-        </Card>
-      </div>
+                </thead>
+                <tbody>
+                  {lines.map((line) => (
+                    <tr key={line.tariff_line_id}>
+                      <td className="col-code">{line.service_code}</td>
+                      <td>{line.description}</td>
+                      <td className="col-code">{line.line_type}</td>
+                      <td className="col-code">{line.unit || "—"}</td>
+                      <td className="col-money text-end">
+                        {money(line.rate, selected.currency)}
+                      </td>
+                      <td className="col-money text-end">
+                        {line.included_qty != null ? line.included_qty : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                  {!lines.length && (
+                    <tr>
+                      <td colSpan={6} className="text-center text-muted py-4">
+                        No line items on this tariff.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </Table>
+            </div>
+          </div>
+        </div>
+      </>
     );
   }
 
   return (
-    <div className="container-fluid py-3">
-      <Row className="align-items-center mb-3">
-        <Col>
-          <Breadcrumb className="mb-1">
-            <Breadcrumb.Item active>SGHA Tariffs</Breadcrumb.Item>
-          </Breadcrumb>
-          <h4 className="mb-0">SGHA Tariffs</h4>
-          <div className="text-muted small">
-            Prices frozen when an SGHA is marked Completed.
-          </div>
-        </Col>
-      </Row>
+    <>
+      <EmployeePageHeader
+        title="SGHA Tariffs"
+        items={[{ label: "SGHA Tariffs" }]}
+        backLabel="Home"
+      />
+      <EmployeeRelatedLinks links={relatedLinks} />
 
-      <Card className="mb-3">
-        <Card.Body>
-          <Row className="g-2 align-items-end">
-            <Col md={4}>
-              <Form.Label className="small text-muted mb-1">Search</Form.Label>
-              <InputText
-                className="w-100"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Client, airport, submission…"
-              />
-            </Col>
-            <Col md={3}>
-              <Form.Label className="small text-muted mb-1">Status</Form.Label>
-              <Form.Select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="">All</option>
-                <option value="Active">Active</option>
-                <option value="Superseded">Superseded</option>
-                <option value="Expired">Expired</option>
-              </Form.Select>
-            </Col>
-          </Row>
-        </Card.Body>
-      </Card>
+      <div className="pricing-toolbar">
+        <Form.Select
+          aria-label="Kind filter"
+          style={{ width: 140 }}
+          value={kindFilter}
+          onChange={(e) => setKindFilter(e.target.value)}
+        >
+          <option value="">All kinds</option>
+          <option value="Sgha">SGHA</option>
+          <option value="Walkup">Walk-up</option>
+        </Form.Select>
+        <Form.Select
+          aria-label="Status filter"
+          style={{ width: 160 }}
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="">All statuses</option>
+          <option value="Active">Active</option>
+          <option value="Superseded">Superseded</option>
+          <option value="Expired">Expired</option>
+        </Form.Select>
+        <IconField iconPosition="left">
+          <InputIcon className="pi pi-search" />
+          <InputText
+            placeholder="Search client, airport…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </IconField>
+        <Form.Select
+          aria-label="Walk-up airport"
+          style={{ width: 180 }}
+          value={walkupAirportId}
+          onChange={(e) => setWalkupAirportId(e.target.value)}
+        >
+          <option value="">Walk-up airport…</option>
+          {airports.map((a) => (
+            <option
+              key={a.airport_id || a.id}
+              value={a.airport_id || a.id}
+            >
+              {a.iata || a.name} {a.name ? `· ${a.name}` : ""}
+            </option>
+          ))}
+        </Form.Select>
+        <Button
+          type="button"
+          label="Refresh walk-up"
+          icon="pi pi-refresh"
+          className="p-button-sm p-button-outlined"
+          loading={busyWalkup}
+          onClick={refreshWalkup}
+        />
+      </div>
 
-      {error ? (
-        <div className="alert alert-danger">{error}</div>
-      ) : null}
+      {error ? <div className="alert alert-danger">{error}</div> : null}
 
-      <Card>
-        <Card.Body className="p-0">
-          {loading ? <GifLoder /> : null}
-          <Table responsive hover className="mb-0 align-middle">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Client</th>
-                <th>Airport</th>
-                <th>Submission</th>
-                <th>Version</th>
-                <th>Currency</th>
-                <th>Effective</th>
-                <th>Status</th>
-                <th>Lines</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((row) => (
-                <tr key={row.tariff_id}>
-                  <td>{row.tariff_id}</td>
-                  <td>{row.client?.name || `Reg #${row.client_registration_id}`}</td>
-                  <td>
-                    {row.airport?.iata || row.airport?.name || "—"}
-                  </td>
-                  <td>#{row.submission_id}</td>
-                  <td>v{row.version}</td>
-                  <td>{row.currency}</td>
-                  <td>
-                    {row.effective_from || "—"}
-                    {row.effective_to ? ` → ${row.effective_to}` : ""}
-                  </td>
-                  <td>
-                    <Badge bg={statusTone(row.status)}>{row.status}</Badge>
-                  </td>
-                  <td>{Array.isArray(row.lines) ? row.lines.length : 0}</td>
-                  <td className="text-end">
-                    <Button
-                      type="button"
-                      label="View"
-                      className="p-button-sm p-button-outlined"
-                      onClick={() => openTariff(row.tariff_id)}
-                    />
-                  </td>
-                </tr>
-              ))}
-              {!filtered.length && !loading && (
-                <tr>
-                  <td colSpan={10} className="text-center text-muted py-4">
-                    No tariffs yet. Complete an SGHA with priced aircraft options
-                    or additional charges to freeze one.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </Table>
-        </Card.Body>
-      </Card>
+      <div className="pricing-section-card">
+        <div className="pricing-section-card__head">
+          <h6>
+            Tariffs
+            {!loading ? ` (${filtered.length})` : ""}
+          </h6>
+        </div>
+        <div className="pricing-section-card__body">
+          {loading ? (
+            <div className="loderDiv py-4">
+              <GifLoder />
+            </div>
+          ) : (
+            <div className="table-responsive">
+              <Table striped hover className="align-middle mb-0 pricing-data-table">
+                <thead>
+                  <tr>
+                    <th className="col-num">ID</th>
+                    <th className="col-code">Kind</th>
+                    <th>Client</th>
+                    <th className="col-code">Airport</th>
+                    <th className="col-code">Submission</th>
+                    <th className="col-code">Version</th>
+                    <th className="col-code">Currency</th>
+                    <th>Effective</th>
+                    <th className="col-status">Status</th>
+                    <th className="col-num">Lines</th>
+                    <th className="col-actions" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((row) => (
+                    <tr key={row.tariff_id}>
+                      <td className="col-num">{row.tariff_id}</td>
+                      <td className="col-code">{row.kind || "Sgha"}</td>
+                      <td>
+                        {row.kind === "Walkup"
+                          ? "Walk-up / non-SGHA"
+                          : row.client?.name ||
+                            (row.client_registration_id
+                              ? `Reg #${row.client_registration_id}`
+                              : "—")}
+                      </td>
+                      <td className="col-code">
+                        {row.airport?.iata || row.airport?.name || "—"}
+                      </td>
+                      <td className="col-code">
+                        {row.submission_id ? `#${row.submission_id}` : "—"}
+                      </td>
+                      <td className="col-code">v{row.version}</td>
+                      <td className="col-code">{row.currency}</td>
+                      <td>
+                        <div>{row.effective_from || "—"}</div>
+                        {row.effective_to ? (
+                          <div className="text-muted small">
+                            to {row.effective_to}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td className="col-status">
+                        <Badge bg={statusTone(row.status)}>{row.status}</Badge>
+                      </td>
+                      <td className="col-num">
+                        {Array.isArray(row.lines) ? row.lines.length : 0}
+                      </td>
+                      <td className="col-actions text-end">
+                        <Button
+                          type="button"
+                          label="View"
+                          className="p-button-sm p-button-outlined"
+                          onClick={() => openTariff(row.tariff_id)}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                  {!filtered.length && (
+                    <tr>
+                      <td colSpan={11} className="text-center text-muted py-4">
+                        No tariffs yet. Complete an SGHA to freeze one, or
+                        refresh a walk-up tariff for non-scheduled flights.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </Table>
+            </div>
+          )}
+        </div>
+      </div>
 
       <Dialog
         header="Unable to load tariffs"
@@ -378,7 +489,7 @@ const SghaTariffs = () => {
       >
         <p className="mb-0">{error}</p>
       </Dialog>
-    </div>
+    </>
   );
 };
 

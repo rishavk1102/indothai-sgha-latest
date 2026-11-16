@@ -75,6 +75,14 @@ const Invoice = sequelize.define(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    unlocked_by: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    unlocked_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
   },
   {
     tableName: 'invoice',

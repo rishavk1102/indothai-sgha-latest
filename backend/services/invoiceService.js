@@ -318,10 +318,197 @@ async function issueInvoice(invoiceId, options = {}) {
         status: 'Issued',
         issued_by: options.issued_by || null,
         issued_at: new Date(),
+        unlocked_by: null,
+        unlocked_at: null,
       },
       { transaction }
     );
 
+    return Invoice.findByPk(id, { include: invoiceInclude, transaction });
+  });
+}
+
+async function requireDraftInvoice(invoiceId, transaction) {
+  const invoice = await Invoice.findByPk(Number(invoiceId), {
+    include: invoiceInclude,
+    transaction,
+  });
+  if (!invoice) throw new Error('Invoice not found');
+  if (invoice.status !== 'Draft') {
+    throw new Error('Only a Draft invoice can be edited');
+  }
+  return invoice;
+}
+
+async function recalcInvoiceTotals(invoice, transaction) {
+  const lines = await InvoiceLine.findAll({
+    where: { invoice_id: invoice.invoice_id },
+    transaction,
+  });
+  const subtotal = lines.reduce((sum, line) => sum + toMoney(line.amount), 0);
+  const taxTotal = lines.reduce((sum, line) => sum + toMoney(line.tax), 0);
+  await invoice.update(
+    {
+      subtotal,
+      tax_total: taxTotal,
+      grand_total: toMoney(subtotal + taxTotal),
+    },
+    { transaction }
+  );
+  return Invoice.findByPk(invoice.invoice_id, {
+    include: invoiceInclude,
+    transaction,
+  });
+}
+
+async function updateInvoiceLine(invoiceId, lineId, patch = {}) {
+  return sequelize.transaction(async (transaction) => {
+    const invoice = await requireDraftInvoice(invoiceId, transaction);
+    const line = await InvoiceLine.findOne({
+      where: {
+        invoice_line_id: Number(lineId),
+        invoice_id: invoice.invoice_id,
+      },
+      transaction,
+    });
+    if (!line) throw new Error('Invoice line not found');
+
+    const qty =
+      patch.qty != null ? toMoney(patch.qty) : toMoney(line.qty);
+    const unitRate =
+      patch.unit_rate != null
+        ? toMoney(patch.unit_rate)
+        : toMoney(line.unit_rate);
+    const amount =
+      patch.amount != null ? toMoney(patch.amount) : toMoney(qty * unitRate);
+
+    await line.update(
+      {
+        description:
+          patch.description != null ? String(patch.description) : line.description,
+        line_type:
+          patch.line_type != null ? patch.line_type : line.line_type,
+        qty,
+        unit: patch.unit != null ? patch.unit : line.unit,
+        unit_rate: unitRate,
+        levy: patch.levy != null ? toMoney(patch.levy) : line.levy,
+        tax: patch.tax != null ? toMoney(patch.tax) : line.tax,
+        amount,
+      },
+      { transaction }
+    );
+
+    return recalcInvoiceTotals(invoice, transaction);
+  });
+}
+
+async function deleteInvoiceLine(invoiceId, lineId) {
+  return sequelize.transaction(async (transaction) => {
+    const invoice = await requireDraftInvoice(invoiceId, transaction);
+    const deleted = await InvoiceLine.destroy({
+      where: {
+        invoice_line_id: Number(lineId),
+        invoice_id: invoice.invoice_id,
+      },
+      transaction,
+    });
+    if (!deleted) throw new Error('Invoice line not found');
+    return recalcInvoiceTotals(invoice, transaction);
+  });
+}
+
+async function addInvoiceLine(invoiceId, payload = {}) {
+  return sequelize.transaction(async (transaction) => {
+    const invoice = await requireDraftInvoice(invoiceId, transaction);
+    const qty = toMoney(payload.qty != null ? payload.qty : 1);
+    const unitRate = toMoney(payload.unit_rate != null ? payload.unit_rate : 0);
+    const amount =
+      payload.amount != null ? toMoney(payload.amount) : toMoney(qty * unitRate);
+    if (!payload.description) throw new Error('description is required');
+
+    await InvoiceLine.create(
+      {
+        invoice_id: invoice.invoice_id,
+        fhr_id: payload.fhr_id != null ? Number(payload.fhr_id) : null,
+        charge_line_id:
+          payload.charge_line_id != null
+            ? Number(payload.charge_line_id)
+            : null,
+        description: String(payload.description),
+        line_type: payload.line_type || 'Additional',
+        qty,
+        unit: payload.unit || null,
+        unit_rate: unitRate,
+        levy: payload.levy != null ? toMoney(payload.levy) : null,
+        tax: payload.tax != null ? toMoney(payload.tax) : null,
+        amount,
+      },
+      { transaction }
+    );
+
+    return recalcInvoiceTotals(invoice, transaction);
+  });
+}
+
+/**
+ * Add a priced line from the invoice's linked FHR tariff (no invented rates).
+ */
+async function addInvoiceLineFromTariff(invoiceId, { tariff_line_id, fhr_id, qty }) {
+  const SghaTariffLine = require('../NewModels/SghaTariffLine');
+  return sequelize.transaction(async (transaction) => {
+    const invoice = await requireDraftInvoice(invoiceId, transaction);
+    const tariffLine = await SghaTariffLine.findByPk(Number(tariff_line_id), {
+      transaction,
+    });
+    if (!tariffLine) throw new Error('Tariff line not found');
+
+    let linkedFhrId = fhr_id != null ? Number(fhr_id) : null;
+    if (!linkedFhrId && invoice.fhrs?.length === 1) {
+      linkedFhrId = invoice.fhrs[0].fhr_id;
+    }
+
+    const q = toMoney(qty != null ? qty : 1);
+    const unitRate = toMoney(tariffLine.rate);
+    await InvoiceLine.create(
+      {
+        invoice_id: invoice.invoice_id,
+        fhr_id: linkedFhrId,
+        charge_line_id: null,
+        description: tariffLine.description,
+        line_type: tariffLine.line_type || 'Additional',
+        qty: q,
+        unit: tariffLine.unit || null,
+        unit_rate: unitRate,
+        levy: null,
+        tax: null,
+        amount: toMoney(q * unitRate),
+      },
+      { transaction }
+    );
+
+    return recalcInvoiceTotals(invoice, transaction);
+  });
+}
+
+async function unlockInvoice(invoiceId, options = {}) {
+  const id = Number(invoiceId);
+  return sequelize.transaction(async (transaction) => {
+    const invoice = await Invoice.findByPk(id, {
+      include: invoiceInclude,
+      transaction,
+    });
+    if (!invoice) throw new Error('Invoice not found');
+    if (invoice.status !== 'Issued') {
+      throw new Error('Only an Issued invoice can be unlocked');
+    }
+    await invoice.update(
+      {
+        status: 'Draft',
+        unlocked_by: options.unlocked_by || null,
+        unlocked_at: new Date(),
+      },
+      { transaction }
+    );
     return Invoice.findByPk(id, { include: invoiceInclude, transaction });
   });
 }
@@ -347,6 +534,11 @@ module.exports = {
   listBillableFhrs,
   createDraftInvoice,
   issueInvoice,
+  unlockInvoice,
+  updateInvoiceLine,
+  deleteInvoiceLine,
+  addInvoiceLine,
+  addInvoiceLineFromTariff,
   getInvoice,
   listInvoices,
 };

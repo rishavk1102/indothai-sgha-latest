@@ -9,6 +9,7 @@ const Airport = require('../Models/Airport');
 const Business = require('../Models/Business');
 const {
   snapshotTariffFromSubmission,
+  upsertWalkupTariff,
 } = require('../services/sghaTariffSnapshot');
 
 router.get(
@@ -17,11 +18,12 @@ router.get(
   checkPermission('view'),
   async (req, res) => {
     try {
-      const { status, client_id, airport_id } = req.query;
+      const { status, client_id, airport_id, kind } = req.query;
       const where = {};
       if (status) where.status = status;
       if (client_id) where.client_id = Number(client_id);
       if (airport_id) where.airport_id = Number(airport_id);
+      if (kind) where.kind = kind;
 
       const tariffs = await SghaTariff.findAll({
         where,
@@ -129,6 +131,28 @@ router.post(
       return res.status(500).json({
         message: 'Failed to snapshot tariff',
         error: error.message,
+      });
+    }
+  }
+);
+
+router.post(
+  '/tariffs/:page_name/walkup',
+  authenticateToken,
+  checkPermission('add'),
+  async (req, res) => {
+    try {
+      const result = await upsertWalkupTariff({
+        airportId: req.body?.airport_id,
+        businessId: req.body?.business_id,
+        currency: req.body?.currency || 'INR',
+        approved_by: req.user?.user_id || req.user?.id || null,
+      });
+      return res.status(201).json(result);
+    } catch (error) {
+      console.error('Failed to upsert walk-up tariff:', error);
+      return res.status(400).json({
+        message: error.message || 'Failed to create walk-up tariff',
       });
     }
   }

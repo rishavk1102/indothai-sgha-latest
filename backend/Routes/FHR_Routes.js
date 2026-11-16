@@ -243,6 +243,7 @@ router.post('/generate-single-fhr/:page_name', authenticateToken, checkPermissio
         const {
             business_id,
             client_id,
+            client_name,
             airport_id,
             airline_id,
             aircraft_id,
@@ -256,17 +257,28 @@ router.post('/generate-single-fhr/:page_name', authenticateToken, checkPermissio
             date_of_flight
         } = req.body;
 
+        const { resolveOrCreateWalkupClient } = require('../services/walkupClient');
+        const { client } = await resolveOrCreateWalkupClient(
+          {
+            client_id,
+            client_name,
+            business_id,
+            airport_id,
+          },
+          transaction
+        );
+
         // Fetch related data for names
-        const [airline, aircraft, client, airport] = await Promise.all([
-            Airline.findByPk(airline_id),
-            Aircraft.findByPk(aircraft_id),
-            Client.findByPk(client_id),
-            Airport.findByPk(airport_id)
+        const [airline, aircraft, airport] = await Promise.all([
+            Airline.findByPk(airline_id, { transaction }),
+            Aircraft.findByPk(aircraft_id, { transaction }),
+            Airport.findByPk(airport_id, { transaction })
         ]);
 
         if (!airline || !aircraft || !client || !airport) {
             throw new Error("Invalid airline, aircraft, client, or airport ID.");
         }
+        const client_id_resolved = client.client_id;
         if (!arrival_flight_no && !departure_flight_no) {
             throw new Error("Provide an arrival and/or departure flight number.");
         }
@@ -291,7 +303,7 @@ router.post('/generate-single-fhr/:page_name', authenticateToken, checkPermissio
 
         const fhr = await FHR.create({
             business_id,
-            client_id,
+            client_id: client_id_resolved,
             airport_id,
             airline_id,
             aircraft_id,

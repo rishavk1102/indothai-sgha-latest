@@ -9,9 +9,14 @@ const SghaTariff = sequelize.define(
       autoIncrement: true,
       primaryKey: true,
     },
+    kind: {
+      type: DataTypes.ENUM('Sgha', 'Walkup'),
+      allowNull: false,
+      defaultValue: 'Sgha',
+    },
     submission_id: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
     },
     client_id: {
       type: DataTypes.INTEGER,
@@ -19,7 +24,7 @@ const SghaTariff = sequelize.define(
     },
     client_registration_id: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true,
     },
     business_id: {
       type: DataTypes.INTEGER,

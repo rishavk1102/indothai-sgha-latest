@@ -276,14 +276,9 @@ async function snapshotTariffFromSubmission(submissionId, options = {}) {
   });
 }
 
-async function findActiveTariff({
-  clientId,
-  airportId,
-  clientRegistrationId,
-  onDate,
-}) {
+function dateWindowWhere(onDate) {
   const day = toDateOnly(onDate) || toDateOnly(new Date());
-  const dateWindow = {
+  return {
     [Op.and]: [
       {
         [Op.or]: [
@@ -299,14 +294,24 @@ async function findActiveTariff({
       },
     ],
   };
+}
 
+async function findActiveTariff({
+  clientId,
+  airportId,
+  clientRegistrationId,
+  onDate,
+}) {
+  const dateWindow = dateWindowWhere(onDate);
   const include = [{ model: SghaTariffLine, as: 'lines' }];
+  const kindSgha = { kind: { [Op.ne]: 'Walkup' } };
 
   // Prefer exact client + airport match.
   if (clientId) {
     const exact = await SghaTariff.findOne({
       where: {
         status: 'Active',
+        ...kindSgha,
         client_id: clientId,
         ...(airportId ? { airport_id: airportId } : {}),
         ...dateWindow,
@@ -322,6 +327,7 @@ async function findActiveTariff({
     const byReg = await SghaTariff.findOne({
       where: {
         status: 'Active',
+        ...kindSgha,
         client_registration_id: clientRegistrationId,
         ...(airportId ? { airport_id: airportId } : {}),
         ...dateWindow,
@@ -335,9 +341,209 @@ async function findActiveTariff({
   return null;
 }
 
+async function findActiveWalkupTariff({ airportId, businessId, onDate }) {
+  if (!airportId && !businessId) return null;
+  const dateWindow = dateWindowWhere(onDate);
+  const include = [{ model: SghaTariffLine, as: 'lines' }];
+
+  if (airportId) {
+    const byAirport = await SghaTariff.findOne({
+      where: {
+        status: 'Active',
+        kind: 'Walkup',
+        airport_id: airportId,
+        ...dateWindow,
+      },
+      include,
+      order: [['version', 'DESC']],
+    });
+    if (byAirport) return byAirport;
+  }
+
+  if (businessId) {
+    return SghaTariff.findOne({
+      where: {
+        status: 'Active',
+        kind: 'Walkup',
+        business_id: businessId,
+        airport_id: null,
+        ...dateWindow,
+      },
+      include,
+      order: [['version', 'DESC']],
+    });
+  }
+
+  return null;
+}
+
+/**
+ * Build/refresh the non-SGHA (walk-up) tariff for a station.
+ * Additional lines ← Additional_charges; Base ← latest Active SGHA bases at station
+ * (station published rates until dedicated walk-up base CRUD exists).
+ */
+async function upsertWalkupTariff({
+  airportId,
+  businessId,
+  currency = 'INR',
+  approved_by = null,
+} = {}) {
+  const airportIdInt = Number(airportId);
+  if (!Number.isFinite(airportIdInt) || airportIdInt <= 0) {
+    throw new Error('airport_id is required');
+  }
+
+  const AdditionalCharges = require('../Models/Additional_charges');
+
+  return sequelize.transaction(async (transaction) => {
+    const airport = await Airport.findByPk(airportIdInt, { transaction });
+    if (!airport) throw new Error('Airport not found');
+    const bizId = businessId || airport.business_id || null;
+
+    const chargeRows = await AdditionalCharges.findAll({
+      where: { Airport_id: airportIdInt },
+      transaction,
+    });
+
+    const lines = [];
+    const clip = (value, max) => {
+      if (value == null || value === '') return null;
+      const text = String(value);
+      return text.length > max ? text.slice(0, max) : text;
+    };
+
+    chargeRows.forEach((row) => {
+      const rate = toMoney(row.rate);
+      if (rate == null) return;
+      const payload = row.toJSON ? row.toJSON() : row;
+      lines.push({
+        service_code: `WALK-ADD-${row.Additional_charges_id}`.slice(0, 64),
+        description: clip(
+          row.Desc_of_service || `Charge ${row.Additional_charges_id}`,
+          512
+        ),
+        line_type: 'Additional',
+        aircraft_category_id: null,
+        flight_type_id: null,
+        unit: clip(row.unit_or_measure, 64),
+        rate,
+        levy_rate: null,
+        tax_code: clip(row.Sub_section, 32),
+        min_charge: null,
+        included_qty: null,
+        source_ref: `additional_charges:${row.Additional_charges_id}`,
+        source_payload: {
+          ...payload,
+          unit_or_measure: row.unit_or_measure || null,
+        },
+      });
+    });
+
+    // shortcut: seed walk-up base from Active SGHA bases at station until walk-up base book is edited separately
+    const sghaTariffs = await SghaTariff.findAll({
+      where: {
+        status: 'Active',
+        kind: { [Op.ne]: 'Walkup' },
+        airport_id: airportIdInt,
+      },
+      include: [{ model: SghaTariffLine, as: 'lines' }],
+      order: [['version', 'DESC']],
+      transaction,
+    });
+    const seenBase = new Set();
+    for (const tariff of sghaTariffs) {
+      for (const line of tariff.lines || []) {
+        if (line.line_type !== 'Base handling') continue;
+        const key = String(line.description || '')
+          .trim()
+          .toLowerCase();
+        if (!key || seenBase.has(key)) continue;
+        seenBase.add(key);
+        lines.push({
+          service_code: `WALK-BASE-${line.tariff_line_id}`.slice(0, 64),
+          description: clip(line.description, 512),
+          line_type: 'Base handling',
+          aircraft_category_id: line.aircraft_category_id,
+          flight_type_id: line.flight_type_id,
+          unit: clip(line.unit || 'per flight', 64),
+          rate: toMoney(line.rate),
+          levy_rate: line.levy_rate,
+          tax_code: clip(line.tax_code, 32),
+          min_charge: line.min_charge,
+          included_qty: line.included_qty,
+          source_ref: `sgha_tariff_line:${line.tariff_line_id}`,
+          source_payload: line.toJSON ? line.toJSON() : line,
+        });
+      }
+    }
+
+    if (!lines.length) {
+      throw new Error(
+        'No station charges or SGHA base lines found to build a walk-up tariff'
+      );
+    }
+
+    const prior = await SghaTariff.findAll({
+      where: {
+        status: 'Active',
+        kind: 'Walkup',
+        airport_id: airportIdInt,
+      },
+      transaction,
+    });
+    for (const row of prior) {
+      await row.update({ status: 'Superseded' }, { transaction });
+    }
+
+    const maxVersion =
+      (await SghaTariff.max('version', {
+        where: { kind: 'Walkup', airport_id: airportIdInt },
+        transaction,
+      })) || 0;
+
+    const tariff = await SghaTariff.create(
+      {
+        kind: 'Walkup',
+        submission_id: null,
+        client_id: null,
+        client_registration_id: null,
+        business_id: bizId,
+        airport_id: airportIdInt,
+        version: maxVersion + 1,
+        currency: currency || 'INR',
+        effective_from: toDateOnly(new Date()),
+        effective_to: null,
+        status: 'Active',
+        approved_by: approved_by || null,
+        approved_at: new Date(),
+      },
+      { transaction }
+    );
+
+    await SghaTariffLine.bulkCreate(
+      lines.map((line) => ({ ...line, tariff_id: tariff.tariff_id })),
+      { transaction }
+    );
+
+    const full = await SghaTariff.findByPk(tariff.tariff_id, {
+      include: [{ model: SghaTariffLine, as: 'lines' }],
+      transaction,
+    });
+
+    return {
+      tariff: full,
+      created: true,
+      reason: 'created',
+      lineCount: lines.length,
+    };
+  });
+}
+
 module.exports = {
   snapshotTariffFromSubmission,
   findActiveTariff,
+  findActiveWalkupTariff,
+  upsertWalkupTariff,
   buildLinesFromVariables,
   resolveCurrency,
 };

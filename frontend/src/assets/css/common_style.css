@@ -1787,6 +1787,92 @@ ease;
     flex-wrap: wrap;
     margin-bottom: 16px;
 }
+/* Override App.css table-layout:fixed so pricing tables don't crush columns */
+.pricing-data-table {
+    table-layout: auto !important;
+    width: 100%;
+}
+.pricing-data-table th,
+.pricing-data-table td {
+    white-space: normal;
+    word-break: break-word;
+    vertical-align: middle;
+    padding: 10px 12px;
+}
+.pricing-data-table .col-num,
+.pricing-data-table .col-code,
+.pricing-data-table .col-status,
+.pricing-data-table .col-money,
+.pricing-data-table .col-actions {
+    white-space: nowrap;
+}
+.pricing-data-table .col-actions {
+    width: 1%;
+}
+.pricing-data-table .col-check {
+    width: 48px;
+    text-align: center;
+    white-space: nowrap;
+}
+.pricing-data-table--invoices {
+    table-layout: fixed !important;
+}
+.pricing-data-table--invoices th:nth-child(1),
+.pricing-data-table--invoices td:nth-child(1) {
+    width: 32%;
+}
+.pricing-data-table--invoices th:nth-child(2),
+.pricing-data-table--invoices td:nth-child(2) {
+    width: 28%;
+}
+.pricing-data-table--invoices th:nth-child(3),
+.pricing-data-table--invoices td:nth-child(3) {
+    width: 12%;
+}
+.pricing-data-table--invoices th:nth-child(4),
+.pricing-data-table--invoices td:nth-child(4) {
+    width: 16%;
+}
+.pricing-data-table--invoices th:nth-child(5),
+.pricing-data-table--invoices td:nth-child(5) {
+    width: 12%;
+}
+.pricing-section-card {
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    background: #fff;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+.pricing-section-card__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 14px 16px;
+    border-bottom: 1px solid #eef0f2;
+    background: #fafbfc;
+}
+.pricing-section-card__head h6 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+}
+.pricing-section-card__body {
+    padding: 0;
+}
+.pricing-section-card__body .table-responsive {
+    margin: 0;
+}
+.pricing-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
 .create-nonschedule-fhr .form-select,
 .create-nonschedule-fhr .p-calendar,
 .create-nonschedule-fhr .p-inputtext,

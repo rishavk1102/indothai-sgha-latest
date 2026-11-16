@@ -7,7 +7,10 @@ const DepartureDetails = require('../Models/Departure_Details');
 const AdditionalEquipment = require('../Models/Additional_Equipment');
 const FhrRating = require('../NewModels/FhrRating');
 const FhrChargeLine = require('../NewModels/FhrChargeLine');
-const { findActiveTariff } = require('./sghaTariffSnapshot');
+const {
+  findActiveTariff,
+  findActiveWalkupTariff,
+} = require('./sghaTariffSnapshot');
 
 function toDateOnly(value) {
   if (!value) return null;
@@ -206,12 +209,19 @@ async function rateFhrFromTariff(fhrId, options = {}) {
       transaction,
     });
 
-    const tariff = await findActiveTariff({
-      clientId: fhr.client_id,
-      airportId: fhr.airport_id,
-      clientRegistrationId: client?.client_registration_id || null,
-      onDate: ratingDate,
-    });
+    const isWalkup = String(fhr.Fhr_type || '') === 'Non-Schedule';
+    const tariff = isWalkup
+      ? await findActiveWalkupTariff({
+          airportId: fhr.airport_id,
+          businessId: fhr.business_id,
+          onDate: ratingDate,
+        })
+      : await findActiveTariff({
+          clientId: fhr.client_id,
+          airportId: fhr.airport_id,
+          clientRegistrationId: client?.client_registration_id || null,
+          onDate: ratingDate,
+        });
 
     if (!tariff) {
       const rating = await FhrRating.create(
@@ -220,7 +230,9 @@ async function rateFhrFromTariff(fhrId, options = {}) {
           tariff_id: null,
           rating_date: ratingDate,
           status: 'Needs review',
-          reason: 'No Active in-force tariff for client/airport/date',
+          reason: isWalkup
+            ? 'No Active walk-up tariff for airport/date'
+            : 'No Active in-force tariff for client/airport/date',
           currency: null,
           rated_by: options.rated_by || null,
           rated_at: new Date(),
@@ -376,9 +388,63 @@ async function getFhrRating(fhrId) {
   });
 }
 
+/**
+ * Append an ad-hoc Additional line from a tariff line onto a Rated FHR.
+ * Never invents rates — tariff_line_id is required.
+ */
+async function addAdHocChargeFromTariff(
+  fhrId,
+  { tariff_line_id, qty = 1, override_by = null } = {}
+) {
+  const SghaTariffLine = require('../NewModels/SghaTariffLine');
+  const fhrIdInt = Number(fhrId);
+  const lineId = Number(tariff_line_id);
+  if (!lineId) throw new Error('tariff_line_id is required');
+
+  return sequelize.transaction(async (transaction) => {
+    const rating = await FhrRating.findOne({
+      where: { fhr_id: fhrIdInt, status: 'Rated' },
+      transaction,
+    });
+    if (!rating) throw new Error('FHR must be Rated before adding charges');
+
+    const tariffLine = await SghaTariffLine.findByPk(lineId, { transaction });
+    if (!tariffLine) throw new Error('Tariff line not found');
+    if (rating.tariff_id && tariffLine.tariff_id !== rating.tariff_id) {
+      throw new Error('Tariff line does not belong to this FHR tariff');
+    }
+
+    const q = toMoney(qty != null ? qty : 1);
+    const money = lineAmount(tariffLine.rate, q, tariffLine.levy_rate);
+    const created = await FhrChargeLine.create(
+      {
+        rating_id: rating.rating_id,
+        fhr_id: fhrIdInt,
+        tariff_id: tariffLine.tariff_id,
+        tariff_line_id: tariffLine.tariff_line_id,
+        description: tariffLine.description,
+        line_type: tariffLine.line_type || 'Additional',
+        qty: q,
+        unit: tariffLine.unit || null,
+        unit_rate: toMoney(tariffLine.rate),
+        levy: money.levy,
+        tax: null,
+        amount: money.amount,
+        source: 'Manual',
+        override_reason: 'Ad-hoc service added after rating',
+        override_by: override_by || null,
+      },
+      { transaction }
+    );
+
+    return { line: created, rating_id: rating.rating_id };
+  });
+}
+
 module.exports = {
   rateFhrFromTariff,
   getFhrRating,
+  addAdHocChargeFromTariff,
   resolveRatingDate,
   pickBaseLine,
 };

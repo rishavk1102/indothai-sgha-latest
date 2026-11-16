@@ -54,6 +54,7 @@ export default function CreateNonScheduleFhr({
   const [selectedAirport, setSelectedAirport] = useState("");
   const [clients, setClients] = useState([]);
   const [selectedClient, setSelectedClient] = useState("");
+  const [newClientName, setNewClientName] = useState("");
   const [airlines, setAirlines] = useState([]);
   const [airlineId, setAirlineId] = useState("");
   const [aircrafts, setAircrafts] = useState([]);
@@ -170,34 +171,63 @@ export default function CreateNonScheduleFhr({
   }, [socket, roleId, selectedAirport]);
 
   useEffect(() => {
-    if (!socket || !roleId || !selectedClient || !selectedAirport || !selectedBusiness) {
+    const hasWalkupName = Boolean(newClientName.trim());
+    if (
+      !socket ||
+      !roleId ||
+      !selectedAirport ||
+      !selectedBusiness ||
+      (!selectedClient && !hasWalkupName)
+    ) {
       setAirlines([]);
       return undefined;
     }
-    const onOk = (data) =>
-      setAirlines(
-        (Array.isArray(data) ? data : []).map((a) => ({
-          name: `${a.airline_name} (${a.iata})`,
-          code: a.airline_id,
-        }))
-      );
+
+    const mapAirlines = (data) =>
+      (Array.isArray(data) ? data : []).map((a) => ({
+        name: `${a.airline_name} (${a.iata})`,
+        code: a.airline_id,
+      }));
+
+    if (selectedClient) {
+      const onOk = (data) => setAirlines(mapAirlines(data));
+      const onErr = (error) => {
+        if (!markPermissionError(error)) setAirlines([]);
+      };
+      socket.emit("fetch-airlines-by-params", {
+        role_id: roleId,
+        page_name: PAGE_NAME,
+        client_id: selectedClient,
+        airport_id: selectedAirport,
+        business_id: selectedBusiness,
+      });
+      socket.on("fetch-airlines-by-params-success", onOk);
+      socket.on("fetch-airlines-by-params-error", onErr);
+      return () => {
+        socket.off("fetch-airlines-by-params-success", onOk);
+        socket.off("fetch-airlines-by-params-error", onErr);
+      };
+    }
+
+    const onOk = (data) => setAirlines(mapAirlines(data));
     const onErr = (error) => {
       if (!markPermissionError(error)) setAirlines([]);
     };
-    socket.emit("fetch-airlines-by-params", {
-      role_id: roleId,
-      page_name: PAGE_NAME,
-      client_id: selectedClient,
-      airport_id: selectedAirport,
-      business_id: selectedBusiness,
-    });
-    socket.on("fetch-airlines-by-params-success", onOk);
-    socket.on("fetch-airlines-by-params-error", onErr);
+    socket.emit("fetch-airlines", { role_id: roleId, page_name: PAGE_NAME });
+    socket.on("fetch-airlines-success", onOk);
+    socket.on("fetch-airlines-error", onErr);
     return () => {
-      socket.off("fetch-airlines-by-params-success", onOk);
-      socket.off("fetch-airlines-by-params-error", onErr);
+      socket.off("fetch-airlines-success", onOk);
+      socket.off("fetch-airlines-error", onErr);
     };
-  }, [socket, roleId, selectedClient, selectedAirport, selectedBusiness]);
+  }, [
+    socket,
+    roleId,
+    selectedClient,
+    newClientName,
+    selectedAirport,
+    selectedBusiness,
+  ]);
 
   useEffect(() => {
     if (!socket || !roleId || !airlineId) {
@@ -230,6 +260,7 @@ export default function CreateNonScheduleFhr({
   const resetFromBusiness = () => {
     setSelectedAirport("");
     setSelectedClient("");
+    setNewClientName("");
     setAirlineId("");
     setSelectedAircraft("");
     setAirports([]);
@@ -245,7 +276,7 @@ export default function CreateNonScheduleFhr({
   const canSubmit =
     selectedBusiness &&
     selectedAirport &&
-    selectedClient &&
+    (selectedClient || newClientName.trim()) &&
     airlineId &&
     selectedAircraft &&
     dateOfFlight &&
@@ -271,7 +302,8 @@ export default function CreateNonScheduleFhr({
     try {
       const payload = {
         business_id: selectedBusiness,
-        client_id: selectedClient,
+        client_id: selectedClient || null,
+        client_name: selectedClient ? null : newClientName.trim() || null,
         airport_id: selectedAirport,
         airline_id: airlineId,
         aircraft_id: selectedAircraft,
@@ -397,13 +429,18 @@ export default function CreateNonScheduleFhr({
               </Field>
             </Col>
             <Col lg={6} md={6}>
-              <Field label="Client" required>
-                <div className="d-flex gap-2">
+              <Field
+                label="Client"
+                required
+                hint="Pick an existing client, or type a new name to auto-create one"
+              >
+                <div className="d-flex gap-2 mb-2">
                   <Form.Select
                     value={selectedClient}
                     disabled={!selectedAirport}
                     onChange={(e) => {
                       setSelectedClient(e.target.value);
+                      if (e.target.value) setNewClientName("");
                       setAirlineId("");
                       setSelectedAircraft("");
                       setAirlines([]);
@@ -427,6 +464,16 @@ export default function CreateNonScheduleFhr({
                     aria-label="Add client"
                   />
                 </div>
+                <InputText
+                  value={newClientName}
+                  disabled={!selectedAirport || Boolean(selectedClient)}
+                  onChange={(e) => {
+                    setNewClientName(e.target.value);
+                    if (e.target.value) setSelectedClient("");
+                  }}
+                  className="w-100"
+                  placeholder="Or type new client name (auto-create)"
+                />
               </Field>
             </Col>
             <Col lg={6} md={6}>
@@ -434,7 +481,7 @@ export default function CreateNonScheduleFhr({
                 <div className="d-flex gap-2">
                   <Form.Select
                     value={airlineId}
-                    disabled={!selectedClient}
+                    disabled={!selectedClient && !newClientName.trim()}
                     onChange={(e) => {
                       setAirlineId(e.target.value);
                       setSelectedAircraft("");
@@ -453,7 +500,7 @@ export default function CreateNonScheduleFhr({
                     icon="pi pi-plus"
                     outlined
                     severity="secondary"
-                    disabled={!selectedClient}
+                    disabled={!selectedClient && !newClientName.trim()}
                     onClick={() => setAddAirlineOpen(true)}
                     aria-label="Add airline"
                   />

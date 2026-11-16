@@ -261,6 +261,28 @@ router.post(
     }
 );
 
+router.post(
+    '/fhr-rating/:page_name/:fhr_id/adhoc',
+    authenticateToken,
+    checkPermission('edit'),
+    async (req, res) => {
+        try {
+            const { addAdHocChargeFromTariff } = require('../services/fhrRating');
+            const result = await addAdHocChargeFromTariff(req.params.fhr_id, {
+                tariff_line_id: req.body?.tariff_line_id,
+                qty: req.body?.qty,
+                override_by: req.user?.user_id || req.user?.id || null,
+            });
+            return res.status(201).json(result);
+        } catch (err) {
+            console.error('FHR ad-hoc charge error:', err);
+            return res.status(400).json({
+                message: err.message || 'Failed to add ad-hoc charge',
+            });
+        }
+    }
+);
+
 router.post('/start-edit-session/:page_name/:fhr_id', authenticateToken, checkPermission('edit'), async (req, res) => {
     const { fhr_id } = req.params;
     const { section, action = 'start' } = req.body; // ≡ƒöü Added action: 'start' | 'end'

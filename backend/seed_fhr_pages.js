@@ -1,5 +1,7 @@
 // Seed FHR menu group, pages, and full Admin permissions.
 // Page `name` values match the FHR UI PAGE_NAME strings (e.g. "FHR Draft").
+// show_in_menu stays 0 so live deploy does not show FHR in the sidebar.
+// This branch can still show them via employeeWorkspace always: true.
 // Run: node seed_fhr_pages.js
 
 const sequelize = require('./config/database');
@@ -9,14 +11,14 @@ const Permission = require('./Models/Permission');
 const Role = require('./Models/Role');
 
 const FHR_PAGES = [
-  { name: 'FHR List', path: '/dashboard/upcoming_flights', icon_url: 'FiList', order_index: 5, show_in_menu: true },
-  { name: 'FHR Draft', path: '/dashboard/FHR_draft', icon_url: 'FiFileText', order_index: 10, show_in_menu: true },
-  { name: 'FHR Pending', path: '/dashboard/FHR_pending', icon_url: 'FiClock', order_index: 20, show_in_menu: true },
-  { name: 'FHR Submitted', path: '/dashboard/FHR_submitted', icon_url: 'FiSend', order_index: 30, show_in_menu: true },
-  { name: 'FHR Completed', path: '/dashboard/FHR_completed', icon_url: 'FiCheckCircle', order_index: 40, show_in_menu: true },
-  { name: 'FHR Cancelled', path: '/dashboard/FHR_cancelled', icon_url: 'FiXCircle', order_index: 50, show_in_menu: true },
-  { name: 'Non Schedule FHR', path: '/dashboard/FHR_nonschedule', icon_url: 'FiCalendar', order_index: 60, show_in_menu: true },
-  { name: 'FHR Import', path: '/dashboard/FHR_import', icon_url: 'FiUpload', order_index: 70, show_in_menu: true },
+  { name: 'FHR List', path: '/dashboard/upcoming_flights', icon_url: 'FiList', order_index: 5, show_in_menu: false },
+  { name: 'FHR Draft', path: '/dashboard/FHR_draft', icon_url: 'FiFileText', order_index: 10, show_in_menu: false },
+  { name: 'FHR Pending', path: '/dashboard/FHR_pending', icon_url: 'FiClock', order_index: 20, show_in_menu: false },
+  { name: 'FHR Submitted', path: '/dashboard/FHR_submitted', icon_url: 'FiSend', order_index: 30, show_in_menu: false },
+  { name: 'FHR Completed', path: '/dashboard/FHR_completed', icon_url: 'FiCheckCircle', order_index: 40, show_in_menu: false },
+  { name: 'FHR Cancelled', path: '/dashboard/FHR_cancelled', icon_url: 'FiXCircle', order_index: 50, show_in_menu: false },
+  { name: 'Non Schedule FHR', path: '/dashboard/FHR_nonschedule', icon_url: 'FiCalendar', order_index: 60, show_in_menu: false },
+  { name: 'FHR Import', path: '/dashboard/FHR_import', icon_url: 'FiUpload', order_index: 70, show_in_menu: false },
   { name: 'FHR Edit', path: '/dashboard/edit_fhr', icon_url: 'FiEdit', order_index: 80, show_in_menu: false },
 ];
 

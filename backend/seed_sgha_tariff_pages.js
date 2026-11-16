@@ -13,7 +13,8 @@ const TARIFF_PAGE = {
   path: '/dashboard/sgha_tariffs',
   icon_url: 'FiDollarSign',
   order_index: 25,
-  show_in_menu: true,
+  // Hidden on live menu; this branch shows via employeeWorkspace always: true.
+  show_in_menu: false,
   description: 'Frozen tariffs from completed SGHAs',
 };
 
@@ -65,12 +66,12 @@ async function seed() {
         {
           path: TARIFF_PAGE.path,
           icon_url: TARIFF_PAGE.icon_url,
-          show_in_menu: true,
+          show_in_menu: TARIFF_PAGE.show_in_menu,
           menu_group_id: page.menu_group_id || group.menu_group_id,
         },
         { transaction }
       );
-      console.log(`page exists ${TARIFF_PAGE.name}`);
+      console.log(`updated page ${TARIFF_PAGE.name} show_in_menu=${TARIFF_PAGE.show_in_menu}`);
     }
 
     const adminRole =

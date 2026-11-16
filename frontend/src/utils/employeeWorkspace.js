@@ -167,12 +167,14 @@ const CATALOG = [
     always: true,
     match: ["agreed_services", "agreed services", "submission"],
   },
+  // Branch-only menu: FHR items show without flipping pages.show_in_menu in live DB.
   {
     key: "fhrList",
     path: EMPLOYEE_ROUTES.fhrList,
     name: "List",
     icon_url: "FiList",
     group: "fhr",
+    always: true,
     match: ["fhr list", "upcoming_flights"],
   },
   {
@@ -181,6 +183,7 @@ const CATALOG = [
     name: "Draft",
     icon_url: "FiFileText",
     group: "fhr",
+    always: true,
     match: ["fhr draft", "fhr_draft"],
   },
   {
@@ -189,6 +192,7 @@ const CATALOG = [
     name: "Pending",
     icon_url: "FiClock",
     group: "fhr",
+    always: true,
     match: ["fhr pending", "fhr_pending"],
   },
   {
@@ -197,6 +201,7 @@ const CATALOG = [
     name: "Submitted",
     icon_url: "FiSend",
     group: "fhr",
+    always: true,
     match: ["fhr submitted", "fhr_submitted"],
   },
   {
@@ -205,6 +210,7 @@ const CATALOG = [
     name: "Completed",
     icon_url: "FiCheckCircle",
     group: "fhr",
+    always: true,
     match: ["fhr completed", "fhr_completed"],
   },
   {
@@ -213,6 +219,7 @@ const CATALOG = [
     name: "Cancelled",
     icon_url: "FiXCircle",
     group: "fhr",
+    always: true,
     match: ["fhr cancelled", "fhr_cancelled"],
   },
   {
@@ -221,6 +228,7 @@ const CATALOG = [
     name: "Non-Schedule",
     icon_url: "FiCalendar",
     group: "fhr",
+    always: true,
     match: ["non schedule fhr", "fhr_nonschedule", "non-schedule"],
   },
   {
@@ -229,6 +237,7 @@ const CATALOG = [
     name: "Import",
     icon_url: "FiUpload",
     group: "fhr",
+    always: true,
     match: ["fhr import", "fhr_import"],
   },
   {
@@ -353,6 +362,8 @@ const CATALOG = [
     name: "SGHA Tariffs",
     icon_url: "FiDollarSign",
     group: "pricing",
+    // Branch-only menu: show without flipping pages.show_in_menu in live DB.
+    always: true,
     match: ["sgha tariffs", "sgha_tariffs"],
   },
   {
@@ -361,6 +372,7 @@ const CATALOG = [
     name: "Billing",
     icon_url: "FiDollarSign",
     group: "pricing",
+    // Branch-only menu: show without flipping pages.show_in_menu in live DB.
     always: true,
     match: ["billing review", "billing"],
   },

@@ -58,7 +58,17 @@ async function seed() {
         );
         console.log(`created page ${page.name}`);
       } else {
-        console.log(`page exists ${page.name}`);
+        await row.update(
+          {
+            path: page.path,
+            icon_url: page.icon_url,
+            order_index: page.order_index,
+            show_in_menu: page.show_in_menu,
+            menu_group_id: group.menu_group_id,
+          },
+          { transaction }
+        );
+        console.log(`updated page ${page.name} show_in_menu=${page.show_in_menu}`);
       }
       pageIds.push(row.page_id);
     }

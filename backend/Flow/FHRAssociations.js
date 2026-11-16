@@ -69,16 +69,8 @@ const createFHRAssociations = () => {
         onDelete: 'CASCADE'
     });
 
-    FHR.belongsTo(Category, {
-        foreignKey: 'category_id',
-        as: 'category',
-        onDelete: 'CASCADE'
-    });
-    Category.hasMany(FHR, {
-        foreignKey: 'category_id',
-        as: 'fhrs',
-        onDelete: 'CASCADE'
-    });
+    // Live FHR table has no category_id — do not associate Category here
+    // (Sequelize would SELECT a missing column and break view/edit).
 
     FHR.belongsTo(Aircraft, {
         foreignKey: 'aircraft_id',

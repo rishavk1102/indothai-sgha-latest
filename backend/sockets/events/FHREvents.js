@@ -119,6 +119,7 @@ module.exports = (io, socket) => {
         try {
             const fhrData = await FHR.findOne({
                 where: { fhr_id },
+                attributes: { exclude: ['category_id'] },
                 include: [
                     {
                         model: Business,
@@ -943,6 +944,7 @@ module.exports = (io, socket) => {
         try {
             const fhrData = await FHR.findOne({
                 where: { fhr_id },
+                attributes: { exclude: ['category_id'] },
                 include: [
                     {
                         model: Business,

@@ -204,7 +204,9 @@ router.get(
             const { getFhrRating, rateFhrFromTariff } = require('../services/fhrRating');
             let rating = await getFhrRating(req.params.fhr_id);
             if (!rating) {
-                const fhr = await FHR.findByPk(req.params.fhr_id);
+                const fhr = await FHR.findByPk(req.params.fhr_id, {
+                    attributes: { exclude: ['category_id'] },
+                });
                 if (fhr?.status === 'Completed') {
                     const result = await rateFhrFromTariff(req.params.fhr_id, {
                         rated_by: req.user?.user_id || req.user?.id || null,
@@ -232,7 +234,9 @@ router.post(
     checkPermission('edit'),
     async (req, res) => {
         try {
-            const fhr = await FHR.findByPk(req.params.fhr_id);
+            const fhr = await FHR.findByPk(req.params.fhr_id, {
+                attributes: { exclude: ['category_id'] },
+            });
             if (!fhr) {
                 return res.status(404).json({ message: 'FHR not found' });
             }

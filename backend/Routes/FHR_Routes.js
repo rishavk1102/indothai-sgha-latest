@@ -129,7 +129,10 @@ router.post('/generate-fhr/:page_name', authenticateToken, checkPermission('add'
                         client_name: client.name,
                         type: 'Arrival',
                         flight_no: arrival_flight_no,
-                        station: from_iata,
+                        station:
+                            (from_iata && String(from_iata).trim().toUpperCase()) ||
+                            airport.iata ||
+                            'XXX',
                         st: sta,
                         date_of_flight: date
                     }, { transaction });
@@ -165,7 +168,10 @@ router.post('/generate-fhr/:page_name', authenticateToken, checkPermission('add'
                         client_name: client.name,
                         type: 'Departure',
                         flight_no: departure_flight_no,
-                        station: to_iata,
+                        station:
+                            (to_iata && String(to_iata).trim().toUpperCase()) ||
+                            airport.iata ||
+                            'XXX',
                         st: std,
                         date_of_flight: date
                     }, { transaction });
@@ -261,10 +267,21 @@ router.post('/generate-single-fhr/:page_name', authenticateToken, checkPermissio
         if (!airline || !aircraft || !client || !airport) {
             throw new Error("Invalid airline, aircraft, client, or airport ID.");
         }
+        if (!arrival_flight_no && !departure_flight_no) {
+            throw new Error("Provide an arrival and/or departure flight number.");
+        }
 
         const flightDate = new Date(date_of_flight);
         const staDateTime = buildDateTime(flightDate, sta);
         const stdDateTime = buildDateTime(flightDate, std);
+        const arrivalStation =
+            (from_iata && String(from_iata).trim().toUpperCase()) ||
+            airport.iata ||
+            'XXX';
+        const departureStation =
+            (to_iata && String(to_iata).trim().toUpperCase()) ||
+            airport.iata ||
+            'XXX';
 
         const fhrType = arrival_flight_no && departure_flight_no
             ? 'Both'
@@ -302,7 +319,7 @@ router.post('/generate-single-fhr/:page_name', authenticateToken, checkPermissio
                 client_name: client.name,
                 type: 'Arrival',
                 flight_no: arrival_flight_no,
-                station: from_iata,
+                station: arrivalStation,
                 st: sta,
                 date_of_flight: flightDate,
                 Fhr_type: 'Non-Schedule',
@@ -339,7 +356,7 @@ router.post('/generate-single-fhr/:page_name', authenticateToken, checkPermissio
                 client_name: client.name,
                 type: 'Departure',
                 flight_no: departure_flight_no,
-                station: to_iata,
+                station: departureStation,
                 st: std,
                 date_of_flight: flightDate,
                 Fhr_type: 'Non-Schedule',

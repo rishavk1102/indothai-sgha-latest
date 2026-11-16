@@ -238,6 +238,10 @@ export default function CreateNonScheduleFhr({
     setAircrafts([]);
   };
 
+  const hasArrival = Boolean(arrivalFlightNo.trim());
+  const hasDeparture = Boolean(departureFlightNo.trim());
+  const fromOk = !hasArrival || fromIata.trim().length === 3;
+  const toOk = !hasDeparture || toIata.trim().length === 3;
   const canSubmit =
     selectedBusiness &&
     selectedAirport &&
@@ -245,14 +249,20 @@ export default function CreateNonScheduleFhr({
     airlineId &&
     selectedAircraft &&
     dateOfFlight &&
-    (arrivalFlightNo.trim() || departureFlightNo.trim());
+    (hasArrival || hasDeparture) &&
+    fromOk &&
+    toOk;
 
   const handleSubmit = async () => {
     if (!canSubmit) {
       showToast(
         "warn",
         "Missing details",
-        "Select station details and at least one arrival or departure flight number."
+        hasArrival && !fromOk
+          ? "Enter a 3-letter From (IATA) for the arrival flight."
+          : hasDeparture && !toOk
+            ? "Enter a 3-letter To (IATA) for the departure flight."
+            : "Select station details and at least one arrival or departure flight number."
       );
       return;
     }
@@ -510,7 +520,7 @@ export default function CreateNonScheduleFhr({
               </Field>
             </Col>
             <Col lg={4} md={6}>
-              <Field label="From (IATA)">
+              <Field label="From (IATA)" required={hasArrival}>
                 <InputText
                   value={fromIata}
                   onChange={(e) => setFromIata(e.target.value.toUpperCase())}
@@ -543,7 +553,7 @@ export default function CreateNonScheduleFhr({
               </Field>
             </Col>
             <Col lg={4} md={6}>
-              <Field label="To (IATA)">
+              <Field label="To (IATA)" required={hasDeparture}>
                 <InputText
                   value={toIata}
                   onChange={(e) => setToIata(e.target.value.toUpperCase())}

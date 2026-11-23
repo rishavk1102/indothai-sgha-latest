@@ -7,7 +7,11 @@ const SghaTariffLine = require('../NewModels/SghaTariffLine');
 const {
   listBillableFhrs,
   createDraftInvoice,
+  approveInvoice,
+  returnInvoiceToDraft,
   issueInvoice,
+  voidInvoice,
+  createCreditNote,
   unlockInvoice,
   updateInvoiceLine,
   deleteInvoiceLine,
@@ -85,16 +89,36 @@ router.get(
         return res.status(404).json({ message: 'Invoice not found' });
       }
       const fhrIds = (invoice.fhrs || []).map((row) => row.fhr_id);
-      if (!fhrIds.length) return res.json({ lines: [] });
 
-      const ratings = await FhrRating.findAll({
-        where: { fhr_id: fhrIds },
-        attributes: ['fhr_id', 'tariff_id'],
-      });
-      const tariffIds = [
+      const ratings = fhrIds.length
+        ? await FhrRating.findAll({
+            where: { fhr_id: fhrIds },
+            attributes: ['fhr_id', 'tariff_id'],
+          })
+        : [];
+      let tariffIds = [
         ...new Set(ratings.map((r) => r.tariff_id).filter(Boolean)),
       ];
-      if (!tariffIds.length) return res.json({ lines: [] });
+
+      // Fallback: Active walk-up / SGHA tariff for this invoice airport when
+      // linked FHRs were Needs-review (no tariff_id) or have no ratings yet.
+      if (!tariffIds.length && invoice.airport_id) {
+        const SghaTariff = require('../NewModels/SghaTariff');
+        const fallback = await SghaTariff.findAll({
+          where: {
+            airport_id: invoice.airport_id,
+            status: 'Active',
+          },
+          attributes: ['tariff_id', 'kind'],
+          order: [
+            ['kind', 'ASC'],
+            ['tariff_id', 'DESC'],
+          ],
+        });
+        tariffIds = fallback.map((t) => t.tariff_id);
+      }
+
+      if (!tariffIds.length) return res.json({ lines: [], tariff_ids: [] });
 
       const lines = await SghaTariffLine.findAll({
         where: { tariff_id: tariffIds },
@@ -132,6 +156,42 @@ router.post(
 );
 
 router.post(
+  '/invoices/:page_name/:invoice_id/approve',
+  authenticateToken,
+  checkPermission('edit'),
+  async (req, res) => {
+    try {
+      const invoice = await approveInvoice(req.params.invoice_id, {
+        approved_by: req.user?.user_id || req.user?.id || null,
+      });
+      return res.json({ invoice });
+    } catch (error) {
+      console.error('Approve invoice failed:', error);
+      return res.status(400).json({
+        message: error.message || 'Failed to approve invoice',
+      });
+    }
+  }
+);
+
+router.post(
+  '/invoices/:page_name/:invoice_id/return-to-draft',
+  authenticateToken,
+  checkPermission('edit'),
+  async (req, res) => {
+    try {
+      const invoice = await returnInvoiceToDraft(req.params.invoice_id);
+      return res.json({ invoice });
+    } catch (error) {
+      console.error('Return invoice to draft failed:', error);
+      return res.status(400).json({
+        message: error.message || 'Failed to return invoice to draft',
+      });
+    }
+  }
+);
+
+router.post(
   '/invoices/:page_name/:invoice_id/issue',
   authenticateToken,
   checkPermission('edit'),
@@ -150,7 +210,45 @@ router.post(
   }
 );
 
-// Elevated: delete permission = unlock (permissions middleware currently open).
+router.post(
+  '/invoices/:page_name/:invoice_id/void',
+  authenticateToken,
+  checkPermission('delete'),
+  async (req, res) => {
+    try {
+      const invoice = await voidInvoice(req.params.invoice_id, {
+        voided_by: req.user?.user_id || req.user?.id || null,
+      });
+      return res.json({ invoice });
+    } catch (error) {
+      console.error('Void invoice failed:', error);
+      return res.status(400).json({
+        message: error.message || 'Failed to void invoice',
+      });
+    }
+  }
+);
+
+router.post(
+  '/invoices/:page_name/:invoice_id/credit-note',
+  authenticateToken,
+  checkPermission('add'),
+  async (req, res) => {
+    try {
+      const invoice = await createCreditNote(req.params.invoice_id, {
+        issued_by: req.user?.user_id || req.user?.id || null,
+      });
+      return res.status(201).json({ invoice });
+    } catch (error) {
+      console.error('Credit note failed:', error);
+      return res.status(400).json({
+        message: error.message || 'Failed to create credit note',
+      });
+    }
+  }
+);
+
+// Demoted emergency path — UI no longer exposes Unlock.
 router.post(
   '/invoices/:page_name/:invoice_id/unlock',
   authenticateToken,
@@ -196,25 +294,35 @@ router.post(
   }
 );
 
+const updateInvoiceLineHandler = async (req, res) => {
+  try {
+    const invoice = await updateInvoiceLine(
+      req.params.invoice_id,
+      req.params.line_id,
+      req.body || {}
+    );
+    return res.json({ invoice });
+  } catch (error) {
+    console.error('Update invoice line failed:', error);
+    return res.status(400).json({
+      message: error.message || 'Failed to update line',
+    });
+  }
+};
+
 router.patch(
   '/invoices/:page_name/:invoice_id/lines/:line_id',
   authenticateToken,
   checkPermission('edit'),
-  async (req, res) => {
-    try {
-      const invoice = await updateInvoiceLine(
-        req.params.invoice_id,
-        req.params.line_id,
-        req.body || {}
-      );
-      return res.json({ invoice });
-    } catch (error) {
-      console.error('Update invoice line failed:', error);
-      return res.status(400).json({
-        message: error.message || 'Failed to update line',
-      });
-    }
-  }
+  updateInvoiceLineHandler
+);
+
+// PUT alias — some clients / proxies are happier with PUT than PATCH
+router.put(
+  '/invoices/:page_name/:invoice_id/lines/:line_id',
+  authenticateToken,
+  checkPermission('edit'),
+  updateInvoiceLineHandler
 );
 
 router.delete(

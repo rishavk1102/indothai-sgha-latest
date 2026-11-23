@@ -82,7 +82,9 @@ async function liveInvoiceFhrIds(transaction) {
         model: Invoice,
         as: 'invoice',
         attributes: ['invoice_id', 'status'],
-        where: { status: { [Op.in]: ['Draft', 'Issued'] } },
+        where: {
+          status: { [Op.in]: ['Draft', 'Under review', 'Issued'] },
+        },
         required: true,
       },
     ],
@@ -295,6 +297,61 @@ async function createDraftInvoice(fhrIds, options = {}) {
   });
 }
 
+async function approveInvoice(invoiceId, options = {}) {
+  const id = Number(invoiceId);
+  return sequelize.transaction(async (transaction) => {
+    const invoice = await Invoice.findByPk(id, {
+      include: invoiceInclude,
+      transaction,
+    });
+    if (!invoice) throw new Error('Invoice not found');
+    if (invoice.status === 'Under review') {
+      return invoice;
+    }
+    if (invoice.status !== 'Draft') {
+      throw new Error('Only a Draft invoice can be approved for review');
+    }
+    if (!invoice.lines?.length) {
+      throw new Error('Invoice has no lines');
+    }
+
+    await invoice.update(
+      {
+        status: 'Under review',
+        approved_by: options.approved_by || null,
+        approved_at: new Date(),
+      },
+      { transaction }
+    );
+
+    return Invoice.findByPk(id, { include: invoiceInclude, transaction });
+  });
+}
+
+/** Send Under review back to Draft for line edits. */
+async function returnInvoiceToDraft(invoiceId) {
+  const id = Number(invoiceId);
+  return sequelize.transaction(async (transaction) => {
+    const invoice = await Invoice.findByPk(id, {
+      include: invoiceInclude,
+      transaction,
+    });
+    if (!invoice) throw new Error('Invoice not found');
+    if (invoice.status !== 'Under review') {
+      throw new Error('Only an Under review invoice can return to Draft');
+    }
+    await invoice.update(
+      {
+        status: 'Draft',
+        approved_by: null,
+        approved_at: null,
+      },
+      { transaction }
+    );
+    return Invoice.findByPk(id, { include: invoiceInclude, transaction });
+  });
+}
+
 async function issueInvoice(invoiceId, options = {}) {
   const id = Number(invoiceId);
   return sequelize.transaction(async (transaction) => {
@@ -306,8 +363,8 @@ async function issueInvoice(invoiceId, options = {}) {
     if (invoice.status === 'Issued') {
       return invoice;
     }
-    if (invoice.status !== 'Draft') {
-      throw new Error('Only a Draft invoice can be issued');
+    if (invoice.status !== 'Under review') {
+      throw new Error('Approve the draft first (Under review), then Issue');
     }
     if (!invoice.lines?.length) {
       throw new Error('Invoice has no lines');
@@ -325,6 +382,100 @@ async function issueInvoice(invoiceId, options = {}) {
     );
 
     return Invoice.findByPk(id, { include: invoiceInclude, transaction });
+  });
+}
+
+async function voidInvoice(invoiceId, options = {}) {
+  const id = Number(invoiceId);
+  return sequelize.transaction(async (transaction) => {
+    const invoice = await Invoice.findByPk(id, {
+      include: invoiceInclude,
+      transaction,
+    });
+    if (!invoice) throw new Error('Invoice not found');
+    if (invoice.status === 'Voided') {
+      return invoice;
+    }
+    if (invoice.status !== 'Issued') {
+      throw new Error('Only an Issued invoice can be voided');
+    }
+    await invoice.update(
+      {
+        status: 'Voided',
+        unlocked_by: options.voided_by || null,
+        unlocked_at: new Date(),
+      },
+      { transaction }
+    );
+    return Invoice.findByPk(id, { include: invoiceInclude, transaction });
+  });
+}
+
+/**
+ * Issued invoices are immutable. Corrections use a credit note (negated lines).
+ * Does not free FHRs — void the original if you need a replacement invoice.
+ */
+async function createCreditNote(invoiceId, options = {}) {
+  const id = Number(invoiceId);
+  return sequelize.transaction(async (transaction) => {
+    const source = await Invoice.findByPk(id, {
+      include: invoiceInclude,
+      transaction,
+    });
+    if (!source) throw new Error('Invoice not found');
+    if (source.status !== 'Issued') {
+      throw new Error('Only an Issued invoice can receive a credit note');
+    }
+    if (!source.lines?.length) {
+      throw new Error('Source invoice has no lines');
+    }
+
+    const creditNo = await nextInvoiceNo(source.business_id, transaction);
+    const credit = await Invoice.create(
+      {
+        invoice_no: `CN-${creditNo}`,
+        client_id: source.client_id,
+        business_id: source.business_id,
+        airport_id: source.airport_id,
+        period_from: source.period_from,
+        period_to: source.period_to,
+        currency: source.currency,
+        subtotal: toMoney(-Number(source.subtotal || 0)),
+        tax_total: toMoney(-Number(source.tax_total || 0)),
+        grand_total: toMoney(-Number(source.grand_total || 0)),
+        status: 'Credit note',
+        bill_to: source.bill_to,
+        bill_from: source.bill_from,
+        credits_invoice_id: source.invoice_id,
+        issued_by: options.issued_by || null,
+        issued_at: new Date(),
+        approved_by: options.issued_by || null,
+        approved_at: new Date(),
+      },
+      { transaction }
+    );
+
+    const creditLines = (source.lines || []).map((line) => ({
+      invoice_id: credit.invoice_id,
+      fhr_id: line.fhr_id,
+      charge_line_id: line.charge_line_id,
+      description: `Credit: ${line.description}`,
+      line_type: line.line_type,
+      qty: toMoney(line.qty),
+      unit: line.unit,
+      unit_rate: toMoney(-Number(line.unit_rate || 0)),
+      levy: line.levy != null ? toMoney(-Number(line.levy)) : null,
+      tax: line.tax != null ? toMoney(-Number(line.tax)) : null,
+      amount: toMoney(-Number(line.amount || 0)),
+    }));
+    if (creditLines.length) {
+      await InvoiceLine.bulkCreate(creditLines, { transaction });
+    }
+
+    return Invoice.findByPk(credit.invoice_id, {
+      include: invoiceInclude,
+      transaction,
+    });
   });
 }
 
@@ -490,27 +641,14 @@ async function addInvoiceLineFromTariff(invoiceId, { tariff_line_id, fhr_id, qty
   });
 }
 
-async function unlockInvoice(invoiceId, options = {}) {
-  const id = Number(invoiceId);
-  return sequelize.transaction(async (transaction) => {
-    const invoice = await Invoice.findByPk(id, {
-      include: invoiceInclude,
-      transaction,
-    });
-    if (!invoice) throw new Error('Invoice not found');
-    if (invoice.status !== 'Issued') {
-      throw new Error('Only an Issued invoice can be unlocked');
-    }
-    await invoice.update(
-      {
-        status: 'Draft',
-        unlocked_by: options.unlocked_by || null,
-        unlocked_at: new Date(),
-      },
-      { transaction }
-    );
-    return Invoice.findByPk(id, { include: invoiceInclude, transaction });
-  });
+/**
+ * Demoted: Issued invoices stay immutable. Prefer createCreditNote or voidInvoice.
+ * Kept only for emergency elevated use; frontend no longer exposes it.
+ */
+async function unlockInvoice() {
+  throw new Error(
+    'Unlock is disabled. Create a credit note, or void the Issued invoice and raise a replacement draft.'
+  );
 }
 
 async function getInvoice(invoiceId) {
@@ -533,7 +671,11 @@ async function listInvoices({ status } = {}) {
 module.exports = {
   listBillableFhrs,
   createDraftInvoice,
+  approveInvoice,
+  returnInvoiceToDraft,
   issueInvoice,
+  voidInvoice,
+  createCreditNote,
   unlockInvoice,
   updateInvoiceLine,
   deleteInvoiceLine,

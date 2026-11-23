@@ -11,7 +11,7 @@ const CustomToast = forwardRef((props, ref) => {
         }
     }));
 
-    return <Toast ref={toast} position="bottom-right" />;
+    return <Toast ref={toast} position={props.position || "top-right"} />;
 });
 
 export default CustomToast;

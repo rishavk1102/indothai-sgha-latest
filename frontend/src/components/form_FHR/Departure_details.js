@@ -16,7 +16,7 @@ import { ProgressSpinner } from 'primereact/progressspinner';
 import { Avatar } from 'primereact/avatar';
 import { AvatarGroup } from 'primereact/avatargroup';
 import nouser from '../../assets/images/no_user.png';
-const Departure_details = ({ userId, fhr_id, page_name }) => {
+const Departure_details = ({ userId, fhr_id, page_name, parentStatus, notify }) => {
     const socket = getSocket();
     const navigate = useNavigate();
     const { roleId } = useAuth();
@@ -46,7 +46,10 @@ const Departure_details = ({ userId, fhr_id, page_name }) => {
     const [activeEditors, setActiveEditors] = useState([]);
     const [stdAtdDiff, setStdAtdDiff] = useState(null);
 
-    const isDisabled = !editMode || ['Draft', 'Submitted', 'Completed', 'Cancelled'].includes(status);
+    // Lock only when the whole FHR is submitted/completed/cancelled.
+    // Section Status "Submitted" marks the section ready — it must not freeze fields.
+    const isLocked = ['Submitted', 'Completed', 'Cancelled'].includes(parentStatus);
+    const isDisabled = !editMode || isLocked;
 
     // Save to localStorage
     useEffect(() => {
@@ -251,8 +254,20 @@ const Departure_details = ({ userId, fhr_id, page_name }) => {
 
             // Γ£à Clear on successful auto-save
             clearLocalStorageForDeparture();
+
+            try {
+                await api.post(`/edit_fhr/start-edit-session/${page_name}/${fhr_id}`, {
+                    section: 'Departure_Details',
+                    action: 'end'
+                });
+            } catch (endErr) {
+                console.warn("End edit session failed:", endErr.message);
+            }
+            setEditMode(false);
+            notify?.('success', 'Departure details saved');
         } catch (err) {
             console.error("Instant save failed:", err.message);
+            notify?.('error', err.response?.data?.message || 'Failed to save Departure details');
         } finally {
             setLoading(false);
         }
@@ -326,7 +341,7 @@ const Departure_details = ({ userId, fhr_id, page_name }) => {
                         </div>
                         <div className="d-flex align-items-center gap-2 justify-content-end w-100 my-3">
                             <span className="d-flex align-items-end gap-3 mb-0">
-                                {!['Draft', 'Completed', 'Cancelled'].includes(status) && (
+                                {!isLocked && (
                                     <>
                                         <Button
                                             title={editMode ? "Cancel Edit" : "Edit"}

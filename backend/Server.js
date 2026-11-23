@@ -85,7 +85,7 @@ app.use(
         callback(null, true); // Allow all origins for now, can be restricted later
       }
     },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Refresh-Token"],
     credentials: true,
   })

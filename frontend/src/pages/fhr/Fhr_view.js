@@ -9,6 +9,7 @@ import { useDebounce } from 'use-debounce'; // First, install it via npm
 import { Dialog } from 'primereact/dialog';
 import { Button } from 'primereact/button';
 import api from "../../api/axios.js";
+import { EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 
 const Fhr_view = ({ fhr_id, page_name, onClose }) => {
     const { role, roleId } = useAuth(); // Get roleId from the context
@@ -18,6 +19,7 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
     const navigate = useNavigate();
     const [fhrData, setFhrData] = useState(null);
     const [rating, setRating] = useState(null);
+    const [linkedInvoice, setLinkedInvoice] = useState(null);
 
 
     useEffect(() => {
@@ -37,10 +39,17 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
             if (data?.status === 'Completed' && page_name) {
                 api
                     .get(`/edit_fhr/fhr-rating/${encodeURIComponent(page_name)}/${fhr_id}`)
-                    .then((res) => setRating(res.data?.rating || null))
-                    .catch(() => setRating(null));
+                    .then((res) => {
+                        setRating(res.data?.rating || null);
+                        setLinkedInvoice(res.data?.invoice || null);
+                    })
+                    .catch(() => {
+                        setRating(null);
+                        setLinkedInvoice(null);
+                    });
             } else {
                 setRating(null);
+                setLinkedInvoice(null);
             }
         };
 
@@ -448,11 +457,24 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                 <Row className="mt-3">
                     <Col md={12}>
                         <Card className="p-3">
-                            <div className="d-flex align-items-center justify-content-between mb-2">
+                            <div className="d-flex align-items-center justify-content-between mb-2 gap-2 flex-wrap">
                                 <h5 className="mb-0">Tariff rating</h5>
-                                <Badge bg={rating.status === 'Rated' ? 'success' : 'warning'}>
-                                    {rating.status}
-                                </Badge>
+                                <div className="d-flex align-items-center gap-2">
+                                    <Badge bg={rating.status === 'Rated' ? 'success' : 'warning'}>
+                                        {rating.status}
+                                    </Badge>
+                                    {linkedInvoice ? (
+                                        <Button
+                                            label={linkedInvoice.invoice_no}
+                                            className="p-button-text p-button-sm p-0"
+                                            onClick={() =>
+                                                navigate(
+                                                    `${EMPLOYEE_ROUTES.billing}/${linkedInvoice.invoice_id}`
+                                                )
+                                            }
+                                        />
+                                    ) : null}
+                                </div>
                             </div>
                             <div className="text-muted small mb-2">
                                 Rating date: {rating.rating_date || '—'}

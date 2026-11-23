@@ -19,12 +19,16 @@ const AdditionalEquipment = sequelize.define('Additional_Equipment', {
   },
   charges_id: {
     type: DataTypes.INTEGER,
-    allowNull: false,
+    allowNull: true,
     references: {
       model: AircraftCharges,
       key: 'charges_id'
     },
     onDelete: 'CASCADE'
+  },
+  tariff_line_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
   },
   service_name: {
     type: DataTypes.STRING,

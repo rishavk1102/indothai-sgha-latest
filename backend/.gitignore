@@ -2,3 +2,10 @@ node_modules/
 dist/
 dist.zip
 dumps/
+db_dumps/
+.local-mysql/
+.env
+.env.*
+!.env.example
+_mysql_start_status.txt
+_tmp_*.js

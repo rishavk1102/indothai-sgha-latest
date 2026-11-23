@@ -16,7 +16,7 @@ import { ProgressSpinner } from 'primereact/progressspinner';
 import { Avatar } from 'primereact/avatar';
 import { AvatarGroup } from 'primereact/avatargroup';
 import nouser from '../../assets/images/no_user.png';
-const Cargo_details = ({ userId, fhr_id, page_name }) => {
+const Cargo_details = ({ userId, fhr_id, page_name, parentStatus, notify }) => {
     const { roleId } = useAuth();
     const socket = getSocket();
     const navigate = useNavigate();
@@ -35,7 +35,9 @@ const Cargo_details = ({ userId, fhr_id, page_name }) => {
     const [lastEditedBy, setLastEditedBy] = useState(null);
     const [activeEditors, setActiveEditors] = useState([]);
 
-    const isDisabled = !editMode || ['Submitted', 'Completed', 'Cancelled'].includes(status);
+    // Lock only when the whole FHR is submitted/completed/cancelled.
+    const isLocked = ['Submitted', 'Completed', 'Cancelled'].includes(parentStatus);
+    const isDisabled = !editMode || isLocked;
 
     useEffect(() => {
         localStorage.setItem(`${page_name}_noOfTrips`, noOfTrips ?? "");
@@ -204,8 +206,20 @@ const Cargo_details = ({ userId, fhr_id, page_name }) => {
             localStorage.removeItem(`${page_name}_endTime`);
             localStorage.removeItem(`${page_name}_totalTime`);
             localStorage.removeItem(`${page_name}_status`);
+
+            try {
+                await api.post(`/edit_fhr/start-edit-session/${page_name}/${fhr_id}`, {
+                    section: 'Cargo_Details',
+                    action: 'end'
+                });
+            } catch (endErr) {
+                console.warn("End edit session failed:", endErr.message);
+            }
+            setEditMode(false);
+            notify?.('success', 'Cargo details saved');
         } catch (err) {
             console.error("Instant save failed:", err.message);
+            notify?.('error', err.response?.data?.message || 'Failed to save Cargo details');
         } finally {
             setLoading(false);
         }
@@ -277,7 +291,7 @@ const Cargo_details = ({ userId, fhr_id, page_name }) => {
                         </div>
                         <div className="d-flex align-items-center gap-2 justify-content-end w-100 my-3">
                             <span className="d-flex align-items-end gap-3 mb-0">
-                                {!['Draft', 'Completed', 'Cancelled'].includes(status) && (
+                                {!isLocked && (
                                     <>
                                         <Button
                                             title={editMode ? "Cancel Edit" : "Edit"}

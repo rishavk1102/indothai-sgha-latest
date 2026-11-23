@@ -15,7 +15,7 @@ import { AvatarGroup } from 'primereact/avatargroup';
 import nouser from '../../assets/images/no_user.png';
 import { useParams, useNavigate } from "react-router-dom";
 
-const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
+const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatus, notify }) => {
     const socket = getSocket();
     const navigate = useNavigate();
     const { roleId } = useAuth();
@@ -28,13 +28,12 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
 
     const [loading, setLoading] = useState(true);
     const [unauthorized, setUnauthorized] = useState(false);
-    const [categories, setCategories] = useState([]);
     const [creationStatus, setCreationStatus] = useState(null); // true / false
     const [activeEditors, setActiveEditors] = useState([]);
     const [lastEditedBy, setLastEditedBy] = useState(null);
-    const [selectedCatagory, setSelectedCatagory] = useState(null);
     const [equipmentList, setEquipmentList] = useState(() => getLS('equipment_data') || []);
     const [editMode, setEditMode] = useState(false);
+    const isLocked = ['Submitted', 'Completed', 'Cancelled'].includes(fhrStatus);
 
     const setLS = (key, value) => {
         localStorage.setItem(`${page_name}_additional_${key}`, JSON.stringify(value));
@@ -74,34 +73,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
     }, [socket, roleId, fhr_id, page_name]);
 
 
-    // ≡ƒôñ Step 2: If not created, fetch categories
-    useEffect(() => {
-        if (!socket || creationStatus !== false) return;
-
-        socket.emit('fetch-categories', { role_id: roleId, page_name });
-
-        socket.on('fetch-categories-success', (data) => setCategories(data));
-        socket.on('fetch-categories-error', (error) => {
-            const isPermissionError =
-                error.message?.includes("Missing role_id") ||
-                error.message?.includes("Page") ||
-                error.message?.includes("Permission denied");
-
-            if (isPermissionError) {
-                setUnauthorized(true);
-            } else {
-                console.warn("Additional Equipment editor fetch error:", error.message);
-            }
-            setCategories([]);
-        });
-
-        return () => {
-            socket.off('fetch-categories-success');
-            socket.off('fetch-categories-error');
-        };
-    }, [socket, roleId, page_name, creationStatus]);
-
-    // ≡ƒºá Step 3: If created, fetch editor details
+    // Step 2: If created, fetch editor details
     useEffect(() => {
         if (!socket || creationStatus !== true) return;
 
@@ -166,7 +138,14 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
     }, [creationStatus]);
 
 
+    useEffect(() => {
+        if (isLocked && editMode) {
+            setEditMode(false);
+        }
+    }, [isLocked, editMode]);
+
     const handleEditToggle = async () => {
+        if (isLocked) return;
         setLoading(true); // Show spinner while action happens
 
         try {
@@ -195,29 +174,57 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
     };
 
 
-    // ≡ƒ¢á∩╕Å Step 4: Trigger create-additional-equipment API
-    const createAdditionalEquipment = async () => {
-        if (!selectedCatagory) {
-            console.warn("Category ID is required.");
-            return; // Γ¢ö Prevent API call
-        }
+    const refreshCreationStatus = () => {
+        if (!socket || !fhr_id) return;
+        socket.emit('fetch-additional-equipment-status', { fhr_id, role_id: roleId, page_name });
+    };
 
+    const createAdditionalEquipment = async () => {
         try {
             setLoading(true);
             const response = await api.post(`/FHR/create-additional-equipment/${page_name}`, {
                 fhr_id,
-                aircraft_id,
-                category_id: parseInt(selectedCatagory)  // ensure it's sent as a number
             });
 
-            if (response.status === 201) {
-                setCreationStatus(true); // Γ£à Switch to editor mode
+            if (response.status === 201 || response.status === 200) {
+                setCreationStatus(true);
+                refreshCreationStatus();
+                if (socket) {
+                    socket.emit('fetch-additional-equipment-editors', {
+                        role_id: roleId,
+                        page_name,
+                        fhr_id
+                    });
+                }
+                window.alert(
+                    response.data?.message ||
+                        `Created ${response.data?.created_count || 0} equipment line(s) from tariff.`
+                );
             }
         } catch (err) {
-            console.error('Γ¥î Failed to create additional equipment:', err.message);
+            console.error('Failed to create additional equipment:', err.message);
             if (err.response?.status === 403) {
                 setUnauthorized(true);
+            } else {
+                window.alert(err.response?.data?.message || 'Failed to create additional equipment.');
             }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const resetAdditionalEquipment = async () => {
+        try {
+            setLoading(true);
+            await api.post(`/FHR/reset-additional-equipment/${page_name}`, { fhr_id });
+            setCreationStatus(false);
+            setEquipmentList([]);
+            setEditMode(false);
+            setLS('equipment_data', []);
+            refreshCreationStatus();
+        } catch (err) {
+            console.error('Failed to reset additional equipment:', err.message);
+            window.alert(err.response?.data?.message || 'Failed to reset additional equipment.');
         } finally {
             setLoading(false);
         }
@@ -278,7 +285,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
 
 
     useEffect(() => {
-        if (!editMode || !fhr_id || !equipmentList.length) return;
+        if (!editMode || isLocked || !fhr_id || !equipmentList.length) return;
 
         const interval = setInterval(async () => {
             try {
@@ -306,7 +313,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
     }, [editMode, equipmentList, page_name, fhr_id]);
 
     const handleInstantSave = async () => {
-        if (!editMode) return;
+        if (!editMode || isLocked) return;
 
         try {
             setLoading(true);
@@ -322,8 +329,20 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
             };
 
             await api.put(`/edit_fhr/update-additional-equipment/${page_name}/${fhr_id}`, payload);
+
+            try {
+                await api.post(`/edit_fhr/start-edit-session/${page_name}/${fhr_id}`, {
+                    section: 'Additional_Equipment',
+                    action: 'end'
+                });
+            } catch (endErr) {
+                console.warn("End edit session failed:", endErr.message);
+            }
+            setEditMode(false);
+            notify?.('success', 'Additional equipment saved');
         } catch (err) {
             console.error("Instant save failed:", err.message);
+            notify?.('error', err.response?.data?.message || 'Failed to save additional equipment');
         } finally {
             setLoading(false);
         }
@@ -397,23 +416,14 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
                                 </small>
                             </span>
                         </div>
-                        {creationStatus === false && (
+                        {creationStatus === false && !isLocked && (
                             <div className="d-flex align-items-center gap-2 justify-content-end w-100 my-3">
-                                <label>Category</label>
-                                <Form.Select
-                                    value={selectedCatagory}
-                                    onChange={(e) => setSelectedCatagory(e.target.value)}
-                                    disabled={loading}
-                                >
-                                    <option value="">--- Select Category ---</option>
-                                    {categories.map(cat => (
-                                        <option key={cat.category_id} value={cat.category_id}>{cat.name}</option>
-                                    ))}
-                                </Form.Select>
-
+                                <small className="text-muted me-auto">
+                                    Creates Additional lines from the Active SGHA / walk-up tariff for this FHR.
+                                </small>
                                 <Button
-                                    disabled={!selectedCatagory || loading}
-                                    label="Create"
+                                    disabled={loading}
+                                    label="Create from tariff"
                                     onClick={createAdditionalEquipment}
                                     severity="warning"
                                     className="py-2 text-white"
@@ -422,32 +432,52 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
                             </div>
                         )}
 
+                        {creationStatus === true && equipmentList.length === 0 && (
+                            <div className="d-flex align-items-center justify-content-between w-100 my-3">
+                                <small className="text-muted">
+                                    No Additional tariff lines were found. Add them on the Active tariff, then Reset &amp; Retry.
+                                </small>
+                                {!isLocked && (
+                                    <Button
+                                        label="Reset & Retry"
+                                        severity="secondary"
+                                        className="py-2"
+                                        style={{ fontSize: "14px" }}
+                                        onClick={resetAdditionalEquipment}
+                                        disabled={loading}
+                                    />
+                                )}
+                            </div>
+                        )}
+
                         {creationStatus === true && equipmentList.length > 0 && (
                             <>
                                 <div className="d-flex align-items-center gap-2 justify-content-end w-100 my-3">
                                     <span className="d-flex align-items-end gap-3 mb-0">
-                                        <>
-                                            <Button
-                                                title={editMode ? "Cancel Edit" : "Edit"}
-                                                icon={editMode ? "pi pi-times" : "pi pi-pencil"}
-                                                onClick={handleEditToggle}
-                                                severity={editMode ? "success" : "warning"}
-                                                size="small"
-                                                className="p-0"
-                                                style={{ width: '30px', height: '30px' }}
-                                            />
-                                            {editMode && (
+                                        {!isLocked && (
+                                            <>
                                                 <Button
-                                                    title="Validate & Save"
-                                                    icon="pi pi-save"
-                                                    onClick={handleInstantSave}
-                                                    severity="info"
+                                                    title={editMode ? "Cancel Edit" : "Edit"}
+                                                    icon={editMode ? "pi pi-times" : "pi pi-pencil"}
+                                                    onClick={handleEditToggle}
+                                                    severity={editMode ? "success" : "warning"}
                                                     size="small"
                                                     className="p-0"
                                                     style={{ width: '30px', height: '30px' }}
                                                 />
-                                            )}
-                                        </>
+                                                {editMode && (
+                                                    <Button
+                                                        title="Validate & Save"
+                                                        icon="pi pi-save"
+                                                        onClick={handleInstantSave}
+                                                        severity="info"
+                                                        size="small"
+                                                        className="p-0"
+                                                        style={{ width: '30px', height: '30px' }}
+                                                    />
+                                                )}
+                                            </>
+                                        )}
                                     </span>
                                 </div>
                                 <div className="mt-3">
@@ -465,7 +495,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
                                                             <Form.Control
                                                                 className="w-100"
                                                                 value={item.total_no_used || ''}
-                                                                disabled={!editMode}
+                                                                disabled={!editMode || isLocked}
                                                                 onChange={(e) => handleEquipmentChange(index, 'total_no_used', e.target.value)}
                                                             />
                                                         </Form.Group>
@@ -482,7 +512,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
                                                                             value={slot.start ? new Date(slot.start) : null}
                                                                             onChange={(e) => updateSlot(index, slotIndex, 'start', e.value)}
                                                                             showTime
-                                                                            disabled={!editMode}
+                                                                            disabled={!editMode || isLocked}
                                                                             hourFormat="24"
                                                                             dateFormat="dd/mm/yy"
                                                                         />
@@ -493,13 +523,13 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
                                                                             value={slot.end ? new Date(slot.end) : null}
                                                                             onChange={(e) => updateSlot(index, slotIndex, 'end', e.value)}
                                                                             showTime
-                                                                            disabled={!editMode}
+                                                                            disabled={!editMode || isLocked}
                                                                             hourFormat="24"
                                                                             dateFormat="dd/mm/yy"
                                                                         />
                                                                     </Form.Group>
 
-                                                                    {item.time_slots.length > 1 && editMode && (
+                                                                    {item.time_slots.length > 1 && editMode && !isLocked && (
                                                                         <Button
                                                                             icon="pi pi-times"
                                                                             severity="danger"
@@ -512,7 +542,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
                                                                 </div>
                                                             ))}
 
-                                                            {editMode && (
+                                                            {editMode && !isLocked && (
                                                                 <Button
                                                                     label="Add Slot"
                                                                     icon="pi pi-plus"
@@ -543,7 +573,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id }) => {
                                                     rows={2}
                                                     placeholder="Enter remarks"
                                                     className="w-100 h-auto"
-                                                    disabled={!editMode}
+                                                    disabled={!editMode || isLocked}
                                                 />
                                             </Card.Footer>
                                         </Card>

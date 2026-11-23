@@ -70,6 +70,9 @@ router.post('/generate-fhr/:page_name', authenticateToken, checkPermission('add'
             6: '6'
         };
 
+        let createdCount = 0;
+        let skippedEmptyRange = 0;
+
         for (const data of excelDataList) {
             const { wef, wet, days, sta, std, arrival_flight_no, departure_flight_no, from_iata, to_iata, type_of_aircraft, remarks } = data;
             const { aircraft } = data;
@@ -79,19 +82,31 @@ router.post('/generate-fhr/:page_name', authenticateToken, checkPermission('add'
             const client = airline.client;
 
             const dateList = [];
-            let currentDate = new Date(wef);
-            const endDate = new Date(wet);
+            let rangeStart = new Date(wef);
+            let rangeEnd = new Date(wet);
+            // Excel columns sometimes swapped — allow generation when "to" is before "from"
+            if (rangeEnd < rangeStart) {
+                const tmp = rangeStart;
+                rangeStart = rangeEnd;
+                rangeEnd = tmp;
+            }
 
-            const normalizedDays = days.toLowerCase() === 'daily'
+            const normalizedDays = !days || String(days).toLowerCase() === 'daily'
                 ? 'daily'
-                : days.split(/[\/\,\s]+/).map(d => d.trim());
+                : String(days).split(/[\/\,\s]+/).map(d => d.trim()).filter(Boolean);
 
-            while (currentDate <= endDate) {
+            let currentDate = new Date(rangeStart);
+            while (currentDate <= rangeEnd) {
                 const dayCode = dayMap[currentDate.getDay()];
                 if (normalizedDays === 'daily' || (Array.isArray(normalizedDays) && normalizedDays.includes(dayCode))) {
                     dateList.push(new Date(currentDate));
                 }
                 currentDate.setDate(currentDate.getDate() + 1);
+            }
+
+            if (dateList.length === 0) {
+                skippedEmptyRange += 1;
+                continue;
             }
 
             for (const date of dateList) {
@@ -105,10 +120,12 @@ router.post('/generate-fhr/:page_name', authenticateToken, checkPermission('add'
                     airline_id: airline.airline_id,
                     aircraft_id: aircraft.aircraft_id,
                     excel_data_id: data.excel_data_id,
+                    Fhr_type: 'Schedule',
                     type: arrival_flight_no && departure_flight_no ? 'Both' : arrival_flight_no ? 'Arrival' : 'Departure',
                     remarks: remarks,
                     status: 'Draft'
                 }, { transaction });
+                createdCount += 1;
 
                 await BasicDetails.create({
                     fhr_id: fhr.fhr_id,
@@ -220,11 +237,15 @@ router.post('/generate-fhr/:page_name', authenticateToken, checkPermission('add'
         }
 
         await transaction.commit();
-        res.json({ message: 'Γ£à FHR and listings generated successfully.' });
+        res.json({
+            message: `FHR generated successfully. Created ${createdCount} draft(s).`,
+            createdCount,
+            skippedEmptyRange
+        });
     } catch (error) {
-        console.error('Γ¥î Error generating FHR:', error);
+        console.error('Error generating FHR:', error);
         await transaction.rollback();
-        res.status(500).json({ message: 'Γ¥î Failed to generate FHR.', error: error.message });
+        res.status(500).json({ message: 'Failed to generate FHR.', error: error.message });
     }
     finally {
         if (transaction && !transaction.finished) await transaction.rollback();
@@ -432,77 +453,190 @@ router.post('/generate-single-fhr/:page_name', authenticateToken, checkPermissio
 
 
 router.post('/create-additional-equipment/:page_name', authenticateToken, checkPermission('add'), async (req, res) => {
-    const { aircraft_id, fhr_id, category_id } = req.body;
+    const { fhr_id } = req.body;
 
     let transaction;
 
     try {
-        transaction = await sequelize.transaction();
-
-        // ≡ƒöì Step 1: Construct WHERE clause
-        const whereClause = { aircraft_id };
-        if (category_id) {
-            whereClause.category_id = category_id;
+        if (!fhr_id) {
+            return res.status(400).json({ message: 'fhr_id is required.' });
         }
 
-        // ≡ƒôÑ Step 2: Fetch filtered aircraft charges
-        const charges = await AircraftCharges.findAll({
-            where: whereClause,
+        const fhr = await FHR.findByPk(fhr_id, {
+            attributes: {
+                exclude: ['category_id'],
+            },
             include: [
-                {
-                    model: ChargeType,
-                    as: 'chargeType',
-                    attributes: ['charge_type_id', 'name', 'description']
-                },
-                {
-                    model: ChargeType,
-                    as: 'ReferencedChargeType',
-                    attributes: ['charge_type_id', 'name', 'description']
-                },
-                {
-                    model: Category,
-                    as: 'category',
-                    attributes: ['category_id', 'name']
-                }
+                { model: ArrivalDetails, as: 'arrival_details' },
+                { model: DepartureDetails, as: 'departure_details' },
             ],
-            order: [['charges_id', 'ASC']],
-            transaction
+        });
+        if (!fhr) {
+            return res.status(404).json({ message: 'FHR not found.' });
+        }
+
+        if (['Submitted', 'Completed', 'Cancelled'].includes(fhr.status)) {
+            return res.status(400).json({ message: `Cannot create additional equipment while FHR is ${fhr.status}.` });
+        }
+
+        const {
+            findActiveTariff,
+            findActiveWalkupTariff,
+        } = require('../services/sghaTariffSnapshot');
+        const SghaTariffLine = require('../NewModels/SghaTariffLine');
+
+        const toDateOnly = (value) => {
+            if (!value) return null;
+            const d = value instanceof Date ? value : new Date(value);
+            if (Number.isNaN(d.getTime())) return null;
+            return d.toISOString().slice(0, 10);
+        };
+        const arrival = fhr.arrival_details;
+        const departure = fhr.departure_details;
+        let ratingDate;
+        if (fhr.type === 'Departure') {
+            ratingDate =
+                toDateOnly(departure?.atd) ||
+                toDateOnly(departure?.std) ||
+                toDateOnly(fhr.issue_date);
+        } else {
+            ratingDate =
+                toDateOnly(arrival?.ata) ||
+                toDateOnly(arrival?.sta) ||
+                toDateOnly(fhr.issue_date);
+        }
+
+        const client = await Client.findByPk(fhr.client_id, {
+            attributes: ['client_id', 'client_registration_id'],
+        });
+        const isWalkup = String(fhr.Fhr_type || '') === 'Non-Schedule';
+        const tariff = isWalkup
+            ? await findActiveWalkupTariff({
+                  airportId: fhr.airport_id,
+                  businessId: fhr.business_id,
+                  onDate: ratingDate,
+              })
+            : await findActiveTariff({
+                  clientId: fhr.client_id,
+                  airportId: fhr.airport_id,
+                  clientRegistrationId: client?.client_registration_id || null,
+                  onDate: ratingDate,
+              });
+
+        if (!tariff) {
+            return res.status(400).json({
+                message: isWalkup
+                    ? 'No Active walk-up tariff for this airport/date. Add a walk-up tariff first.'
+                    : 'No Active SGHA tariff for this client/airport/date. Complete the SGHA tariff first.',
+                created_count: 0,
+            });
+        }
+
+        transaction = await sequelize.transaction();
+
+        const tariffLines = await SghaTariffLine.findAll({
+            where: {
+                tariff_id: tariff.tariff_id,
+                line_type: 'Additional',
+            },
+            order: [['tariff_line_id', 'ASC']],
+            transaction,
         });
 
-        // ΓÜÖ∩╕Å Step 3: Insert into Additional_Equipment
-        const equipmentPromises = charges.map(charge => {
-            return AdditionalEquipment.create({
+        if (!tariffLines.length) {
+            await transaction.rollback();
+            return res.status(400).json({
+                message:
+                    'Active tariff has no Additional lines. Add Additional services on the tariff, then create again.',
+                created_count: 0,
+            });
+        }
+
+        await AdditionalEquipment.destroy({ where: { fhr_id }, transaction });
+
+        await Promise.all(
+            tariffLines.map((line) =>
+                AdditionalEquipment.create(
+                    {
+                        fhr_id,
+                        charges_id: null,
+                        tariff_line_id: line.tariff_line_id,
+                        service_name: line.description || 'Additional service',
+                        service_type: line.line_type || 'Additional',
+                        unit: line.unit || null,
+                        total_no_used: null,
+                        time_slots: [{ start: null, end: null }],
+                        total_time: null,
+                    },
+                    { transaction }
+                )
+            )
+        );
+
+        await AdditionalEquipmentCreation.upsert(
+            {
                 fhr_id,
-                charges_id: charge.charges_id,
-                service_name: charge.service,
-                service_type: charge.chargeType?.name || null,
-                unit: charge.unit,
-                total_no_used: null,
-                time_slots: [],
-                total_time: null
-            }, { transaction });
-        });
-
-        await Promise.all(equipmentPromises);
-
-        // Γ£à Step 4: Update creation status
-        await AdditionalEquipmentCreation.upsert({
-            fhr_id,
-            creation_status: true
-        }, { transaction });
+                creation_status: true,
+            },
+            { transaction }
+        );
 
         await transaction.commit();
 
-        res.status(201).json({
-            message: 'Additional Equipment created successfully.',
-            created_count: charges.length
-        });
+        const io = getIO();
+        io.emit('fhrUpdated', { fhr_id });
 
+        res.status(201).json({
+            message: 'Additional Equipment created from tariff lines.',
+            created_count: tariffLines.length,
+            tariff_id: tariff.tariff_id,
+        });
     } catch (error) {
         if (transaction) await transaction.rollback();
-        console.error('Γ¥î Error creating additional equipment:', error);
+        console.error('Error creating additional equipment:', error);
         return res.status(500).json({
             message: 'Server error while creating additional equipment',
+            error: error.message,
+        });
+    } finally {
+        if (transaction && !transaction.finished) await transaction.rollback();
+    }
+});
+
+// Allow retry when creation was marked done but no equipment rows exist
+router.post('/reset-additional-equipment/:page_name', authenticateToken, checkPermission('edit'), async (req, res) => {
+    const { fhr_id } = req.body;
+    if (!fhr_id) {
+        return res.status(400).json({ message: 'fhr_id is required.' });
+    }
+
+    let transaction;
+    try {
+        const fhr = await FHR.findByPk(fhr_id, { attributes: ['fhr_id', 'status'] });
+        if (!fhr) {
+            return res.status(404).json({ message: 'FHR not found.' });
+        }
+        if (['Submitted', 'Completed', 'Cancelled'].includes(fhr.status)) {
+            return res.status(400).json({ message: `Cannot reset additional equipment while FHR is ${fhr.status}.` });
+        }
+
+        transaction = await sequelize.transaction();
+        await AdditionalEquipment.destroy({ where: { fhr_id }, transaction });
+        await AdditionalEquipmentCreation.upsert({
+            fhr_id,
+            creation_status: false
+        }, { transaction });
+        await transaction.commit();
+
+        const io = getIO();
+        io.emit('fhrUpdated', { fhr_id });
+
+        res.json({ message: 'Additional equipment reset. Select a category and create again.' });
+    } catch (error) {
+        if (transaction) await transaction.rollback();
+        console.error('Error resetting additional equipment:', error);
+        return res.status(500).json({
+            message: 'Server error while resetting additional equipment',
             error: error.message
         });
     } finally {

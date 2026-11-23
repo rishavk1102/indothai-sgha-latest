@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Row, Col, Breadcrumb, Form, Card, Table, InputGroup, Badge } from 'react-bootstrap';
 import { IoChevronBackOutline } from "react-icons/io5";
@@ -60,9 +60,10 @@ const Import_fhr = () => {
     const [date, setDate] = useState('');
     const [remarks, setRemarks] = useState('');
     const [visible, setVisible] = useState(false);
+    const fileInputRef = useRef(null);
 
     const handleFileChange = (e) => {
-        if (e.target.files.length > 0) {
+        if (e.target.files?.length > 0) {
             setFileName(e.target.files[0].name);
         }
     };
@@ -70,58 +71,85 @@ const Import_fhr = () => {
 
 
     useEffect(() => {
-        if (!socket) return;
+        if (!socket || !roleId || !userId) return undefined;
 
-        socket.emit('fetch-businesses', {
-            role_id: roleId,
-            page_name: PAGE_NAME
-        });
-
-        socket.on('fetch-businesses-success', (data) => {
-            setBusinesses(data);
-        });
-
-        socket.on('fetch-businesses-error', (error) => {
+        const onBizOk = (data) => {
+            setBusinesses(Array.isArray(data) ? data : []);
+        };
+        const onBizErr = (error) => {
+            const msg = error?.message || "";
             const isPermissionError =
-                error.message?.includes('Missing role_id') ||
-                error.message?.includes('Page') ||
-                error.message?.includes('Permission denied');
+                msg.includes("Missing role_id") ||
+                msg.includes("Page") ||
+                msg.includes("Permission denied");
 
             if (isPermissionError) {
                 setUnauthorized(true);
-            } else {
-                setBusinesses([]);
-                console.warn('Business fetch error:', error.message);
+                return;
             }
-        });
 
-        socket.on('excel-progress', (data) => {
+            // Fallback: list all businesses if user has none linked yet
+            socket.emit("view-businesses", {
+                role_id: roleId,
+                page_name: PAGE_NAME,
+                limit: 100,
+                sortOrder: "ASC",
+            });
+            console.warn("Business fetch error:", msg);
+        };
+        const onViewOk = (data) => {
+            const rows = Array.isArray(data) ? data : data?.businesses || [];
+            setBusinesses(rows);
+        };
+        const onViewErr = (error) => {
+            setBusinesses([]);
+            console.warn("View businesses error:", error?.message);
+        };
+
+        socket.emit("fetch-businesses", {
+            role_id: roleId,
+            page_name: PAGE_NAME,
+            user_id: userId,
+        });
+        socket.on("fetch-businesses-success", onBizOk);
+        socket.on("fetch-businesses-error", onBizErr);
+        socket.on("view-businesses-success", onViewOk);
+        socket.on("view-businesses-error", onViewErr);
+
+        const onProgress = (data) => {
             if (String(data.user_id) === String(userId)) {
                 setProgressMessages((prev) => [...prev, data.step]);
                 setShowDownloadDialog(true);
             }
-        });
-
-        socket.on('excel-error', (data) => {
+        };
+        const onExcelErr = (data) => {
             if (String(data.user_id) === String(userId)) {
-                setProgressMessages((prev) => [...prev, `Î“Â¥Ã® Error: ${data.message}`]);
+                setProgressMessages((prev) => [
+                    ...prev,
+                    `Error: ${data.message}`,
+                ]);
             }
-        });
-
-        socket.on('excel-complete', (data) => {
+        };
+        const onExcelDone = (data) => {
             if (String(data.user_id) === String(userId)) {
-                setProgressMessages([`Î“Â£Ã  ${data.message}`]); // â‰¡Æ’Ã¦Ãª Replace previous messages
+                setProgressMessages([`${data.message}`]);
             }
-        });
+        };
+
+        socket.on("excel-progress", onProgress);
+        socket.on("excel-error", onExcelErr);
+        socket.on("excel-complete", onExcelDone);
 
         return () => {
-            socket.off('fetch-businesses-success');
-            socket.off('fetch-businesses-error');
-            socket.off('excel-progress');
-            socket.off('excel-error');
-            socket.off('excel-complete');
+            socket.off("fetch-businesses-success", onBizOk);
+            socket.off("fetch-businesses-error", onBizErr);
+            socket.off("view-businesses-success", onViewOk);
+            socket.off("view-businesses-error", onViewErr);
+            socket.off("excel-progress", onProgress);
+            socket.off("excel-error", onExcelErr);
+            socket.off("excel-complete", onExcelDone);
         };
-    }, [socket]);
+    }, [socket, roleId, userId]);
 
 
     useEffect(() => {
@@ -245,33 +273,50 @@ const Import_fhr = () => {
 
 
     const handleUpload = async () => {
-        const fileInput = document.getElementById("fileupload");
-        if (!fileInput || fileInput.files.length === 0) return;
+        const fileInput = fileInputRef.current;
+        if (!fileInput?.files?.length) {
+            setProgressMessages(["Select an Excel file first."]);
+            setShowDownloadDialog(true);
+            return;
+        }
+        if (!date) {
+            setProgressMessages(["Set With Effect To Date before uploading."]);
+            setShowDownloadDialog(true);
+            return;
+        }
+        if (!remarks?.trim()) {
+            setProgressMessages(["Enter remarks before uploading."]);
+            setShowDownloadDialog(true);
+            return;
+        }
 
         const file = fileInput.files[0];
         const formData = new FormData();
         formData.append("file", file);
         formData.append("remarks", remarks);
         formData.append("inserted_by_user_id", userId);
-        formData.append("wet", date); // â‰¡Æ’Ã´Ã  Add WET date from input
+        formData.append("wet", date);
 
-        setProgressMessages([]);
+        setProgressMessages(["Uploading…"]);
         setShowDownloadDialog(true);
 
         try {
-            const response = await api.post(`/FHR_Import/upload-excel/${PAGE_NAME}`, formData, {
+            await api.post(`/FHR_Import/upload-excel/${PAGE_NAME}`, formData, {
                 headers: { "Content-Type": "multipart/form-data" },
             });
-            // Î“Â£Ã  Reset file input manually
-            fileInput.value = null;
-
-            // Î“Â£Ã  Reset state variables
-            setFileName('');
-            setDate('');
-            setRemarks('');
+            fileInput.value = "";
+            setFileName("");
+            setDate("");
+            setRemarks("");
+            setProgressMessages((prev) => [...prev, "Upload finished."]);
         } catch (error) {
             console.error("Upload failed:", error);
-            setProgressMessages((prev) => [...prev, 'Î“Â¥Ã® Upload failed.']);
+            setProgressMessages((prev) => [
+                ...prev,
+                error.response?.data?.message ||
+                    error.message ||
+                    "Upload failed.",
+            ]);
             if (error.response?.status === 403) {
                 setUnauthorized(true);
                 setShowDownloadDialog(false);
@@ -285,12 +330,31 @@ const Import_fhr = () => {
         setLoading(true);
         try {
             const res = await api.post(`/FHR/generate-fhr/${PAGE_NAME}`);
-            if (res.status === 201) {
+            const created = res.data?.createdCount ?? 0;
+            const skipped = res.data?.skippedEmptyRange ?? 0;
+            window.alert(
+                res.data?.message ||
+                `Created ${created} draft FHR(s).` +
+                (skipped ? ` Skipped ${skipped} row(s) with no matching flight dates.` : '')
+            );
+            if (socket) {
+                socket.emit('view-excel-data', {
+                    role_id: roleId,
+                    page_name: PAGE_NAME,
+                    sortOrder,
+                    limit,
+                    searchTerm: debouncedSearchTerm,
+                });
+            }
+            if (created > 0) {
+                navigate('/dashboard/FHR_draft');
             }
         } catch (error) {
             console.error('Generate FHR error:', error);
             if (error.response?.status === 403) {
                 setUnauthorized(true);
+            } else {
+                window.alert(error.response?.data?.message || 'Failed to generate FHR.');
             }
         } finally {
             setLoading(false);
@@ -499,11 +563,11 @@ const Import_fhr = () => {
                                             />
                                         </IconField>
                                         <Button
-                                            icon="pi pi-cloud-upload"
-                                            label="Upload"
+                                            icon="pi pi-check-circle"
+                                            label="Generate FHR"
                                             severity="warning"
                                             className="py-2 border-0"
-                                            tooltip="Add New"
+                                            tooltip="Create Draft FHRs from imported rows"
                                             tooltipOptions={{ position: "top" }}
                                             onClick={handleGenerateFHR}
                                             style={{ height: '35px'}}
@@ -612,7 +676,7 @@ const Import_fhr = () => {
                                                                     bg={item.fhr_creation_status ? 'success' : 'warning'}
                                                                     className="text-sm text-white"
                                                                 >
-                                                                    {item.fhr_creation_status ? 'Completed' : 'Pending'}
+                                                                    {item.fhr_creation_status ? 'Generated' : 'Pending'}
                                                                 </Badge>
                                                             </td>
 
@@ -663,22 +727,78 @@ const Import_fhr = () => {
                 </div>
             </Dialog>
 
-            <Sidebar visible={visibleRight} style={{ width: '460px' }} position="right" onHide={() => setVisibleRight(false)}>
+            <Sidebar
+                visible={visibleRight}
+                position="right"
+                onHide={() => setVisibleRight(false)}
+                className="fhr-import-sidebar"
+                style={{ width: "460px" }}
+            >
                 <Row className="mx-0">
                     <Col md={12} lg={12} className="rtpart ps-0">
                         <Card className="ignore-container p-3 shadow-0 border-0">
                             <Form.Group controlId="fileupload" className="file-upload">
+                                <div className="mb-3">
+                                    <label className="d-block mb-2 text-start fw-semibold">
+                                        1. Select handling company
+                                    </label>
+                                    <div className="d-flex align-items-center gap-2 flex-wrap">
+                                        <Form.Select
+                                            aria-label="Business Filter"
+                                            value={selectedBusiness}
+                                            onChange={(e) =>
+                                                setSelectedBusiness(e.target.value)
+                                            }
+                                        >
+                                            <option value="">
+                                                Filter By Handling Company
+                                            </option>
+                                            {businesses.map((b) => (
+                                                <option
+                                                    key={b.business_id}
+                                                    value={b.business_id}
+                                                >
+                                                    {b.name}
+                                                </option>
+                                            ))}
+                                        </Form.Select>
+                                        <Button
+                                            type="button"
+                                            label="Download"
+                                            icon="pi pi-file-excel"
+                                            severity="success"
+                                            className="py-2"
+                                            disabled={!selectedBusiness}
+                                            onClick={handleDownloadExcel}
+                                            tooltip={
+                                                selectedBusiness
+                                                    ? "Download Excel template"
+                                                    : "Select a handling company first"
+                                            }
+                                            tooltipOptions={{ position: "top" }}
+                                        />
+                                    </div>
+                                    {!businesses.length ? (
+                                        <small className="text-danger d-block mt-1">
+                                            No companies loaded. Refresh the page or
+                                            check that your user is linked to a
+                                            handling company.
+                                        </small>
+                                    ) : null}
+                                </div>
+
+                                <label className="d-block mb-2 text-start fw-semibold">
+                                    2. Upload filled Excel
+                                </label>
                                 <div className="file-wrap">
                                     <Form.Control
+                                        ref={fileInputRef}
                                         type="file"
                                         name="upload"
-                                        className="d-none"
+                                        accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                                         onChange={handleFileChange}
                                     />
-                                    <div
-                                        className="custom-upload-design"
-                                        onClick={() => document.getElementById("fileupload").click()}
-                                    >
+                                    <div className="custom-upload-design">
                                         <div className="upload-icon">
                                             <LuUpload style={{ fontSize: '30px' }} />
                                         </div>
@@ -735,61 +855,24 @@ const Import_fhr = () => {
                         </Card>
                     </Col>
                     <Col md={12} lg={12} className="px-1 mt-3">
-                        <Card className="ltpart text-start p-3 pe-0 border-0" style={{ background: '#f3ebf4' }}>
-                            <Card.Header className="bg-transparent p-2 mb-3">
-                                <div className="d-flex align-items-center gap-1 justify-content-end filterDiv">
-                                    <label className="me-2">Select Business</label>
-                                    <Form.Select
-                                        aria-label="Business Filter"
-                                        style={{ width: '250px' }}
-                                        value={selectedBusiness}
-                                        onChange={(e) => setSelectedBusiness(e.target.value)}
-                                    >
-                                        <option value="">Filter By Handling Company</option>
-                                        {businesses.map((b) => (
-                                            <option key={b.business_id} value={b.business_id}>
-                                                {b.name}
-                                            </option>
-                                        ))}
-                                    </Form.Select>
-
-                                    {selectedBusiness && (
-                                        <Button
-                                            tooltip="Download Template"
-                                            icon="pi pi-file-excel"
-                                            tooltipOptions={{ position: "top" }}
-                                            className="ms-3 py-2"
-                                            severity="success"
-                                            onClick={handleDownloadExcel}
-                                        />
-                                    )}
-
-                                </div>
-                            </Card.Header>
-                            <h6> Excel File Upload Instructions</h6>
-                            <ul className="importText">
+                        <Card className="ltpart text-start p-3 border-0" style={{ background: '#f3ebf4' }}>
+                            <h6>Excel file upload instructions</h6>
+                            <ul className="importText mb-0">
                                 <li>
-                                    Start by downloading the Excel File for CCU (â‰¡Æ’Ã¦Ãª Select the above dropdown to download) of your current airport. You can change the airport by selecting it from the navigation bar drop-down list, which will only display airports assigned to you.
+                                    Select a handling company above, then click <strong>Download</strong> to get the Excel template for that station.
                                 </li>
                                 <li>
-                                    The Excel file consists of multiple sheets, each dedicated to different airlines. Fill in the aircraft details in the respective sheets for each airline, following the format outlined in the NOTES section of the sample Excel file.
+                                    The Excel file has multiple sheets (one per airline). Fill aircraft and flight details using the NOTES sheet.
                                 </li>
                                 <li>
-                                    Thoroughly read the NOTES in the Sample Excel file to ensure accurate data entry.
+                                    Only edit unlocked table cells. Enter arrival/departure flights, STA/STD, and operating days as shown in NOTES.
                                 </li>
                                 <li>
-                                    Ensure that you only input data in the designated table columns of the Excel file, as all other cells are locked. This precaution is taken to avoid extracting unnecessary values when the system processes the data from the Excel file.
+                                    Upload the filled file, set With Effect To Date (WET), add remarks, then click Upload.
                                 </li>
                                 <li>
-                                    Input arrival and departure flight information in the Excel file following the specified format in the NOTES section.
+                                    When processing finishes, open <strong>FHR → Draft</strong> to see the generated scheduled FHRs.
                                 </li>
-                                <li>
-                                    Once you've completed the data entry, upload the Excel file here. Additionally, set the With Effect To Date (WET) and click on the upload button.
-                                </li>
-                                <li>
-                                    Wait until the file status is updated to completed. The FHR generation will occur in the background, allowing you to navigate to other pages as needed.
-                                </li>
-                                <li>Congratulations! The FHRs are now ready, and you can view them in FHR draft page.</li>
                             </ul>
                         </Card>
                     </Col>

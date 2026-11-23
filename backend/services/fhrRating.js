@@ -25,6 +25,26 @@ function toMoney(value) {
   return Math.round(n * 100) / 100;
 }
 
+/** True when ops actually used this extra (qty or time filled). Blank rows are catalog only. */
+function isEquipmentUsed(equipment) {
+  if (equipment?.total_no_used != null && equipment.total_no_used !== '') {
+    const n = Number(equipment.total_no_used);
+    if (Number.isFinite(n) && n > 0) return true;
+  }
+  const totalTime = String(equipment?.total_time || '').trim();
+  if (totalTime) {
+    if (totalTime.includes(':')) {
+      const [h, m] = totalTime.split(':').map(Number);
+      if (Number.isFinite(h) && Number.isFinite(m) && h + m > 0) return true;
+    } else {
+      const n = Number(totalTime);
+      if (Number.isFinite(n) && n > 0) return true;
+    }
+  }
+  const slots = Array.isArray(equipment?.time_slots) ? equipment.time_slots : [];
+  return slots.some((slot) => slot?.start && slot?.end);
+}
+
 function parseQty(equipment) {
   if (equipment?.total_no_used != null && equipment.total_no_used !== '') {
     const n = Number(equipment.total_no_used);
@@ -109,6 +129,13 @@ function pickBaseLine(lines, aircraft) {
 function pickAdditionalLine(lines, equipment) {
   const add = (lines || []).filter((l) => l.line_type === 'Additional');
   if (!add.length) return null;
+
+  if (equipment?.tariff_line_id != null) {
+    const byTariffLine = add.find(
+      (l) => Number(l.tariff_line_id) === Number(equipment.tariff_line_id)
+    );
+    if (byTariffLine) return byTariffLine;
+  }
 
   const name = String(equipment.service_name || '')
     .trim()
@@ -293,6 +320,9 @@ async function rateFhrFromTariff(fhrId, options = {}) {
       ? fhr.additional_equipments
       : [];
     for (const eq of equipment) {
+      // Create-from-tariff lists every Additional option; only bill what was actually used.
+      if (!isEquipmentUsed(eq)) continue;
+
       const addLine = pickAdditionalLine(tariffLines, eq);
       if (!addLine) {
         unmatchedExtra.push(eq.service_name || `charges_id=${eq.charges_id}`);

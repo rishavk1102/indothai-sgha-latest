@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Row, Col, Breadcrumb, Form } from 'react-bootstrap';
+import { Row, Col, Breadcrumb, Form, Badge } from 'react-bootstrap';
 import { IoChevronBackOutline } from "react-icons/io5";
 import { Fieldset } from 'primereact/fieldset';
 import { InputTextarea } from "primereact/inputtextarea";
@@ -24,6 +24,7 @@ import { Avatar } from 'primereact/avatar';
 import { AvatarGroup } from 'primereact/avatargroup';
 import CustomToast from "../../components/CustomToast.js";
 import Additional_equipment from "../../components/form_FHR/Additional_equipment.js";
+import { EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
 
 
 const Edit_Fhr = () => {
@@ -45,11 +46,14 @@ const Edit_Fhr = () => {
     const [declaration2, setDeclaration2] = useState('');
     const [value, setValue] = useState('');
     const [date, setDate] = useState(null);
+    const [rating, setRating] = useState(null);
+    const [linkedInvoice, setLinkedInvoice] = useState(null);
+    const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
 
 
     const showMessage = (severity, detail) => {
         const summary = severity.charAt(0).toUpperCase() + severity.slice(1);
-        toastRef.current.show(severity, summary, detail);
+        toastRef.current?.show(severity, summary, detail, severity === 'error' ? 7000 : 4000);
     };
 
     useEffect(() => {
@@ -129,7 +133,28 @@ const Edit_Fhr = () => {
         };
     }, [socket, fhr_id]);
 
+    const loadRating = async () => {
+        if (!fhr_id || fhrStatus !== 'Completed') {
+            setRating(null);
+            setLinkedInvoice(null);
+            return;
+        }
+        try {
+            const res = await api.get(
+                `/edit_fhr/fhr-rating/${encodeURIComponent(PAGE_NAME)}/${fhr_id}`
+            );
+            setRating(res.data?.rating || null);
+            setLinkedInvoice(res.data?.invoice || null);
+        } catch {
+            setRating(null);
+            setLinkedInvoice(null);
+        }
+    };
 
+    useEffect(() => {
+        loadRating();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [fhr_id, fhrStatus]);
 
     const handleDialogHide = () => navigate(-1);
 
@@ -169,20 +194,23 @@ const Edit_Fhr = () => {
                 newStatus: 'Completed',
             });
             setFhrStatus('Completed');
-            const rating = res.data?.rating;
-            if (rating?.status === 'Rated') {
+            const nextRating = res.data?.rating;
+            setRating(nextRating || null);
+            if (nextRating?.status === 'Rated') {
                 showMessage(
                     'success',
-                    `Completed and rated (${rating.line_count || 0} charge lines)`
+                    `Completed and rated (${nextRating.line_count || nextRating.lines?.length || 0} charge lines)`
                 );
-            } else if (rating?.status === 'Needs review') {
-                showMessage(
-                    'warn',
-                    `Completed — needs review: ${rating.reason || 'check tariff match'}`
-                );
+            } else if (nextRating?.status === 'Needs review') {
+                const reasonText = {
+                    no_tariff:
+                        'No Active SGHA tariff found for this client, airport and flight date. Complete the client\'s SGHA (or add a walk-up tariff) for that date, then re-rate.',
+                }[nextRating.reason] || nextRating.detail || nextRating.reason || 'check tariff match';
+                showMessage('warn', `Completed, but pricing needs review. ${reasonText}`);
             } else {
                 showMessage('success', 'FHR marked Completed');
             }
+            await loadRating();
         } catch (err) {
             console.error('FHR complete error:', err);
             const message = err.response?.data?.message || 'Failed to complete FHR.';
@@ -195,25 +223,55 @@ const Edit_Fhr = () => {
         }
     };
 
-
-    const handleSubmitFHR = async (e) => {
-        const newStatus = 'Submitted';
+    const handleRerate = async () => {
         setLoading(true);
         try {
-            const res = await api.put(`/edit_fhr/update-fhr-status/${PAGE_NAME}/${fhr_id}`, {
-                newStatus,
+            const res = await api.post(
+                `/edit_fhr/rate-fhr/${encodeURIComponent(PAGE_NAME)}/${fhr_id}`,
+                { force: true }
+            );
+            const nextRating = res.data?.rating;
+            setRating(nextRating || null);
+            if (nextRating?.status === 'Rated') {
+                showMessage(
+                    'success',
+                    `Re-rated (${res.data?.lineCount || nextRating.lines?.length || 0} charge lines)`
+                );
+            } else if (nextRating?.status === 'Needs review') {
+                showMessage(
+                    'warn',
+                    `Still needs review: ${nextRating.reason || res.data?.reason || 'check tariff'}`
+                );
+            } else {
+                showMessage('warn', res.data?.reason || 'Re-rate finished with no rating');
+            }
+            await loadRating();
+        } catch (err) {
+            showMessage(
+                'error',
+                err.response?.data?.message || err.message || 'Failed to re-rate'
+            );
+        } finally {
+            setLoading(false);
+        }
+    };
+
+
+    const handleSubmitFHR = async () => {
+        setLoading(true);
+        try {
+            await api.put(`/edit_fhr/update-fhr-status/${PAGE_NAME}/${fhr_id}`, {
+                newStatus: 'Submitted',
                 issue_date: date,
                 declaration1: declaration1,
                 declaration2: declaration2,
                 submitted_by: userId,
                 remarks: value
             });
+            setSubmitConfirmOpen(false);
             setFhrStatus('Submitted');
-            // Show success message
-            showMessage('success', `Submitted successfully`);
-            // Go back one step in history
+            showMessage('success', 'FHR submitted. All sections are locked.');
             navigate(-1);
-
         } catch (err) {
             console.error('FHR status update error:', err);
             const message = err.response?.data?.message || 'Failed to submit FHR.';
@@ -265,7 +323,36 @@ const Edit_Fhr = () => {
                 </Breadcrumb>
             </Col>
             <Col md={12} lg={6} className="mb-4">
-                <Form.Group className="mb-0 d-flex align-items-center justify-content-end gap-2">
+                <Form.Group className="mb-0 d-flex align-items-center justify-content-end gap-2 flex-wrap">
+                    {fhrStatus === 'Completed' ? (
+                        <>
+                            {rating ? (
+                                <Badge bg={rating.status === 'Rated' ? 'success' : 'warning'}>
+                                    {rating.status}
+                                </Badge>
+                            ) : (
+                                <Badge bg="secondary">Unrated</Badge>
+                            )}
+                            {linkedInvoice ? (
+                                <Button
+                                    label={linkedInvoice.invoice_no}
+                                    className="p-button-text p-button-sm p-0"
+                                    onClick={() =>
+                                        navigate(
+                                            `${EMPLOYEE_ROUTES.billing}/${linkedInvoice.invoice_id}`
+                                        )
+                                    }
+                                />
+                            ) : null}
+                            <Button
+                                label="Re-rate"
+                                icon="pi pi-refresh"
+                                className="p-button-sm p-button-outlined"
+                                onClick={handleRerate}
+                                disabled={loading}
+                            />
+                        </>
+                    ) : null}
                     <Form.Label className="mb-0">FHR Status</Form.Label>
                     <Form.Select
                         value={fhrStatus}
@@ -277,6 +364,9 @@ const Edit_Fhr = () => {
                         <option value="Draft">Draft</option>
                         <option value="Pending">Pending</option>
                         <option value="Submitted">Submitted</option>
+                        {fhrStatus === 'Completed' ? (
+                            <option value="Completed">Completed</option>
+                        ) : null}
                     </Form.Select>
                 </Form.Group>
             </Col>
@@ -383,12 +473,19 @@ const Edit_Fhr = () => {
                 </Row>
             </Col>
 
-            <Basic_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} />
-            <Arrival_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} />
-            <Departure_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} />
-            <Manpower_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} />
-            <Cargo_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} />
-            <Additional_equipment userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} aircraft_id={fhrData?.aircraft?.aircraft_id} />
+            <Basic_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} parentStatus={fhrStatus} notify={showMessage} />
+            <Arrival_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} parentStatus={fhrStatus} notify={showMessage} />
+            <Departure_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} parentStatus={fhrStatus} notify={showMessage} />
+            <Manpower_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} parentStatus={fhrStatus} notify={showMessage} />
+            <Cargo_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} parentStatus={fhrStatus} notify={showMessage} />
+            <Additional_equipment
+                userId={userId}
+                fhr_id={fhr_id}
+                page_name={PAGE_NAME}
+                aircraft_id={fhrData?.aircraft?.aircraft_id || fhrData?.aircraft_id}
+                fhrStatus={fhrStatus}
+                notify={showMessage}
+            />
 
             <Col md={12} lg={12} className="mt-4">
                 <div className="allempList fhr_form">
@@ -429,17 +526,54 @@ const Edit_Fhr = () => {
                     />
                 ) : null}
                 <Button
-                    label="Save FHR"
-                    icon="pi pi-save"
+                    label="Submit FHR"
+                    icon="pi pi-check"
                     severity="warning text-white"
                     className="py-2"
                     style={{ fontSize: "14px" }}
-                    onClick={handleSubmitFHR}
+                    onClick={() => setSubmitConfirmOpen(true)}
                     disabled={['Submitted', 'Completed', 'Cancelled'].includes(fhrStatus) || loading}
                 />
 
             </Col>
-            <CustomToast ref={toastRef} />
+
+            <Dialog
+                header="Submit FHR?"
+                visible={submitConfirmOpen}
+                style={{ width: '28rem' }}
+                modal
+                closable={!loading}
+                onHide={() => {
+                    if (!loading) setSubmitConfirmOpen(false);
+                }}
+                footer={
+                    <div className="d-flex justify-content-end gap-2">
+                        <Button
+                            label="Cancel"
+                            className="p-button-text"
+                            disabled={loading}
+                            onClick={() => setSubmitConfirmOpen(false)}
+                        />
+                        <Button
+                            label="Submit & lock"
+                            severity="warning"
+                            loading={loading}
+                            onClick={handleSubmitFHR}
+                        />
+                    </div>
+                }
+            >
+                <p className="mb-2">
+                    This will mark the FHR and <strong>all sections</strong> as{' '}
+                    <strong>Submitted</strong>, including any still Draft or Pending.
+                </p>
+                <p className="mb-0 text-muted small">
+                    Editing will be locked. Use each section&apos;s Save while you are still
+                    working; only submit when the whole report is ready.
+                </p>
+            </Dialog>
+
+            <CustomToast ref={toastRef} position="top-right" />
         </Row>
     );
 };

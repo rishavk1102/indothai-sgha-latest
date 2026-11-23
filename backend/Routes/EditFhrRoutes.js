@@ -33,7 +33,7 @@ router.put('/update-fhr-status/:page_name/:fhr_id', authenticateToken, checkPerm
         remarks
     } = req.body;
 
-    if (!['Pending', 'Submitted', 'Cancelled', 'Completed'].includes(newStatus)) {
+    if (!['Draft', 'Pending', 'Submitted', 'Cancelled', 'Completed'].includes(newStatus)) {
         return res.status(400).json({ message: 'Invalid status provided' });
     }
 
@@ -76,20 +76,14 @@ router.put('/update-fhr-status/:page_name/:fhr_id', authenticateToken, checkPerm
             await Promise.all(updates);
         };
 
-        if (newStatus === 'Pending') {
-            await updateAllStatuses('Pending');
-            await fhr.update({ status: 'Pending' }, { transaction });
+        if (newStatus === 'Draft' || newStatus === 'Pending') {
+            await updateAllStatuses(newStatus);
+            await fhr.update({ status: newStatus }, { transaction });
         }
 
         else if (newStatus === 'Submitted') {
-            const allCompleted = ['basic_details', 'arrival_details', 'departure_details', 'man_power_details', 'cargo_details']
-                .every((section) => !fhr[section] || fhr[section].status === 'Submitted');
-
-            if (!allCompleted) {
-                await transaction.rollback();
-                return res.status(400).json({ message: 'All sections must be marked as Submitted first' });
-            }
-
+            // Saving the FHR submits every section with it — no need to flip each
+            // section dropdown to Submitted first.
             const fhrUpdateFields = {
                 status: 'Submitted',
                 issue_date: issue_date || new Date(), // default to now if not passed
@@ -172,6 +166,7 @@ router.put('/update-fhr-status/:page_name/:fhr_id', authenticateToken, checkPerm
                     reason: ratingResult.reason,
                     status: ratingResult.rating?.status || null,
                     rating_id: ratingResult.rating?.rating_id || null,
+                    detail: ratingResult.rating?.reason || null,
                     line_count:
                         ratingResult.lineCount ||
                         ratingResult.rating?.lines?.length ||
@@ -217,7 +212,40 @@ router.get(
             if (!rating) {
                 return res.status(404).json({ message: 'No rating for this FHR yet' });
             }
-            return res.json({ rating });
+
+            let invoice = null;
+            try {
+                const { Op } = require('sequelize');
+                const InvoiceFhr = require('../NewModels/InvoiceFhr');
+                const Invoice = require('../NewModels/Invoice');
+                const link = await InvoiceFhr.findOne({
+                    where: { fhr_id: req.params.fhr_id },
+                    include: [
+                        {
+                            model: Invoice,
+                            as: 'invoice',
+                            attributes: [
+                                'invoice_id',
+                                'invoice_no',
+                                'status',
+                                'grand_total',
+                                'currency',
+                            ],
+                            where: {
+                                status: {
+                                    [Op.in]: ['Draft', 'Under review', 'Issued'],
+                                },
+                            },
+                            required: true,
+                        },
+                    ],
+                });
+                invoice = link?.invoice || null;
+            } catch (linkErr) {
+                console.warn('FHR invoice link lookup skipped:', linkErr.message);
+            }
+
+            return res.json({ rating, invoice });
         } catch (err) {
             console.error('FHR rating fetch error:', err);
             return res.status(500).json({

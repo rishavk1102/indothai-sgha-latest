@@ -28,6 +28,27 @@ table .badge{
     font-weight: 400;
     letter-spacing: 0.5px;
 }
+/* Bootstrap bg-* paints a solid fill; keep soft tint + readable text */
+table .badge.bg-success {
+    background-color: rgba(83, 199, 151, .25) !important;
+    border-color: rgba(83, 199, 151, .4);
+    color: #1f7a54 !important;
+}
+table .badge.bg-secondary {
+    background-color: rgba(108, 117, 125, .18) !important;
+    border-color: rgba(108, 117, 125, .3);
+    color: #495057 !important;
+}
+table .badge.bg-warning {
+    background-color: rgba(255, 193, 7, .22) !important;
+    border-color: rgba(255, 193, 7, .4);
+    color: #8a6d00 !important;
+}
+table .badge.bg-light {
+    background-color: rgba(233, 236, 239, .9) !important;
+    border-color: rgba(173, 181, 189, .5);
+    color: #495057 !important;
+}
 table .p-chip{
     font-family:'Roboto', sans-serif !important;
     font-weight: 400;
@@ -54,6 +75,32 @@ table .p-chip span{
     color: #fff !important;
     width: 40px;
     height: 40px;
+}
+/* FHR Import drawer: keep full viewport, scroll body, close button visible */
+.fhr-import-sidebar.p-sidebar {
+    top: 0 !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    display: flex;
+    flex-direction: column;
+}
+.fhr-import-sidebar .p-sidebar-header {
+    flex: 0 0 auto;
+    padding: 12px 16px 0;
+    min-height: 48px;
+}
+.fhr-import-sidebar .p-sidebar-close {
+    position: absolute;
+    top: 12px;
+    left: auto;
+    right: 12px;
+    z-index: 2;
+}
+.fhr-import-sidebar .p-sidebar-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px 16px 24px;
 }
 .rpprofile h5{
     font-family:'Roboto', sans-serif !important;
@@ -1842,7 +1889,7 @@ ease;
     border-radius: 10px;
     background: #fff;
     margin-bottom: 20px;
-    overflow: hidden;
+    overflow: visible;
 }
 .pricing-section-card__head {
     display: flex;
@@ -1853,6 +1900,7 @@ ease;
     padding: 14px 16px;
     border-bottom: 1px solid #eef0f2;
     background: #fafbfc;
+    border-radius: 10px 10px 0 0;
 }
 .pricing-section-card__head h6 {
     margin: 0;
@@ -1864,7 +1912,37 @@ ease;
 }
 .pricing-section-card__body .table-responsive {
     margin: 0;
+    max-height: 60vh;
+    overflow: auto;
 }
+
+/* Billing — Add from tariff dropdown (single-line labels, no spill) */
+.billing-tariff-dropdown {
+    width: 100%;
+    max-width: 100%;
+}
+.billing-tariff-dropdown .p-dropdown-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.billing-tariff-dropdown-panel.p-dropdown-panel {
+    width: min(34rem, calc(100vw - 2rem)) !important;
+    max-width: min(34rem, calc(100vw - 2rem)) !important;
+    z-index: 12050 !important;
+}
+.billing-tariff-dropdown-panel .p-dropdown-items-wrapper {
+    max-height: 240px;
+}
+.billing-tariff-dropdown-panel .p-dropdown-item {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.4;
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+}
+
 .pricing-toolbar {
     display: flex;
     align-items: center;
@@ -2305,4 +2383,27 @@ main:has(.employee-builder-workspace) > .container-fluid {
         left: 12px;
         width: auto;
     }
+}
+/* Global toast: always above the fixed header/sidebar, below the header bar */
+.p-toast {
+    z-index: 100000 !important;
+    width: 360px !important;
+    max-width: calc(100vw - 24px) !important;
+}
+.p-toast.p-toast-top-right {
+    top: 72px !important;
+    right: 20px !important;
+    left: auto !important;
+}
+.p-toast.p-toast-top-left {
+    top: 72px !important;
+    left: 20px !important;
+    right: auto !important;
+}
+.p-toast.p-toast-top-center {
+    top: 72px !important;
+}
+.p-toast .p-toast-message {
+    margin: 0 0 10px 0;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
 }

@@ -138,137 +138,199 @@ router.get('/download-excel/:page_name/:businessId/:user_id', authenticateToken,
 });
 
 
-function parseExcelTime(cell) {
-    if (!cell) return null;
-
-    switch (cell.type) {
-        case 0: // Null
-            return null;
-
-        case 4: // Date
-            const date = cell.value;
-            if (date instanceof Date) {
-                const hours = String(date.getUTCHours()).padStart(2, '0');
-                const minutes = String(date.getUTCMinutes()).padStart(2, '0');
-                const seconds = String(date.getUTCSeconds()).padStart(2, '0');
-                return `${hours}:${minutes}:${seconds}`;
-            }
-            return null;
-
-        case 2: // Number (Excel fractional time)
-            const totalSeconds = Math.round(cell.value * 86400);
-            const h = String(Math.floor(totalSeconds / 3600)).padStart(2, '0');
-            const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
-            const s = String(totalSeconds % 60).padStart(2, '0');
-            return `${h}:${m}:${s}`;
-
-        case 1: // String (fallback if someone manually typed time)
-            const match = cell.value.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-            if (match) {
-                const h = match[1].padStart(2, '0');
-                const m = match[2];
-                const s = match[3] || '00';
-                return `${h}:${m}:${s}`;
-            }
-            return null;
-
-        default:
-            return null;
+function cellText(cell) {
+    if (!cell || cell.value == null || cell.value === '') return '';
+    const v = cell.value;
+    if (typeof v === 'object') {
+        if (v instanceof Date) return v.toISOString();
+        if (v.text != null) return String(v.text);
+        if (v.result != null) return String(v.result);
+        if (v.richText) return v.richText.map((p) => p.text || '').join('');
     }
+    return String(v).trim();
 }
 
+function parseExcelTime(cell) {
+    if (!cell || cell.value == null || cell.value === '') return null;
 
+    if (cell.value instanceof Date) {
+        const date = cell.value;
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        return `${hours}:${minutes}:${seconds}`;
+    }
+
+    if (typeof cell.value === 'number') {
+        const totalSeconds = Math.round((cell.value % 1) * 86400);
+        const h = String(Math.floor(totalSeconds / 3600) % 24).padStart(2, '0');
+        const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, '0');
+        const s = String(totalSeconds % 60).padStart(2, '0');
+        return `${h}:${m}:${s}`;
+    }
+
+    const text = cellText(cell);
+    const match = text.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (match) {
+        return `${match[1].padStart(2, '0')}:${match[2]}:${match[3] || '00'}`;
+    }
+    return null;
+}
+
+function parseExcelDate(value) {
+    if (value == null || value === '') return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.toISOString().slice(0, 10);
+    }
+    if (typeof value === 'number') {
+        // Excel serial date
+        const utc = new Date(Math.round((value - 25569) * 86400 * 1000));
+        if (!Number.isNaN(utc.getTime())) return utc.toISOString().slice(0, 10);
+    }
+    const text = String(value).trim();
+    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+    const dmy = text.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+    if (dmy) {
+        return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+    }
+    const parsed = new Date(text);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    return null;
+}
+
+function findAircraftHeaderRow(worksheet) {
+    let found = null;
+    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+        if (found != null) return;
+        const first = cellText(row.getCell(1)).toUpperCase();
+        if (first === 'AIRCRAFT ID') found = rowNumber;
+    });
+    return found;
+}
 
 router.post('/upload-excel/:page_name', authenticateToken, checkPermission('add'), upload.single('file'), async (req, res) => {
     const { remarks, inserted_by_user_id, wet } = req.body;
     const io = getIO();
 
     if (!req.file) return res.status(400).json({ message: 'No file uploaded.' });
-    const wetDate = new Date(wet); // Γ£à FIXED HERE
+    const wetDate = parseExcelDate(wet);
+    if (!wetDate) {
+        return res.status(400).json({ message: 'Invalid With Effect To (WET) date.' });
+    }
+
     let updateCount = 0;
+    let skippedEmpty = 0;
+    let skippedIdentical = 0;
     let transaction;
 
     try {
-        io.emit('excel-progress', { user_id: inserted_by_user_id, step: '≡ƒôñ Upload started. Parsing Excel...' });
-        // Upload file to Spaces first
-        const key = `excel-files/${inserted_by_user_id}/${Date.now()}_${req.file.originalname}`;
-        const uploadParams = {
-            Bucket: process.env.SPACES_BUCKET,
-            Key: key,
-            Body: req.file.buffer,
-            ACL: 'public-read',
-            ContentType: req.file.mimetype,
-        };
+        io.emit('excel-progress', {
+            user_id: inserted_by_user_id,
+            step: 'Upload started. Parsing Excel...',
+        });
 
-        await s3Client.send(new PutObjectCommand(uploadParams));
-        const fileUrl = `${process.env.SPACES_CDN_ENDPOINT}/${uploadParams.Key}`;
+        let fileUrl = null;
+        try {
+            const key = `excel-files/${inserted_by_user_id}/${Date.now()}_${req.file.originalname}`;
+            const uploadParams = {
+                Bucket: process.env.SPACES_BUCKET,
+                Key: key,
+                Body: req.file.buffer,
+                ACL: 'public-read',
+                ContentType: req.file.mimetype,
+            };
+            await s3Client.send(new PutObjectCommand(uploadParams));
+            fileUrl = `${process.env.SPACES_CDN_ENDPOINT}/${uploadParams.Key}`;
+        } catch (s3Err) {
+            console.warn('Excel file Spaces upload skipped:', s3Err.message);
+            fileUrl = `local://${req.file.originalname}`;
+        }
 
-        // Store file record in DB
         await ExcelFile.create({
             file_name: req.file.originalname,
             file_url: fileUrl,
             inserted_by_user_id,
-            remarks
+            remarks,
         });
 
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.load(req.file.buffer);
 
         const rowsToInsert = [];
+        const expectedHeaders = [
+            'AIRCRAFT ID',
+            'ARRIVAL FLT NO',
+            'OUTGOING FLT NO',
+            'TYPE OF A/C',
+            'FROM',
+            'TO',
+            'DAYS',
+            'STA',
+            'STD',
+            'WEF',
+        ];
 
         for (const worksheet of workbook.worksheets) {
             io.emit('excel-progress', {
                 user_id: inserted_by_user_id,
-                step: `≡ƒôä Processing sheet: ${worksheet.name}`
+                step: `Processing sheet: ${worksheet.name}`,
             });
 
-            const headerRowIndex = worksheet.actualRowCount - worksheet._rows.slice().reverse().findIndex(row =>
-                row.values.includes('AIRCRAFT ID')
-            );
+            const headerRowIndex = findAircraftHeaderRow(worksheet);
+            if (!headerRowIndex) {
+                io.emit('excel-progress', {
+                    user_id: inserted_by_user_id,
+                    step: `Skipping "${worksheet.name}" (no AIRCRAFT ID header)`,
+                });
+                continue;
+            }
 
             const headerRow = worksheet.getRow(headerRowIndex);
-            const expectedHeaders = [
-                'AIRCRAFT ID', 'ARRIVAL FLT NO', 'OUTGOING FLT NO',
-                'TYPE OF A/C', 'FROM', 'TO', 'DAYS', 'STA', 'STD', 'WEF'
-            ];
-
-            const isHeaderValid = expectedHeaders.every((header, i) =>
-                (headerRow.getCell(i + 1).value || '').toString().toUpperCase().trim() === header
+            const isHeaderValid = expectedHeaders.every(
+                (header, i) =>
+                    cellText(headerRow.getCell(i + 1)).toUpperCase() === header
             );
 
             if (!isHeaderValid) {
                 io.emit('excel-progress', {
                     user_id: inserted_by_user_id,
-                    step: `ΓÜá∩╕Å Skipping "${worksheet.name}" (invalid headers)`
+                    step: `Skipping "${worksheet.name}" (invalid headers)`,
                 });
                 continue;
             }
 
             for (let i = headerRowIndex + 1; i <= worksheet.rowCount; i++) {
                 const row = worksheet.getRow(i);
+                if (!row || !row.hasValues) continue;
 
-                const aircraft_id = String(row.getCell(1).value || '').trim();
-                const arrival_flight_no = String(row.getCell(2).value || '').trim();
-                const departure_flight_no = String(row.getCell(3).value || '').trim();
-                const type_of_aircraft = String(row.getCell(4).value || '').trim();
-                const from_iata = String(row.getCell(5).value || '').trim();
-                const to_iata = String(row.getCell(6).value || '').trim();
-                const days = String(row.getCell(7).value || '').trim();
-
-                const staRaw = row.getCell(8).value;
-                const stdRaw = row.getCell(9).value;
-                const wefRaw = row.getCell(10).value;
-
+                const aircraft_id = cellText(row.getCell(1));
+                const arrival_flight_no = cellText(row.getCell(2));
+                const departure_flight_no = cellText(row.getCell(3));
+                const type_of_aircraft = cellText(row.getCell(4));
+                const from_iata = cellText(row.getCell(5)).toUpperCase();
+                const to_iata = cellText(row.getCell(6)).toUpperCase();
+                const days = cellText(row.getCell(7)).toLowerCase();
                 const sta = parseExcelTime(row.getCell(8));
                 const std = parseExcelTime(row.getCell(9));
+                const wef = parseExcelDate(row.getCell(10).value);
 
-                const wef = wefRaw ? new Date(wefRaw) : null;
-
-                if (!aircraft_id || !days || !wef) continue;
+                if (!aircraft_id && !arrival_flight_no && !departure_flight_no) {
+                    skippedEmpty += 1;
+                    continue;
+                }
+                if (!aircraft_id || !days || !wef) {
+                    io.emit('excel-progress', {
+                        user_id: inserted_by_user_id,
+                        step: `Skipped row ${i} on "${worksheet.name}" (need Aircraft ID, DAYS, and WEF)`,
+                    });
+                    skippedEmpty += 1;
+                    continue;
+                }
 
                 const existing = await ExcelData.findOne({
                     where: {
-                        aircraft_id,
+                        aircraft_id: Number(aircraft_id),
                         arrival_flight_no,
                         departure_flight_no,
                         type_of_aircraft,
@@ -277,19 +339,19 @@ router.post('/upload-excel/:page_name', authenticateToken, checkPermission('add'
                         [Op.or]: [
                             {
                                 wef: { [Op.lte]: wef },
-                                wet: { [Op.gte]: wef }
+                                wet: { [Op.gte]: wef },
                             },
                             {
                                 wef: { [Op.lte]: wetDate },
-                                wet: { [Op.gte]: wetDate }
-                            }
-                        ]
-                    }
+                                wet: { [Op.gte]: wetDate },
+                            },
+                        ],
+                    },
                 });
 
                 if (!existing) {
                     rowsToInsert.push({
-                        aircraft_id,
+                        aircraft_id: Number(aircraft_id),
                         arrival_flight_no,
                         departure_flight_no,
                         type_of_aircraft,
@@ -302,91 +364,90 @@ router.post('/upload-excel/:page_name', authenticateToken, checkPermission('add'
                         wet: wetDate,
                         fhr_creation_status: false,
                         inserted_by_user_id,
-                        remarks
+                        remarks,
                     });
                 } else {
-                    // Check if any value has changed
-                    const fieldsToCompare = {
-                        sta, std, days
-                    };
-
-                    const hasChanges = Object.entries(fieldsToCompare).some(([key, value]) => {
-                        return existing[key]?.toString() !== value?.toString();
-                    });
+                    const fieldsToCompare = { sta, std, days };
+                    const hasChanges = Object.entries(fieldsToCompare).some(
+                        ([key, value]) => existing[key]?.toString() !== value?.toString()
+                    );
 
                     if (hasChanges) {
-                        const today = new Date();
-                        today.setHours(0, 0, 0, 0); // Remove time part for consistency
-
+                        const today = new Date().toISOString().slice(0, 10);
                         await existing.update({
                             sta,
                             std,
                             days,
-                            wef: today, // Γ£à Set wef to today when updating
-                            fhr_creation_status: false, // Γ£à Reset FHR status to false
-                            inserted_by_user_id
+                            wef: today,
+                            fhr_creation_status: false,
+                            inserted_by_user_id,
                         });
-                        updateCount++;
+                        updateCount += 1;
                         io.emit('excel-progress', {
                             user_id: inserted_by_user_id,
-                            step: `ΓÖ╗∩╕Å Updated record for Aircraft ID: ${aircraft_id} in "${worksheet.name}" (WEF set to today)`
+                            step: `Updated Aircraft ID ${aircraft_id} on "${worksheet.name}"`,
                         });
                     } else {
+                        skippedIdentical += 1;
                         io.emit('excel-progress', {
                             user_id: inserted_by_user_id,
-                            step: `ΓÜá∩╕Å Skipped identical record (Aircraft ID: ${aircraft_id}) on "${worksheet.name}"`
+                            step: `Skipped identical Aircraft ID ${aircraft_id} on "${worksheet.name}"`,
                         });
                     }
                 }
             }
         }
 
-
-        // Final condition check
         if (rowsToInsert.length === 0 && updateCount === 0) {
+            const tip =
+                skippedEmpty > 0
+                    ? ' Check that each data row has Aircraft ID, DAYS, and WEF filled.'
+                    : skippedIdentical > 0
+                      ? ' All rows matched existing imports.'
+                      : ' No valid schedule rows found.';
             io.emit('excel-error', {
                 user_id: inserted_by_user_id,
-                message: 'Γ¥î No new or updated records found (all identical).'
+                message: `No new or updated records.${tip}`,
             });
-            return res.status(400).json({ message: 'No new or updated records found (all identical).' });
+            return res.status(400).json({
+                message: `No new or updated records.${tip}`,
+            });
         }
 
         transaction = await sequelize.transaction();
-
-        await ExcelData.bulkCreate(rowsToInsert, { transaction });
-
+        if (rowsToInsert.length) {
+            await ExcelData.bulkCreate(rowsToInsert, { transaction });
+        }
         await transaction.commit();
 
         io.emit('excel-complete', {
             user_id: inserted_by_user_id,
-            message: `Γ£à Uploaded ${rowsToInsert.length} new and updated ${updateCount} existing records.`
+            message: `Uploaded ${rowsToInsert.length} new and updated ${updateCount} existing records.`,
         });
-
-
         io.emit('FHR-import-complete');
 
         return res.json({
             message: 'Excel data uploaded successfully.',
-            insertedCount: rowsToInsert.length
+            insertedCount: rowsToInsert.length,
+            updatedCount: updateCount,
         });
-
     } catch (error) {
         if (transaction) await transaction.rollback();
-
-        console.error('Γ¥î Excel upload error:', error);
+        console.error('Excel upload error:', error);
         io.emit('excel-error', {
             user_id: inserted_by_user_id,
-            message: 'Γ¥î Failed to upload Excel data.',
-            error: error.message
+            message: `Failed to upload Excel data: ${error.message}`,
+            error: error.message,
         });
-
-        return res.status(500).json({ message: 'Failed to upload Excel data', error: error.message });
+        return res.status(500).json({
+            message: 'Failed to upload Excel data',
+            error: error.message,
+        });
     } finally {
         if (transaction && !transaction.finished) {
             await transaction.rollback();
         }
     }
 });
-
 
 module.exports = router;

@@ -16,7 +16,7 @@ import { AvatarGroup } from 'primereact/avatargroup';
 import nouser from '../../assets/images/no_user.png';
 
 
-const Basic_details = ({ userId, fhr_id, page_name }) => {
+const Basic_details = ({ userId, fhr_id, page_name, parentStatus, notify }) => {
     const { role, roleId } = useAuth(); // Get roleId from the context
     const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
     const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error
@@ -32,7 +32,10 @@ const Basic_details = ({ userId, fhr_id, page_name }) => {
     const [editMode, setEditMode] = useState(false);
 
 
-    const isDisabled = !editMode || ['Draft', 'Submitted', 'Completed', 'Cancelled'].includes(fhrStatus);
+    // Lock only when the whole FHR is submitted/completed/cancelled.
+    // Section Status "Submitted" marks the section ready — it must not freeze fields.
+    const isLocked = ['Submitted', 'Completed', 'Cancelled'].includes(parentStatus);
+    const isDisabled = !editMode || isLocked;
 
 
 
@@ -181,8 +184,21 @@ const Basic_details = ({ userId, fhr_id, page_name }) => {
             localStorage.removeItem(`${page_name}_basic_details_originCountry`);
             localStorage.removeItem(`${page_name}_basic_details_deliveryPlace`);
             localStorage.removeItem(`${page_name}_basic_details_fhrStatus`);
+
+            // Close the edit session + leave edit mode so the Save button goes away
+            try {
+                await api.post(`/edit_fhr/start-edit-session/${page_name}/${fhr_id}`, {
+                    section: 'Basic_Details',
+                    action: 'end'
+                });
+            } catch (endErr) {
+                console.warn("End edit session failed:", endErr.message);
+            }
+            setEditMode(false);
+            notify?.('success', 'Basic details saved');
         } catch (err) {
             console.error("Instant save failed:", err.message);
+            notify?.('error', err.response?.data?.message || 'Failed to save Basic details');
         } finally {
             setLoading(false);
         }
@@ -269,7 +285,7 @@ const Basic_details = ({ userId, fhr_id, page_name }) => {
 
                     <div className="d-flex align-items-center gap-2 justify-content-end w-100 my-3">
                         <span className="d-flex align-items-end gap-2 mb-0">
-                            {!['Draft', 'Completed', 'Cancelled'].includes(fhrStatus) && (
+                            {!isLocked && (
                                 <>
                                     <Button
                                         title={editMode ? "Cancel Edit" : "Edit"}

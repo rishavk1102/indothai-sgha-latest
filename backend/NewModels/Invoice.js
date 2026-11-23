@@ -55,7 +55,13 @@ const Invoice = sequelize.define(
       defaultValue: 0,
     },
     status: {
-      type: DataTypes.ENUM('Draft', 'Issued', 'Voided'),
+      type: DataTypes.ENUM(
+        'Draft',
+        'Under review',
+        'Issued',
+        'Voided',
+        'Credit note'
+      ),
       allowNull: false,
       defaultValue: 'Draft',
     },
@@ -67,12 +73,24 @@ const Invoice = sequelize.define(
       type: DataTypes.JSON,
       allowNull: true,
     },
+    approved_by: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    approved_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
     issued_by: {
       type: DataTypes.INTEGER,
       allowNull: true,
     },
     issued_at: {
       type: DataTypes.DATE,
+      allowNull: true,
+    },
+    credits_invoice_id: {
+      type: DataTypes.INTEGER,
       allowNull: true,
     },
     unlocked_by: {

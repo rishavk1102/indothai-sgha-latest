@@ -32,6 +32,21 @@ const money = (value, currency = "INR") => {
   }
 };
 
+const statusBadge = (status) => {
+  switch (status) {
+    case "Issued":
+      return "success";
+    case "Under review":
+      return "info";
+    case "Credit note":
+      return "warning";
+    case "Voided":
+      return "dark";
+    default:
+      return "secondary";
+  }
+};
+
 const Billing = () => {
   const navigate = useNavigate();
   const { invoice_id: invoiceIdParam } = useParams();
@@ -48,6 +63,8 @@ const Billing = () => {
   const [editLine, setEditLine] = useState(null);
   const [editQty, setEditQty] = useState(1);
   const [editRate, setEditRate] = useState(0);
+  const [voidOpen, setVoidOpen] = useState(false);
+  const [creditOpen, setCreditOpen] = useState(false);
 
   const relatedLinks = [
     { label: "SGHA Tariffs", to: EMPLOYEE_ROUTES.sghaTariffs },
@@ -56,6 +73,8 @@ const Billing = () => {
   ];
 
   const isDraft = detail?.status === "Draft";
+  const isUnderReview = detail?.status === "Under review";
+  const isIssued = detail?.status === "Issued";
 
   const loadLists = async () => {
     setLoading(true);
@@ -155,6 +174,36 @@ const Billing = () => {
     }
   };
 
+  const approve = async () => {
+    if (!detail?.invoice_id) return;
+    setLoading(true);
+    try {
+      const res = await api.post(
+        `/billing/invoices/${encodedPage}/${detail.invoice_id}/approve`
+      );
+      setDetail(res.data.invoice);
+    } catch (err) {
+      setError(err.response?.data?.message || err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const returnToDraft = async () => {
+    if (!detail?.invoice_id) return;
+    setLoading(true);
+    try {
+      const res = await api.post(
+        `/billing/invoices/${encodedPage}/${detail.invoice_id}/return-to-draft`
+      );
+      setDetail(res.data.invoice);
+    } catch (err) {
+      setError(err.response?.data?.message || err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const issue = async () => {
     if (!detail?.invoice_id) return;
     setLoading(true);
@@ -170,18 +219,33 @@ const Billing = () => {
     }
   };
 
-  const unlock = async () => {
+  const voidInvoice = async () => {
     if (!detail?.invoice_id) return;
-    if (!window.confirm("Unlock this Issued invoice back to Draft?")) return;
     setLoading(true);
     try {
       const res = await api.post(
-        `/billing/invoices/${encodedPage}/${detail.invoice_id}/unlock`
+        `/billing/invoices/${encodedPage}/${detail.invoice_id}/void`
       );
       setDetail(res.data.invoice);
+      setVoidOpen(false);
     } catch (err) {
       setError(err.response?.data?.message || err.message);
     } finally {
+      setLoading(false);
+    }
+  };
+
+  const createCreditNote = async () => {
+    if (!detail?.invoice_id) return;
+    setLoading(true);
+    try {
+      const res = await api.post(
+        `/billing/invoices/${encodedPage}/${detail.invoice_id}/credit-note`
+      );
+      setCreditOpen(false);
+      navigate(`${EMPLOYEE_ROUTES.billing}/${res.data.invoice.invoice_id}`);
+    } catch (err) {
+      setError(err.response?.data?.message || err.message);
       setLoading(false);
     }
   };
@@ -205,14 +269,17 @@ const Billing = () => {
     if (!detail?.invoice_id || !editLine) return;
     setLoading(true);
     try {
-      const res = await api.patch(
+      const res = await api.put(
         `/billing/invoices/${encodedPage}/${detail.invoice_id}/lines/${editLine.invoice_line_id}`,
-        { qty: editQty, unit_rate: editRate }
+        {
+          qty: Number(editQty) || 1,
+          unit_rate: Number(editRate) || 0,
+        }
       );
       setDetail(res.data.invoice);
       setEditLine(null);
     } catch (err) {
-      setError(err.response?.data?.message || err.message);
+      setError(err.response?.data?.message || err.message || "Network error");
     } finally {
       setLoading(false);
     }
@@ -247,10 +314,10 @@ const Billing = () => {
 
   if (invoiceIdParam && detail) {
     const tariffOptions = tariffLines.map((line) => ({
-      label: `${line.line_type}: ${line.description} (${money(
+      label: `${line.line_type}: ${line.description || "Service"} — ${money(
         line.rate,
         detail.currency
-      )})`,
+      )}`,
       value: line.tariff_line_id,
     }));
 
@@ -264,20 +331,37 @@ const Billing = () => {
           extra={
             <>
               <Badge
-                bg={detail.status === "Issued" ? "success" : "secondary"}
+                bg={statusBadge(detail.status)}
                 className="align-self-center"
               >
                 {detail.status}
               </Badge>
               {isDraft ? (
-                <Button label="Issue invoice" onClick={issue} />
+                <Button label="Approve for review" onClick={approve} />
               ) : null}
-              {detail.status === "Issued" ? (
-                <Button
-                  label="Unlock to edit"
-                  className="p-button-outlined p-button-warning"
-                  onClick={unlock}
-                />
+              {isUnderReview ? (
+                <>
+                  <Button
+                    label="Return to draft"
+                    className="p-button-outlined"
+                    onClick={returnToDraft}
+                  />
+                  <Button label="Issue invoice" onClick={issue} />
+                </>
+              ) : null}
+              {isIssued ? (
+                <>
+                  <Button
+                    label="Credit note"
+                    className="p-button-outlined p-button-warning"
+                    onClick={() => setCreditOpen(true)}
+                  />
+                  <Button
+                    label="Void"
+                    className="p-button-outlined p-button-danger"
+                    onClick={() => setVoidOpen(true)}
+                  />
+                </>
               ) : null}
               <Button
                 label="Download PDF"
@@ -313,6 +397,22 @@ const Billing = () => {
                   {money(detail.grand_total, detail.currency)}
                 </div>
               </Col>
+              {detail.credits_invoice_id ? (
+                <Col sm={12}>
+                  <div className="text-muted small">
+                    Credits invoice #{detail.credits_invoice_id}
+                    <Button
+                      label="Open original"
+                      className="p-button-text p-button-sm ms-2 p-0"
+                      onClick={() =>
+                        navigate(
+                          `${EMPLOYEE_ROUTES.billing}/${detail.credits_invoice_id}`
+                        )
+                      }
+                    />
+                  </div>
+                </Col>
+              ) : null}
             </Row>
           </Card.Body>
         </Card>
@@ -328,8 +428,11 @@ const Billing = () => {
                 label="Add from tariff"
                 icon="pi pi-plus"
                 className="p-button-sm"
-                disabled={!tariffOptions.length}
-                onClick={() => setAddOpen(true)}
+                onClick={() => {
+                  setPickedLineId(null);
+                  setPickedQty(1);
+                  setAddOpen(true);
+                }}
               />
             ) : null}
           </div>
@@ -401,23 +504,123 @@ const Billing = () => {
         </div>
 
         <Dialog
+          header="Create credit note"
+          visible={creditOpen}
+          style={{ width: "28rem" }}
+          modal
+          closable={!loading}
+          onHide={() => {
+            if (!loading) setCreditOpen(false);
+          }}
+          footer={
+            <div className="d-flex justify-content-end gap-2">
+              <Button
+                label="Cancel"
+                className="p-button-text"
+                disabled={loading}
+                onClick={() => setCreditOpen(false)}
+              />
+              <Button
+                label="Create credit note"
+                severity="warning"
+                loading={loading}
+                onClick={createCreditNote}
+              />
+            </div>
+          }
+        >
+          <p className="mb-2">
+            Create a credit note that reverses all lines on{" "}
+            <strong>{detail.invoice_no}</strong>?
+          </p>
+          <p className="mb-0 text-muted small">
+            The Issued invoice stays unchanged. Use Void only when you need a
+            full replacement invoice for the same FHRs.
+          </p>
+        </Dialog>
+
+        <Dialog
+          header="Void invoice"
+          visible={voidOpen}
+          style={{ width: "28rem" }}
+          modal
+          closable={!loading}
+          onHide={() => {
+            if (!loading) setVoidOpen(false);
+          }}
+          footer={
+            <div className="d-flex justify-content-end gap-2">
+              <Button
+                label="Cancel"
+                className="p-button-text"
+                disabled={loading}
+                onClick={() => setVoidOpen(false)}
+              />
+              <Button
+                label="Void invoice"
+                severity="danger"
+                loading={loading}
+                onClick={voidInvoice}
+              />
+            </div>
+          }
+        >
+          <p className="mb-2">
+            Void <strong>{detail.invoice_no}</strong>? Linked FHRs become
+            available for a replacement draft invoice.
+          </p>
+          <p className="mb-0 text-muted small">
+            Prefer a credit note if you only need to reverse charges.
+          </p>
+        </Dialog>
+
+        <Dialog
           header="Add line from tariff"
           visible={addOpen}
-          style={{ width: "32rem" }}
+          style={{ width: "36rem" }}
+          modal
           onHide={() => setAddOpen(false)}
+          footer={
+            <div className="d-flex justify-content-end gap-2">
+              <Button
+                label="Cancel"
+                className="p-button-text"
+                onClick={() => setAddOpen(false)}
+              />
+              <Button
+                label="Add"
+                disabled={!pickedLineId || loading}
+                loading={loading}
+                onClick={addFromTariff}
+              />
+            </div>
+          }
         >
           <div className="mb-3">
             <label className="form-label">Tariff line</label>
-            <Dropdown
-              value={pickedLineId}
-              options={tariffOptions}
-              onChange={(e) => setPickedLineId(e.value)}
-              placeholder="Select priced service"
-              className="w-100"
-              filter
-            />
+            {tariffOptions.length ? (
+              <Dropdown
+                value={pickedLineId}
+                options={tariffOptions}
+                onChange={(e) => setPickedLineId(e.value)}
+                optionLabel="label"
+                optionValue="value"
+                placeholder="Select priced service"
+                className="w-100 billing-tariff-dropdown"
+                filter
+                filterBy="label"
+                showClear
+                appendTo={typeof document !== "undefined" ? document.body : null}
+                panelClassName="billing-tariff-dropdown-panel"
+              />
+            ) : (
+              <div className="alert alert-warning mb-0 py-2 small">
+                No Active tariff lines available for this invoice airport. Refresh
+                walk-up / complete an SGHA tariff, then reopen this dialog.
+              </div>
+            )}
           </div>
-          <div className="mb-3">
+          <div className="mb-0">
             <label className="form-label">Qty</label>
             <InputNumber
               value={pickedQty}
@@ -425,18 +628,7 @@ const Billing = () => {
               min={0.01}
               maxFractionDigits={2}
               className="w-100"
-            />
-          </div>
-          <div className="d-flex justify-content-end gap-2">
-            <Button
-              label="Cancel"
-              className="p-button-text"
-              onClick={() => setAddOpen(false)}
-            />
-            <Button
-              label="Add"
-              disabled={!pickedLineId}
-              onClick={addFromTariff}
+              inputClassName="w-100"
             />
           </div>
         </Dialog>
@@ -445,7 +637,22 @@ const Billing = () => {
           header="Edit line"
           visible={Boolean(editLine)}
           style={{ width: "28rem" }}
+          modal
           onHide={() => setEditLine(null)}
+          footer={
+            <div className="d-flex justify-content-end gap-2">
+              <Button
+                label="Cancel"
+                className="p-button-text"
+                onClick={() => setEditLine(null)}
+              />
+              <Button
+                label="Save"
+                loading={loading}
+                onClick={saveEditLine}
+              />
+            </div>
+          }
         >
           <div className="mb-2 small text-muted">{editLine?.description}</div>
           <div className="mb-3">
@@ -456,28 +663,21 @@ const Billing = () => {
               min={0.01}
               maxFractionDigits={2}
               className="w-100"
+              inputClassName="w-100"
             />
           </div>
-          <div className="mb-3">
+          <div className="mb-0">
             <label className="form-label">Unit rate</label>
             <InputNumber
               value={editRate}
-              onValueChange={(e) => setEditRate(e.value || 0)}
+              onValueChange={(e) => setEditRate(e.value ?? 0)}
               min={0}
               maxFractionDigits={2}
               className="w-100"
-              mode="currency"
-              currency={detail.currency || "INR"}
-              locale="en-IN"
+              inputClassName="w-100"
+              mode="decimal"
+              useGrouping={false}
             />
-          </div>
-          <div className="d-flex justify-content-end gap-2">
-            <Button
-              label="Cancel"
-              className="p-button-text"
-              onClick={() => setEditLine(null)}
-            />
-            <Button label="Save" onClick={saveEditLine} />
           </div>
         </Dialog>
       </>
@@ -579,11 +779,7 @@ const Billing = () => {
                     <td className="col-code">{row.invoice_no}</td>
                     <td>{row.client?.name || row.bill_to?.name || "—"}</td>
                     <td className="col-status">
-                      <Badge
-                        bg={row.status === "Issued" ? "success" : "secondary"}
-                      >
-                        {row.status}
-                      </Badge>
+                      <Badge bg={statusBadge(row.status)}>{row.status}</Badge>
                     </td>
                     <td className="col-money text-end">
                       {money(row.grand_total, row.currency)}

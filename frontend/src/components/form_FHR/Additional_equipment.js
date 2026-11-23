@@ -15,6 +15,30 @@ import { AvatarGroup } from 'primereact/avatargroup';
 import nouser from '../../assets/images/no_user.png';
 import { useParams, useNavigate } from "react-router-dom";
 
+/** MySQL JSON often arrives as a string; always normalize to [{start,end}, ...]. */
+const normalizeTimeSlots = (slots) => {
+    let value = slots;
+    if (typeof value === 'string') {
+        try {
+            value = JSON.parse(value);
+        } catch {
+            value = null;
+        }
+    }
+    if (!Array.isArray(value) || value.length === 0) {
+        return [{ start: null, end: null }];
+    }
+    return value.map((slot) => ({
+        start: slot?.start ?? null,
+        end: slot?.end ?? null,
+    }));
+};
+
+const normalizeEquipmentItem = (item) => ({
+    ...item,
+    time_slots: normalizeTimeSlots(item?.time_slots),
+});
+
 const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatus, notify }) => {
     const socket = getSocket();
     const navigate = useNavigate();
@@ -31,7 +55,10 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
     const [creationStatus, setCreationStatus] = useState(null); // true / false
     const [activeEditors, setActiveEditors] = useState([]);
     const [lastEditedBy, setLastEditedBy] = useState(null);
-    const [equipmentList, setEquipmentList] = useState(() => getLS('equipment_data') || []);
+    const [equipmentList, setEquipmentList] = useState(() => {
+        const stored = getLS('equipment_data');
+        return Array.isArray(stored) ? stored.map(normalizeEquipmentItem) : [];
+    });
     const [editMode, setEditMode] = useState(false);
     const isLocked = ['Submitted', 'Completed', 'Cancelled'].includes(fhrStatus);
 
@@ -86,10 +113,11 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
         };
 
         const handleSuccess = (data) => {
+            const equipment = (data.equipment_data || []).map(normalizeEquipmentItem);
             setLastEditedBy(data.last_edited_by || null);
             setActiveEditors(data.active_editors || []);
-            setEquipmentList(data.equipment_data || []);
-            setLS('equipment_data', data.equipment_data || []);
+            setEquipmentList(equipment);
+            setLS('equipment_data', equipment);
         };
 
         const handleError = (error) => {
@@ -126,11 +154,13 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
             let processed = [];
 
             if (stored && Array.isArray(stored)) {
-                processed = stored.map(item => ({
-                    ...item,
-                    time_slots: item.time_slots?.length ? item.time_slots : [{ start: null, end: null }],
-                    total_time: String(calculateTotalTime(item.time_slots || [])),
-                }));
+                processed = stored.map((item) => {
+                    const normalized = normalizeEquipmentItem(item);
+                    return {
+                        ...normalized,
+                        total_time: String(calculateTotalTime(normalized.time_slots)),
+                    };
+                });
             }
 
             setEquipmentList(processed);
@@ -239,39 +269,36 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
 
     const updateSlot = (eqIndex, slotIndex, field, value) => {
         const updated = [...equipmentList];
+        updated[eqIndex] = normalizeEquipmentItem(updated[eqIndex]);
         updated[eqIndex].time_slots[slotIndex][field] = value;
-
-        // ≡ƒöü Recalculate total_time
         updated[eqIndex].total_time = String(calculateTotalTime(updated[eqIndex].time_slots));
-
         setEquipmentList(updated);
         setLS('equipment_data', updated);
     };
 
     const handleAddSlot = (eqIndex) => {
         const updated = [...equipmentList];
-        if (!updated[eqIndex].time_slots) updated[eqIndex].time_slots = [];
+        updated[eqIndex] = normalizeEquipmentItem(updated[eqIndex]);
         updated[eqIndex].time_slots.push({ start: null, end: null });
-
-        // ≡ƒöü Update total time
         updated[eqIndex].total_time = String(calculateTotalTime(updated[eqIndex].time_slots));
-
         setEquipmentList(updated);
         setLS('equipment_data', updated);
     };
 
     const handleDeleteSlot = (eqIndex, slotIndex) => {
         const updated = [...equipmentList];
+        updated[eqIndex] = normalizeEquipmentItem(updated[eqIndex]);
         updated[eqIndex].time_slots.splice(slotIndex, 1);
-
-        // ≡ƒöü Update total time
+        if (!updated[eqIndex].time_slots.length) {
+            updated[eqIndex].time_slots = [{ start: null, end: null }];
+        }
         updated[eqIndex].total_time = String(calculateTotalTime(updated[eqIndex].time_slots));
-
         setEquipmentList(updated);
         setLS('equipment_data', updated);
     };
 
     const calculateTotalTime = (slots = []) => {
+        slots = normalizeTimeSlots(slots);
         return slots.reduce((total, slot) => {
             const start = new Date(slot.start);
             const end = new Date(slot.end);
@@ -504,7 +531,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
                                                     {/* Time Slots */}
                                                     <Col lg={8} md={6} className="px-2 border-end border-start py-1">
                                                         <div className="d-flex flex-wrap gap-2 align-items-end">
-                                                            {(item.time_slots || []).map((slot, slotIndex) => (
+                                                            {normalizeTimeSlots(item.time_slots).map((slot, slotIndex) => (
                                                                 <div key={slotIndex} className="d-flex gap-2 timeslt p-2 position-relative">
                                                                     <Form.Group>
                                                                         <Form.Label>Start Time</Form.Label>
@@ -529,7 +556,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
                                                                         />
                                                                     </Form.Group>
 
-                                                                    {item.time_slots.length > 1 && editMode && !isLocked && (
+                                                                    {normalizeTimeSlots(item.time_slots).length > 1 && editMode && !isLocked && (
                                                                         <Button
                                                                             icon="pi pi-times"
                                                                             severity="danger"

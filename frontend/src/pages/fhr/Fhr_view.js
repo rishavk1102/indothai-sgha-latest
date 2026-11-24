@@ -1,26 +1,49 @@
-import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { Row, Col, Breadcrumb, Card, Form, InputGroup, Table, Badge } from 'react-bootstrap';
-import { IoChevronBackOutline } from "react-icons/io5";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Row, Col, Card, Table, Badge } from 'react-bootstrap';
 import { useAuth } from "../../context/AuthContext.js";
 import { getSocket } from "../../context/socket.js";
 import GifLoder from '../../interfaces/GifLoder';
-import { useDebounce } from 'use-debounce'; // First, install it via npm
 import { Dialog } from 'primereact/dialog';
 import { Button } from 'primereact/button';
 import api from "../../api/axios.js";
 import { EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { downloadFhrViewPdf, fhrPdfFilename } from "../../utils/fhrPdf";
 
-const Fhr_view = ({ fhr_id, page_name, onClose }) => {
-    const { role, roleId } = useAuth(); // Get roleId from the context
-    const [loading, setLoading] = useState(true);  // Block UI until all fetches succeed
-    const [unauthorized, setUnauthorized] = useState(false); // Show Dialog if error
+const waitForPaint = () =>
+    new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(resolve));
+    });
+
+const Fhr_view = ({
+    fhr_id,
+    page_name,
+    onClose,
+    autoDownloadPdf = false,
+    onPdfDownloadDone,
+    hideToolbar = false,
+}) => {
+    const { roleId } = useAuth();
+    const [loading, setLoading] = useState(true);
+    const [unauthorized, setUnauthorized] = useState(false);
     const socket = getSocket();
     const navigate = useNavigate();
     const [fhrData, setFhrData] = useState(null);
     const [rating, setRating] = useState(null);
     const [linkedInvoice, setLinkedInvoice] = useState(null);
+    const [contentReady, setContentReady] = useState(false);
+    const [pdfBusy, setPdfBusy] = useState(false);
+    const pdfRootRef = useRef(null);
+    const autoDownloadRan = useRef(false);
 
+    useEffect(() => {
+        setLoading(true);
+        setContentReady(false);
+        setFhrData(null);
+        setRating(null);
+        setLinkedInvoice(null);
+        autoDownloadRan.current = false;
+    }, [fhr_id]);
 
     useEffect(() => {
         if (!socket || !fhr_id) return;
@@ -34,6 +57,7 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
         };
 
         const handleSuccess = (data) => {
+            if (data?.fhr_id != null && String(data.fhr_id) !== String(fhr_id)) return;
             setFhrData(data);
             setLoading(false);
             if (data?.status === 'Completed' && page_name) {
@@ -46,10 +70,12 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                     .catch(() => {
                         setRating(null);
                         setLinkedInvoice(null);
-                    });
+                    })
+                    .finally(() => setContentReady(true));
             } else {
                 setRating(null);
                 setLinkedInvoice(null);
+                setContentReady(true);
             }
         };
 
@@ -65,6 +91,7 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                 console.warn("FHR view error:", error.message);
             }
             setLoading(false);
+            setContentReady(true);
         };
 
         fetchFhr();
@@ -78,7 +105,31 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
         };
     }, [socket, roleId, page_name, fhr_id]);
 
+    const handleDownloadPdf = useCallback(async () => {
+        if (!pdfRootRef.current || pdfBusy) return;
+        setPdfBusy(true);
+        try {
+            await waitForPaint();
+            await new Promise((r) => setTimeout(r, 80));
+            await downloadFhrViewPdf(
+                pdfRootRef.current,
+                fhrPdfFilename(fhrData)
+            );
+        } catch (err) {
+            console.error("[Fhr_view] PDF download failed:", err);
+            window.alert(err?.message || "Failed to download FHR PDF.");
+        } finally {
+            setPdfBusy(false);
+            onPdfDownloadDone?.();
+        }
+    }, [fhrData, pdfBusy, onPdfDownloadDone]);
 
+    useEffect(() => {
+        if (!autoDownloadPdf || loading || !contentReady || !fhrData) return;
+        if (autoDownloadRan.current) return;
+        autoDownloadRan.current = true;
+        handleDownloadPdf();
+    }, [autoDownloadPdf, loading, contentReady, fhrData, handleDownloadPdf]);
 
     const handleDialogHide = () => {
         if (onClose) onClose();
@@ -117,12 +168,26 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
     }
     return (
         <>
+            {!hideToolbar ? (
+                <div className="d-flex justify-content-end mb-2 gap-2">
+                    <Button
+                        label={pdfBusy ? "Preparing PDF…" : "Download PDF"}
+                        icon="pi pi-file-pdf"
+                        className="py-2"
+                        style={{ fontSize: "14px" }}
+                        severity="primary"
+                        disabled={pdfBusy || !contentReady}
+                        onClick={handleDownloadPdf}
+                    />
+                </div>
+            ) : null}
+            <div ref={pdfRootRef} className="fhr-view-pdf-root bg-white">
             <Row>
                 <Col md={12} lg={12} className="mt-0">
                     <Card className="border-0 shadow-0">
                         <Table bordered className="fhrreportTable">
                             <thead>
-                                <tr>
+                                <tr data-pdf-block="header">
                                     <th colSpan={5} bgcolor="#9e52a3" style={{
                                         textAlign: 'center',
                                         fontWeight: 'bold',
@@ -136,7 +201,7 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr>
+                                <tr data-pdf-block="intro">
                                     <td colSpan={3} className="py-0">
                                         <span className="border-bottom d-block py-2"><b >Flight Handling Report No. :</b> {fhrData?.airport?.iata}/-/24-25</span>
                                         <div className="border-bottom d-flex gap-2">
@@ -154,7 +219,7 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                                         <img src={require("../../assets/images/footer_logo.png")} alt="Logo" style={{ width: '180px', height: 'auto' }} />
                                     </td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="intro">
                                     <td colSpan={3} style={{ verticalAlign: 'top' }}>
                                         <div className="py-2">
                                             <span className="d-block text-secondary">Service Provided To :</span>
@@ -177,7 +242,7 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                                         </ul>
                                     </td>
                                 </tr>
-                                <tr className="table-secondary">
+                                <tr className="table-secondary" data-pdf-block="arrival">
                                     <td colSpan={5} className="py-2">
                                         <h6 className="d-flex align-items-center justify-content-between gap-2 mb-0">
                                             <span>ARRIVAL DETAILS</span>
@@ -185,18 +250,18 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                                         </h6>
                                     </td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="arrival">
                                     <td colSpan={2}><b>Weight (MTOW) :</b> {fhrData?.arrival_details?.flight_weight}</td>
                                     <td><b>Flight No. :</b> {fhrData?.arrival_details?.flight_no}</td>
                                     <td><b>Regn. :</b> {fhrData?.arrival_details?.flight_region}</td>
                                     <td><b>Type :</b> {fhrData?.arrival_details?.flight_type}</td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="arrival">
                                     <td colSpan={2}><b>Operator :</b>{fhrData?.arrival_details?.operator}</td>
                                     <td><b>Bay No :</b>{fhrData?.arrival_details?.bay_no}</td>
                                     <td colSpan={2}><b>Gate No. :</b>{fhrData?.arrival_details?.gate_no}</td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="arrival">
                                     <td><b>Airport  :</b>{fhrData?.arrival_details?.airport}</td>
                                     <td>
                                         <b>STA :</b>{" "}
@@ -227,7 +292,7 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
 
                                     <td colSpan={2}><b>STA ATA Diff :</b>{fhrData?.arrival_details?.sta_ata_diff}</td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="arrival">
                                     <td colSpan={2}><b>Crew  :</b>{fhrData?.arrival_details?.crew_count}</td>
                                     <td><b>Pax  :</b>{fhrData?.arrival_details?.pax_members}</td>
                                     <td>
@@ -259,7 +324,7 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                                     </td>
                                 </tr>
 
-                                <tr className="table-secondary">
+                                <tr className="table-secondary" data-pdf-block="departure">
                                     <td colSpan={5} className="py-2">
                                         <h6 className="d-flex align-items-center justify-content-between gap-2 mb-0">
                                             <span>DEPARTURE DETAILS</span>
@@ -267,18 +332,18 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                                         </h6>
                                     </td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="departure">
                                     <td colSpan={2}><b>Weight (MTOW) :</b>{fhrData?.departure_details?.flight_weight}</td>
                                     <td><b>Flight No. :</b>{fhrData?.departure_details?.flight_no}</td>
                                     <td><b>Regn. :</b>{fhrData?.departure_details?.flight_region}</td>
                                     <td><b>Type :</b>{fhrData?.departure_details?.flight_type}</td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="departure">
                                     <td colSpan={2}><b>Operator :</b> {fhrData?.departure_details?.operator}</td>
                                     <td><b>Bay No :</b>{fhrData?.departure_details?.bay_no}</td>
                                     <td colSpan={2}><b>Gate No. :</b>{fhrData?.departure_details?.gate_no}</td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="departure">
                                     <td><b>Airport  :</b>{fhrData?.departure_details?.airport}</td>
                                     <td>
                                         <b>STA :</b>{" "}
@@ -308,7 +373,7 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                                     </td>
                                     <td colSpan={2}><b>STA ATA Diff :</b>{fhrData?.departure_details?.std_atd_diff}</td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="departure">
                                     <td colSpan={2}><b>Crew  :</b>{fhrData?.departure_details?.crew_count}</td>
                                     <td><b>Pax  :</b>{fhrData?.departure_details?.pax_members}</td>
                                     <td>
@@ -340,27 +405,27 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                                     </td>
 
                                 </tr>
-                                <tr className="table-secondary">
+                                <tr className="table-secondary" data-pdf-block="manpower">
                                     <td colSpan={5} className="py-2">
                                         <h6 className="d-flex align-items-center justify-content-between gap-2 mb-0">
                                             <span>MANPOWER DETAILS</span>
                                         </h6>
                                     </td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="manpower">
                                     <td colSpan={2}><b>Arrival Wheel Chair :</b>{fhrData?.man_power_details?.arrival_wheel_chair}</td>
                                     <td><b>Departure Wheel Chair :</b>{fhrData?.man_power_details?.departure_wheel_chair}</td>
                                     <td><b>Total Wheel Chair :</b>{fhrData?.man_power_details?.total_wheel_chair}</td>
                                     <td><b>MAAS :</b>{fhrData?.man_power_details?.maas}</td>
                                 </tr>
-                                <tr className="table-secondary">
+                                <tr className="table-secondary" data-pdf-block="cargo">
                                     <td colSpan={5} className="py-2">
                                         <h6 className="d-flex align-items-center justify-content-between gap-2 mb-0">
                                             <span>CARGO DETAILS</span>
                                         </h6>
                                     </td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="cargo">
                                     <td colSpan={2}><b>No. of Trips :</b>{fhrData?.cargo_details?.no_of_trips}</td>
                                     <td><b>Start Time :</b>{new Date(fhrData?.cargo_details?.start_time).toLocaleString("en-GB", {
                                         day: "2-digit",
@@ -380,36 +445,36 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                                     })}</td>
                                     <td><b>Total Time (mins) :</b>{fhrData?.cargo_details?.total_time}</td>
                                 </tr>
-                                <tr className="table-secondary">
+                                <tr className="table-secondary" data-pdf-block="equipment">
                                     <td colSpan={5} className="py-2">
                                         <h6 className="d-flex align-items-center justify-content-between gap-2 mb-0">
                                             <span>EQUIPMENT DETAILS</span>
                                         </h6>
                                     </td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="equipment">
                                     <th>Description</th>
                                     <th>Total No</th>
                                     <th>Start Time</th>
                                     <th>End Time</th>
                                     <th>Total Mins</th>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="equipment">
                                     <td>ACU (per start)</td>
                                     <td>N/A</td>
                                     <td>N/A</td>
                                     <td>N/A</td>
                                     <td>N/A</td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="closing">
                                     <td colSpan={5} className="py-3">
                                         <p className="mb-0">
                                             I, {fhrData?.declaration1} on behalf of {fhrData?.declaration2}
-                                            hereby certify that services asked for above were received from <b>{fhrData?.business?.name}</b> and I undertake to pay the charges on demand for the above services at the rated currently applicable and agree to abide by the terms and conditions in this respect.
+                                            {" "}hereby certify that services asked for above were received from <b>{fhrData?.business?.name}</b> and I undertake to pay the charges on demand for the above services at the rated currently applicable and agree to abide by the terms and conditions in this respect.
                                         </p>
                                     </td>
                                 </tr>
-                                <tr>
+                                <tr data-pdf-block="closing">
                                     <td colSpan={3} className="py-2" style={{ verticalAlign: 'top' }}>
                                         <span className="text-secondary mb-2 d-block">Name & Sign of</span>
                                         <h6> {fhrData?.business?.name}</h6>
@@ -425,7 +490,7 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                                 </tr>
                             </tbody>
                             <tfoot>
-                                <tr>
+                                <tr data-pdf-block="closing">
                                     <td colSpan={5} bgcolor="#9e52a3" style={{
                                         textAlign: 'center',
                                         fontWeight: 'bold',
@@ -454,7 +519,7 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
             </Row>
 
             {rating ? (
-                <Row className="mt-3">
+                <Row className="mt-3" data-pdf-block="rating">
                     <Col md={12}>
                         <Card className="p-3">
                             <div className="d-flex align-items-center justify-content-between mb-2 gap-2 flex-wrap">
@@ -517,6 +582,7 @@ const Fhr_view = ({ fhr_id, page_name, onClose }) => {
                     </Col>
                 </Row>
             ) : null}
+            </div>
         </>
     );
 };

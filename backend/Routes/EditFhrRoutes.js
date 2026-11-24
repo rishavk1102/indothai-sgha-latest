@@ -950,12 +950,17 @@ router.put('/update-additional-equipment/:page_name/:fhr_id', authenticateToken,
             const existingItem = existingEquipments.find(e => e.additional_equipment_id === equipment_id);
             if (!existingItem) continue;
 
-            const fieldsToUpdate = ['total_no_used', 'time_slots', 'total_time', 'remarks'];
+            const fieldsToUpdate = existingItem.is_adhoc
+                ? ['service_name', 'unit', 'unit_rate', 'total_no_used', 'time_slots', 'total_time', 'remarks']
+                : ['total_no_used', 'time_slots', 'total_time', 'remarks'];
             const updates = {};
 
             for (const field of fieldsToUpdate) {
                 const oldValue = existingItem[field];
-                const newValue = newItem[field];
+                let newValue = newItem[field];
+                if (field === 'unit_rate' && newValue != null && newValue !== '') {
+                    newValue = Number(newValue);
+                }
 
                 const formattedOld = formatFieldValue(oldValue);
                 const formattedNew = formatFieldValue(newValue);

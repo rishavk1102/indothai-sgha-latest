@@ -552,7 +552,11 @@ router.post('/create-additional-equipment/:page_name', authenticateToken, checkP
             });
         }
 
-        await AdditionalEquipment.destroy({ where: { fhr_id }, transaction });
+        // Keep urgent ad-hoc rows; only replace tariff-catalog lines.
+        await AdditionalEquipment.destroy({
+            where: { fhr_id, is_adhoc: false },
+            transaction,
+        });
 
         await Promise.all(
             tariffLines.map((line) =>
@@ -561,6 +565,8 @@ router.post('/create-additional-equipment/:page_name', authenticateToken, checkP
                         fhr_id,
                         charges_id: null,
                         tariff_line_id: line.tariff_line_id,
+                        is_adhoc: false,
+                        unit_rate: null,
                         service_name: line.description || 'Additional service',
                         service_type: line.line_type || 'Additional',
                         unit: line.unit || null,
@@ -603,6 +609,148 @@ router.post('/create-additional-equipment/:page_name', authenticateToken, checkP
     }
 });
 
+/**
+ * Urgent ad-hoc service not listed on the Active SGHA / walk-up tariff.
+ * Body: { fhr_id, service_name, unit?, unit_rate, total_no_used?, remarks? }
+ */
+router.post('/add-adhoc-equipment/:page_name', authenticateToken, checkPermission('add'), async (req, res) => {
+    const {
+        fhr_id,
+        service_name,
+        unit,
+        unit_rate,
+        total_no_used,
+        remarks,
+    } = req.body || {};
+
+    let transaction;
+    try {
+        if (!fhr_id) {
+            return res.status(400).json({ message: 'fhr_id is required.' });
+        }
+        const name = String(service_name || '').trim();
+        if (!name) {
+            return res.status(400).json({ message: 'service_name is required.' });
+        }
+        const rate = Number(unit_rate);
+        if (!Number.isFinite(rate) || rate < 0) {
+            return res.status(400).json({ message: 'unit_rate must be a non-negative number.' });
+        }
+
+        const fhr = await FHR.findByPk(fhr_id, { attributes: ['fhr_id', 'status'] });
+        if (!fhr) {
+            return res.status(404).json({ message: 'FHR not found.' });
+        }
+        if (['Submitted', 'Completed', 'Cancelled'].includes(fhr.status)) {
+            return res.status(400).json({
+                message: `Cannot add ad-hoc equipment while FHR is ${fhr.status}.`,
+            });
+        }
+
+        transaction = await sequelize.transaction();
+        const created = await AdditionalEquipment.create(
+            {
+                fhr_id,
+                charges_id: null,
+                tariff_line_id: null,
+                is_adhoc: true,
+                unit_rate: rate,
+                service_name: name,
+                service_type: 'Ad-hoc',
+                unit: unit ? String(unit).trim() : null,
+                total_no_used:
+                    total_no_used != null && total_no_used !== ''
+                        ? Number(total_no_used)
+                        : null,
+                time_slots: [{ start: null, end: null }],
+                total_time: null,
+                remarks: remarks ? String(remarks).trim() : null,
+            },
+            { transaction }
+        );
+
+        await AdditionalEquipmentCreation.upsert(
+            { fhr_id, creation_status: true },
+            { transaction }
+        );
+
+        await transaction.commit();
+
+        const io = getIO();
+        io.emit('fhrUpdated', { fhr_id });
+
+        return res.status(201).json({
+            message: 'Ad-hoc service added.',
+            equipment: created,
+        });
+    } catch (error) {
+        if (transaction) await transaction.rollback();
+        console.error('Error adding ad-hoc equipment:', error);
+        return res.status(500).json({
+            message: 'Server error while adding ad-hoc equipment',
+            error: error.message,
+        });
+    } finally {
+        if (transaction && !transaction.finished) await transaction.rollback();
+    }
+});
+
+router.delete(
+    '/adhoc-equipment/:page_name/:additional_equipment_id',
+    authenticateToken,
+    checkPermission('delete'),
+    async (req, res) => {
+        const { additional_equipment_id } = req.params;
+        let transaction;
+        try {
+            const row = await AdditionalEquipment.findByPk(additional_equipment_id);
+            if (!row) {
+                return res.status(404).json({ message: 'Equipment row not found.' });
+            }
+            if (!row.is_adhoc) {
+                return res.status(400).json({
+                    message: 'Only ad-hoc services can be deleted this way. Use Reset for tariff lines.',
+                });
+            }
+
+            const fhr = await FHR.findByPk(row.fhr_id, { attributes: ['fhr_id', 'status'] });
+            if (fhr && ['Submitted', 'Completed', 'Cancelled'].includes(fhr.status)) {
+                return res.status(400).json({
+                    message: `Cannot delete ad-hoc equipment while FHR is ${fhr.status}.`,
+                });
+            }
+
+            transaction = await sequelize.transaction();
+            const fhrId = row.fhr_id;
+            await row.destroy({ transaction });
+            const left = await AdditionalEquipment.count({
+                where: { fhr_id: fhrId },
+                transaction,
+            });
+            if (!left) {
+                await AdditionalEquipmentCreation.upsert(
+                    { fhr_id: fhrId, creation_status: false },
+                    { transaction }
+                );
+            }
+            await transaction.commit();
+
+            const io = getIO();
+            io.emit('fhrUpdated', { fhr_id: fhrId });
+            return res.json({ message: 'Ad-hoc service removed.' });
+        } catch (error) {
+            if (transaction) await transaction.rollback();
+            console.error('Error deleting ad-hoc equipment:', error);
+            return res.status(500).json({
+                message: 'Server error while deleting ad-hoc equipment',
+                error: error.message,
+            });
+        } finally {
+            if (transaction && !transaction.finished) await transaction.rollback();
+        }
+    }
+);
+
 // Allow retry when creation was marked done but no equipment rows exist
 router.post('/reset-additional-equipment/:page_name', authenticateToken, checkPermission('edit'), async (req, res) => {
     const { fhr_id } = req.body;
@@ -621,17 +769,29 @@ router.post('/reset-additional-equipment/:page_name', authenticateToken, checkPe
         }
 
         transaction = await sequelize.transaction();
-        await AdditionalEquipment.destroy({ where: { fhr_id }, transaction });
+        // Reset tariff catalog only; keep urgent ad-hoc services.
+        await AdditionalEquipment.destroy({
+            where: { fhr_id, is_adhoc: false },
+            transaction,
+        });
+        const adhocLeft = await AdditionalEquipment.count({
+            where: { fhr_id, is_adhoc: true },
+            transaction,
+        });
         await AdditionalEquipmentCreation.upsert({
             fhr_id,
-            creation_status: false
+            creation_status: adhocLeft > 0,
         }, { transaction });
         await transaction.commit();
 
         const io = getIO();
         io.emit('fhrUpdated', { fhr_id });
 
-        res.json({ message: 'Additional equipment reset. Select a category and create again.' });
+        res.json({
+            message: adhocLeft
+                ? 'Tariff equipment reset. Ad-hoc services were kept.'
+                : 'Additional equipment reset. Create from tariff or add an ad-hoc service.',
+        });
     } catch (error) {
         if (transaction) await transaction.rollback();
         console.error('Error resetting additional equipment:', error);

@@ -489,6 +489,11 @@ table td p{
     margin-bottom: 12px;
     border: 1px solid #e2cae5;
     box-shadow: none;
+    overflow: hidden;
+}
+.AdsEnq--adhoc{
+    border-color: #e6c36a;
+    background: #fffcf5;
 }
 .AdsEnq .card-header{
     font-size: 16px;
@@ -501,10 +506,32 @@ table td p{
     font-weight: 400;
     margin-right: 5px;
 }
+.AdsEnq-title{
+    font-size: 15px;
+    font-weight: 600;
+    color: #222;
+    max-width: min(100%, 520px);
+}
+.AdsEnq-name-input{
+    min-width: min(100%, 280px);
+    max-width: 420px;
+}
+.AdsEnq-badge{
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+.AdsEnq-times{
+    border-top: 1px dashed #e8d7ec;
+}
+.AdsEnq-remarks.p-inputtextarea{
+    min-height: 56px;
+    font-size: 13px;
+}
 .timeslt{
-    width: 350px;
+    width: min(100%, 350px);
     border: 1px dashed #e3e3e3;
     padding: 0 5px;
+    background: #fff;
 }
 .airportDet .card{
     border: 0;

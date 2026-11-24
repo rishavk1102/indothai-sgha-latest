@@ -44,6 +44,7 @@ const Completed = () => {
 
     const [visible1, setVisible1] = useState(false);
     const [selectedFhrId, setSelectedFhrId] = useState(null);
+    const [pdfExportFhrId, setPdfExportFhrId] = useState(null);
     const getLS = (key) => localStorage.getItem(`${PAGE_NAME}_${key}`) || '';
 
 
@@ -403,6 +404,9 @@ const Completed = () => {
                                                                     tooltipOptions={{ position: "top" }}
                                                                     style={{ width: '20px', fontSize: '14px' }}
                                                                     text
+                                                                    loading={pdfExportFhrId === item.fhr_id}
+                                                                    disabled={pdfExportFhrId != null}
+                                                                    onClick={() => setPdfExportFhrId(item.fhr_id)}
                                                                 />
                                                                 <Button
                                                                     tooltip="Delete"
@@ -452,6 +456,29 @@ const Completed = () => {
                     onClose={() => setVisible1(false)}
                 />
             </Sidebar>
+
+            {pdfExportFhrId ? (
+                <div
+                    aria-hidden
+                    style={{
+                        position: "fixed",
+                        left: -10000,
+                        top: 0,
+                        width: 920,
+                        background: "#fff",
+                        zIndex: -1,
+                        pointerEvents: "none",
+                    }}
+                >
+                    <Fhr_view
+                        fhr_id={pdfExportFhrId}
+                        page_name={PAGE_NAME}
+                        autoDownloadPdf
+                        hideToolbar
+                        onPdfDownloadDone={() => setPdfExportFhrId(null)}
+                    />
+                </div>
+            ) : null}
 
 
         </>

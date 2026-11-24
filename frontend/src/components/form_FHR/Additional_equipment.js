@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { Row, Col, Card, Form, Table } from 'react-bootstrap';
+import { Row, Col, Card, Form, Badge } from 'react-bootstrap';
 import { InputTextarea } from "primereact/inputtextarea";
+import { InputText } from "primereact/inputtext";
 import { Calendar } from 'primereact/calendar';
 import { Button } from 'primereact/button';
 import { getSocket } from "../../context/socket";
-import GifLoder from '../../interfaces/GifLoder';
-import { useDebounce } from 'use-debounce'; // First, install it via npm
 import { Dialog } from "primereact/dialog";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
@@ -13,7 +12,15 @@ import { ProgressSpinner } from 'primereact/progressspinner';
 import { Avatar } from 'primereact/avatar';
 import { AvatarGroup } from 'primereact/avatargroup';
 import nouser from '../../assets/images/no_user.png';
-import { useParams, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+
+const emptyAdhocForm = () => ({
+    service_name: '',
+    unit: 'Per Hour',
+    unit_rate: null,
+    total_no_used: 1,
+    remarks: '',
+});
 
 /** MySQL JSON often arrives as a string; always normalize to [{start,end}, ...]. */
 const normalizeTimeSlots = (slots) => {
@@ -36,6 +43,8 @@ const normalizeTimeSlots = (slots) => {
 
 const normalizeEquipmentItem = (item) => ({
     ...item,
+    is_adhoc: Boolean(item?.is_adhoc),
+    unit_rate: item?.unit_rate != null && item.unit_rate !== '' ? Number(item.unit_rate) : item?.unit_rate ?? null,
     time_slots: normalizeTimeSlots(item?.time_slots),
 });
 
@@ -60,10 +69,22 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
         return Array.isArray(stored) ? stored.map(normalizeEquipmentItem) : [];
     });
     const [editMode, setEditMode] = useState(false);
+    const [adhocOpen, setAdhocOpen] = useState(false);
+    const [adhocForm, setAdhocForm] = useState(() => emptyAdhocForm());
+    const [adhocSaving, setAdhocSaving] = useState(false);
     const isLocked = ['Submitted', 'Completed', 'Cancelled'].includes(fhrStatus);
 
     const setLS = (key, value) => {
         localStorage.setItem(`${page_name}_additional_${key}`, JSON.stringify(value));
+    };
+
+    const refreshEquipmentList = () => {
+        if (!socket || !fhr_id) return;
+        socket.emit('fetch-additional-equipment-editors', {
+            role_id: roleId,
+            page_name,
+            fhr_id,
+        });
     };
 
 
@@ -219,14 +240,9 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
             if (response.status === 201 || response.status === 200) {
                 setCreationStatus(true);
                 refreshCreationStatus();
-                if (socket) {
-                    socket.emit('fetch-additional-equipment-editors', {
-                        role_id: roleId,
-                        page_name,
-                        fhr_id
-                    });
-                }
-                window.alert(
+                refreshEquipmentList();
+                notify?.(
+                    'success',
                     response.data?.message ||
                         `Created ${response.data?.created_count || 0} equipment line(s) from tariff.`
                 );
@@ -243,15 +259,66 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
         }
     };
 
+    const submitAdhocEquipment = async () => {
+        const name = String(adhocForm.service_name || '').trim();
+        if (!name) {
+            window.alert('Service name is required.');
+            return;
+        }
+        if (adhocForm.unit_rate == null || Number(adhocForm.unit_rate) < 0) {
+            window.alert('Enter a unit rate (0 or more).');
+            return;
+        }
+        try {
+            setAdhocSaving(true);
+            const res = await api.post(`/FHR/add-adhoc-equipment/${page_name}`, {
+                fhr_id,
+                service_name: name,
+                unit: adhocForm.unit || null,
+                unit_rate: adhocForm.unit_rate,
+                total_no_used: adhocForm.total_no_used,
+                remarks: adhocForm.remarks || null,
+            });
+            setCreationStatus(true);
+            setAdhocOpen(false);
+            setAdhocForm(emptyAdhocForm());
+            refreshCreationStatus();
+            refreshEquipmentList();
+            notify?.('success', res.data?.message || 'Ad-hoc service added.');
+        } catch (err) {
+            console.error('Failed to add ad-hoc equipment:', err.message);
+            if (err.response?.status === 403) setUnauthorized(true);
+            else window.alert(err.response?.data?.message || 'Failed to add ad-hoc service.');
+        } finally {
+            setAdhocSaving(false);
+        }
+    };
+
+    const deleteAdhocEquipment = async (item) => {
+        if (!item?.is_adhoc || !item.additional_equipment_id) return;
+        if (!window.confirm(`Remove ad-hoc service "${item.service_name}"?`)) return;
+        try {
+            setLoading(true);
+            await api.delete(`/FHR/adhoc-equipment/${page_name}/${item.additional_equipment_id}`);
+            refreshCreationStatus();
+            refreshEquipmentList();
+            notify?.('success', 'Ad-hoc service removed.');
+        } catch (err) {
+            console.error('Failed to delete ad-hoc equipment:', err.message);
+            window.alert(err.response?.data?.message || 'Failed to remove ad-hoc service.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const resetAdditionalEquipment = async () => {
         try {
             setLoading(true);
-            await api.post(`/FHR/reset-additional-equipment/${page_name}`, { fhr_id });
-            setCreationStatus(false);
-            setEquipmentList([]);
+            const res = await api.post(`/FHR/reset-additional-equipment/${page_name}`, { fhr_id });
             setEditMode(false);
-            setLS('equipment_data', []);
             refreshCreationStatus();
+            refreshEquipmentList();
+            notify?.('success', res.data?.message || 'Tariff equipment reset.');
         } catch (err) {
             console.error('Failed to reset additional equipment:', err.message);
             window.alert(err.response?.data?.message || 'Failed to reset additional equipment.');
@@ -319,13 +386,20 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
                 setLoading(true);
 
                 const payload = {
-                    equipment_list: equipmentList.map(item => ({
+                    equipment_list: equipmentList.map((item) => ({
                         additional_equipment_id: item.additional_equipment_id,
+                        ...(item.is_adhoc
+                            ? {
+                                  service_name: item.service_name,
+                                  unit: item.unit,
+                                  unit_rate: item.unit_rate,
+                              }
+                            : {}),
                         total_no_used: item.total_no_used,
                         time_slots: item.time_slots,
                         total_time: item.total_time,
-                        remarks: item.remarks || ''
-                    }))
+                        remarks: item.remarks || '',
+                    })),
                 };
 
                 await api.put(`/edit_fhr/update-additional-equipment/${page_name}/${fhr_id}`, payload);
@@ -346,13 +420,20 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
             setLoading(true);
 
             const payload = {
-                equipment_list: equipmentList.map(item => ({
+                equipment_list: equipmentList.map((item) => ({
                     additional_equipment_id: item.additional_equipment_id,
+                    ...(item.is_adhoc
+                        ? {
+                              service_name: item.service_name,
+                              unit: item.unit,
+                              unit_rate: item.unit_rate,
+                          }
+                        : {}),
                     total_no_used: item.total_no_used,
                     time_slots: item.time_slots,
                     total_time: item.total_time,
-                    remarks: item.remarks || ''
-                }))
+                    remarks: item.remarks || '',
+                })),
             };
 
             await api.put(`/edit_fhr/update-additional-equipment/${page_name}/${fhr_id}`, payload);
@@ -443,170 +524,246 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
                                 </small>
                             </span>
                         </div>
-                        {creationStatus === false && !isLocked && (
-                            <div className="d-flex align-items-center gap-2 justify-content-end w-100 my-3">
-                                <small className="text-muted me-auto">
-                                    Creates Additional lines from the Active SGHA / walk-up tariff for this FHR.
+                        <div className="w-100 my-3">
+                            {!isLocked && (
+                                <small className="text-muted d-block mb-2">
+                                    Tariff lines come from the Active SGHA / walk-up. Use <b>Ad-hoc</b> for urgent extras not on the agreement.
                                 </small>
-                                <Button
-                                    disabled={loading}
-                                    label="Create from tariff"
-                                    onClick={createAdditionalEquipment}
-                                    severity="warning"
-                                    className="py-2 text-white"
-                                    style={{ fontSize: "14px" }}
-                                />
+                            )}
+                            <div className="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                <div className="d-flex align-items-center gap-2 flex-wrap">
+                                    {!isLocked && creationStatus !== true && (
+                                        <Button
+                                            disabled={loading}
+                                            label="Create from tariff"
+                                            onClick={createAdditionalEquipment}
+                                            severity="warning"
+                                            className="py-2 text-white"
+                                            style={{ fontSize: "14px" }}
+                                        />
+                                    )}
+                                    {!isLocked && creationStatus === true && (
+                                        <Button
+                                            label="Reset tariff lines"
+                                            severity="secondary"
+                                            className="py-2"
+                                            style={{ fontSize: "14px" }}
+                                            onClick={resetAdditionalEquipment}
+                                            disabled={loading}
+                                            outlined
+                                        />
+                                    )}
+                                    {!isLocked && (
+                                        <Button
+                                            disabled={loading || adhocSaving}
+                                            label="Add ad-hoc service"
+                                            icon="pi pi-plus"
+                                            onClick={() => {
+                                                setAdhocForm(emptyAdhocForm());
+                                                setAdhocOpen(true);
+                                            }}
+                                            severity="help"
+                                            className="py-2"
+                                            style={{ fontSize: "14px" }}
+                                        />
+                                    )}
+                                </div>
+                                {creationStatus === true && equipmentList.length > 0 && !isLocked && (
+                                    <div className="d-flex align-items-center gap-2">
+                                        <Button
+                                            title={editMode ? "Cancel Edit" : "Edit"}
+                                            icon={editMode ? "pi pi-times" : "pi pi-pencil"}
+                                            onClick={handleEditToggle}
+                                            severity={editMode ? "success" : "warning"}
+                                            size="small"
+                                            className="p-0"
+                                            style={{ width: '30px', height: '30px' }}
+                                        />
+                                        {editMode && (
+                                            <Button
+                                                title="Validate & Save"
+                                                icon="pi pi-save"
+                                                onClick={handleInstantSave}
+                                                severity="info"
+                                                size="small"
+                                                className="p-0"
+                                                style={{ width: '30px', height: '30px' }}
+                                            />
+                                        )}
+                                    </div>
+                                )}
                             </div>
-                        )}
+                        </div>
 
                         {creationStatus === true && equipmentList.length === 0 && (
-                            <div className="d-flex align-items-center justify-content-between w-100 my-3">
+                            <div className="w-100 mb-3">
                                 <small className="text-muted">
-                                    No Additional tariff lines were found. Add them on the Active tariff, then Reset &amp; Retry.
+                                    No equipment rows yet. Create from tariff and/or add an ad-hoc service.
                                 </small>
-                                {!isLocked && (
-                                    <Button
-                                        label="Reset & Retry"
-                                        severity="secondary"
-                                        className="py-2"
-                                        style={{ fontSize: "14px" }}
-                                        onClick={resetAdditionalEquipment}
-                                        disabled={loading}
-                                    />
-                                )}
                             </div>
                         )}
 
                         {creationStatus === true && equipmentList.length > 0 && (
-                            <>
-                                <div className="d-flex align-items-center gap-2 justify-content-end w-100 my-3">
-                                    <span className="d-flex align-items-end gap-3 mb-0">
-                                        {!isLocked && (
-                                            <>
+                            <div className="mt-1">
+                                {equipmentList.map((item, index) => (
+                                    <Card
+                                        className={`AdsEnq mb-3${item.is_adhoc ? ' AdsEnq--adhoc' : ''}`}
+                                        key={item.additional_equipment_id || index}
+                                    >
+                                        <Card.Header className="bg-transparent d-flex justify-content-between align-items-center py-2 px-3 gap-2 flex-wrap">
+                                            <div className="d-flex align-items-center gap-2 flex-wrap min-w-0">
+                                                {item.is_adhoc && editMode && !isLocked ? (
+                                                    <InputText
+                                                        value={item.service_name || ''}
+                                                        onChange={(e) => handleEquipmentChange(index, 'service_name', e.target.value)}
+                                                        className="AdsEnq-name-input"
+                                                        placeholder="Service name"
+                                                    />
+                                                ) : (
+                                                    <span className="AdsEnq-title text-truncate">
+                                                        <span className="text-muted">Equipment Name: </span>
+                                                        {item.service_name}
+                                                    </span>
+                                                )}
+                                                {item.is_adhoc && (
+                                                    <Badge bg="warning" text="dark" className="AdsEnq-badge">Ad-hoc</Badge>
+                                                )}
+                                            </div>
+                                            {item.is_adhoc && editMode && !isLocked && (
                                                 <Button
-                                                    title={editMode ? "Cancel Edit" : "Edit"}
-                                                    icon={editMode ? "pi pi-times" : "pi pi-pencil"}
-                                                    onClick={handleEditToggle}
-                                                    severity={editMode ? "success" : "warning"}
-                                                    size="small"
+                                                    icon="pi pi-trash"
+                                                    severity="danger"
+                                                    text
                                                     className="p-0"
                                                     style={{ width: '30px', height: '30px' }}
+                                                    title="Remove ad-hoc service"
+                                                    onClick={() => deleteAdhocEquipment(item)}
                                                 />
-                                                {editMode && (
-                                                    <Button
-                                                        title="Validate & Save"
-                                                        icon="pi pi-save"
-                                                        onClick={handleInstantSave}
-                                                        severity="info"
-                                                        size="small"
-                                                        className="p-0"
-                                                        style={{ width: '30px', height: '30px' }}
-                                                    />
+                                            )}
+                                        </Card.Header>
+                                        <Card.Body className="px-3 py-2">
+                                            <Row className="g-2 align-items-end">
+                                                {item.is_adhoc && (
+                                                    <>
+                                                        <Col xs={6} md={3} lg={2}>
+                                                            <Form.Group className="mb-0">
+                                                                <Form.Label>Unit</Form.Label>
+                                                                <Form.Control
+                                                                    className="w-100"
+                                                                    value={item.unit || ''}
+                                                                    disabled={!editMode || isLocked}
+                                                                    onChange={(e) => handleEquipmentChange(index, 'unit', e.target.value)}
+                                                                    placeholder="e.g. Per Hour"
+                                                                />
+                                                            </Form.Group>
+                                                        </Col>
+                                                        <Col xs={6} md={3} lg={2}>
+                                                            <Form.Group className="mb-0">
+                                                                <Form.Label>Unit rate *</Form.Label>
+                                                                <Form.Control
+                                                                    type="number"
+                                                                    min="0"
+                                                                    step="0.01"
+                                                                    className="w-100"
+                                                                    value={item.unit_rate ?? ''}
+                                                                    disabled={!editMode || isLocked}
+                                                                    onChange={(e) => handleEquipmentChange(index, 'unit_rate', e.target.value)}
+                                                                />
+                                                            </Form.Group>
+                                                        </Col>
+                                                    </>
                                                 )}
-                                            </>
-                                        )}
-                                    </span>
-                                </div>
-                                <div className="mt-3">
-                                    {equipmentList.map((item, index) => (
-                                        <Card className="AdsEnq mb-3" key={item.additional_equipment_id || index}>
-                                            <Card.Header className="bg-transparent d-flex justify-content-start align-items-center py-3 h6">
-                                                <span>Equipment Name: </span>&nbsp;{item.service_name}
-                                            </Card.Header>
-                                            <Card.Body className="p-0">
-                                                <Row className="mx-0 align-items-center">
-                                                    {/* Total Used */}
-                                                    <Col lg={2} md={3} className="px-2 py-2">
-                                                        <Form.Group className="mb-2">
-                                                            <Form.Label>Total Used (In Numbers)</Form.Label>
-                                                            <Form.Control
-                                                                className="w-100"
-                                                                value={item.total_no_used || ''}
-                                                                disabled={!editMode || isLocked}
-                                                                onChange={(e) => handleEquipmentChange(index, 'total_no_used', e.target.value)}
-                                                            />
-                                                        </Form.Group>
-                                                    </Col>
+                                                <Col xs={6} md={3} lg={2}>
+                                                    <Form.Group className="mb-0">
+                                                        <Form.Label>Total Used</Form.Label>
+                                                        <Form.Control
+                                                            className="w-100"
+                                                            value={item.total_no_used || ''}
+                                                            disabled={!editMode || isLocked}
+                                                            onChange={(e) => handleEquipmentChange(index, 'total_no_used', e.target.value)}
+                                                        />
+                                                    </Form.Group>
+                                                </Col>
+                                                <Col xs={6} md={3} lg={2}>
+                                                    <Form.Group className="mb-0">
+                                                        <Form.Label>Total Time (mins)</Form.Label>
+                                                        <Form.Control
+                                                            className="w-100"
+                                                            value={calculateTotalTime(item.time_slots)}
+                                                            disabled
+                                                        />
+                                                    </Form.Group>
+                                                </Col>
+                                            </Row>
 
-                                                    {/* Time Slots */}
-                                                    <Col lg={8} md={6} className="px-2 border-end border-start py-1">
-                                                        <div className="d-flex flex-wrap gap-2 align-items-end">
-                                                            {normalizeTimeSlots(item.time_slots).map((slot, slotIndex) => (
-                                                                <div key={slotIndex} className="d-flex gap-2 timeslt p-2 position-relative">
-                                                                    <Form.Group>
-                                                                        <Form.Label>Start Time</Form.Label>
-                                                                        <Calendar
-                                                                            value={slot.start ? new Date(slot.start) : null}
-                                                                            onChange={(e) => updateSlot(index, slotIndex, 'start', e.value)}
-                                                                            showTime
-                                                                            disabled={!editMode || isLocked}
-                                                                            hourFormat="24"
-                                                                            dateFormat="dd/mm/yy"
-                                                                        />
-                                                                    </Form.Group>
-                                                                    <Form.Group>
-                                                                        <Form.Label>End Time</Form.Label>
-                                                                        <Calendar
-                                                                            value={slot.end ? new Date(slot.end) : null}
-                                                                            onChange={(e) => updateSlot(index, slotIndex, 'end', e.value)}
-                                                                            showTime
-                                                                            disabled={!editMode || isLocked}
-                                                                            hourFormat="24"
-                                                                            dateFormat="dd/mm/yy"
-                                                                        />
-                                                                    </Form.Group>
+                                            <div className="AdsEnq-times mt-2 pt-2">
+                                                <div className="d-flex flex-wrap gap-2 align-items-end">
+                                                    {normalizeTimeSlots(item.time_slots).map((slot, slotIndex) => (
+                                                        <div key={slotIndex} className="d-flex gap-2 timeslt p-2 position-relative">
+                                                            <Form.Group className="mb-0">
+                                                                <Form.Label>Start Time</Form.Label>
+                                                                <Calendar
+                                                                    value={slot.start ? new Date(slot.start) : null}
+                                                                    onChange={(e) => updateSlot(index, slotIndex, 'start', e.value)}
+                                                                    showTime
+                                                                    disabled={!editMode || isLocked}
+                                                                    hourFormat="24"
+                                                                    dateFormat="dd/mm/yy"
+                                                                />
+                                                            </Form.Group>
+                                                            <Form.Group className="mb-0">
+                                                                <Form.Label>End Time</Form.Label>
+                                                                <Calendar
+                                                                    value={slot.end ? new Date(slot.end) : null}
+                                                                    onChange={(e) => updateSlot(index, slotIndex, 'end', e.value)}
+                                                                    showTime
+                                                                    disabled={!editMode || isLocked}
+                                                                    hourFormat="24"
+                                                                    dateFormat="dd/mm/yy"
+                                                                />
+                                                            </Form.Group>
 
-                                                                    {normalizeTimeSlots(item.time_slots).length > 1 && editMode && !isLocked && (
-                                                                        <Button
-                                                                            icon="pi pi-times"
-                                                                            severity="danger"
-                                                                            className="p-0 border-0"
-                                                                            text
-                                                                            onClick={() => handleDeleteSlot(index, slotIndex)}
-                                                                            style={{ position: 'absolute', top: '-10px', right: '-15px', width: '30px' }}
-                                                                        />
-                                                                    )}
-                                                                </div>
-                                                            ))}
-
-                                                            {editMode && !isLocked && (
+                                                            {normalizeTimeSlots(item.time_slots).length > 1 && editMode && !isLocked && (
                                                                 <Button
-                                                                    label="Add Slot"
-                                                                    icon="pi pi-plus"
+                                                                    icon="pi pi-times"
                                                                     severity="danger"
                                                                     className="p-0 border-0"
-                                                                    style={{ height: '30px', fontSize: '14px' }}
                                                                     text
-                                                                    onClick={() => handleAddSlot(index)}
+                                                                    onClick={() => handleDeleteSlot(index, slotIndex)}
+                                                                    style={{ position: 'absolute', top: '-10px', right: '-15px', width: '30px' }}
                                                                 />
                                                             )}
                                                         </div>
-                                                    </Col>
+                                                    ))}
 
-                                                    {/* Total Time */}
-                                                    <Col lg={2} md={3} className="px-2 py-2">
-                                                        <Form.Group className="mb-2">
-                                                            <Form.Label>Total Time (In Minutes)</Form.Label>
-                                                            <Form.Control className="w-100" value={calculateTotalTime(item.time_slots)} disabled />
-                                                        </Form.Group>
-                                                    </Col>
-                                                </Row>
-                                            </Card.Body>
+                                                    {editMode && !isLocked && (
+                                                        <Button
+                                                            label="Add Slot"
+                                                            icon="pi pi-plus"
+                                                            severity="danger"
+                                                            className="p-0 border-0"
+                                                            style={{ height: '30px', fontSize: '14px' }}
+                                                            text
+                                                            onClick={() => handleAddSlot(index)}
+                                                        />
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </Card.Body>
 
-                                            <Card.Footer className="bg-transparent border-0 py-0 px-1">
-                                                <InputTextarea
-                                                    value={item.remarks || ''}
-                                                    onChange={(e) => handleEquipmentChange(index, 'remarks', e.target.value)}
-                                                    rows={2}
-                                                    placeholder="Enter remarks"
-                                                    className="w-100 h-auto"
-                                                    disabled={!editMode || isLocked}
-                                                />
-                                            </Card.Footer>
-                                        </Card>
-                                    ))}
-                                </div>
-                            </>
+                                        <Card.Footer className="bg-transparent border-0 pt-0 pb-2 px-3">
+                                            <InputTextarea
+                                                value={item.remarks || ''}
+                                                onChange={(e) => handleEquipmentChange(index, 'remarks', e.target.value)}
+                                                rows={2}
+                                                placeholder="Enter remarks"
+                                                className="w-100 h-auto AdsEnq-remarks"
+                                                disabled={!editMode || isLocked}
+                                            />
+                                        </Card.Footer>
+                                    </Card>
+                                ))}
+                            </div>
                         )}
 
 
@@ -614,8 +771,104 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
                     </Row>
                 </div>
             </Col>
+
+            <Dialog
+                header="Add ad-hoc service"
+                visible={adhocOpen}
+                style={{ width: 'min(520px, 95vw)' }}
+                onHide={() => !adhocSaving && setAdhocOpen(false)}
+                closable={!adhocSaving}
+                className="AdsEnq-adhoc-dialog"
+                footer={
+                    <div className="d-flex justify-content-end gap-2">
+                        <Button
+                            label="Cancel"
+                            severity="secondary"
+                            outlined
+                            disabled={adhocSaving}
+                            onClick={() => setAdhocOpen(false)}
+                        />
+                        <Button
+                            label={adhocSaving ? 'Saving…' : 'Add service'}
+                            icon="pi pi-check"
+                            loading={adhocSaving}
+                            onClick={submitAdhocEquipment}
+                        />
+                    </div>
+                }
+            >
+                <p className="text-muted small mb-3">
+                    For urgent work not listed on the Active SGHA / walk-up tariff. Rate is entered here and billed as a Manual charge on Complete.
+                </p>
+                <Form.Group className="mb-3">
+                    <Form.Label>Service name *</Form.Label>
+                    <InputText
+                        className="w-100"
+                        value={adhocForm.service_name}
+                        onChange={(e) => setAdhocForm((f) => ({ ...f, service_name: e.target.value }))}
+                        placeholder="e.g. Urgent de-icing support"
+                        autoFocus
+                    />
+                </Form.Group>
+                <Row className="g-3">
+                    <Col xs={12} sm={4}>
+                        <Form.Group className="mb-0">
+                            <Form.Label>Unit</Form.Label>
+                            <Form.Control
+                                value={adhocForm.unit}
+                                onChange={(e) => setAdhocForm((f) => ({ ...f, unit: e.target.value }))}
+                                placeholder="Per Hour"
+                            />
+                        </Form.Group>
+                    </Col>
+                    <Col xs={6} sm={4}>
+                        <Form.Group className="mb-0">
+                            <Form.Label>Unit rate *</Form.Label>
+                            <Form.Control
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={adhocForm.unit_rate ?? ''}
+                                onChange={(e) =>
+                                    setAdhocForm((f) => ({
+                                        ...f,
+                                        unit_rate: e.target.value === '' ? null : e.target.value,
+                                    }))
+                                }
+                            />
+                        </Form.Group>
+                    </Col>
+                    <Col xs={6} sm={4}>
+                        <Form.Group className="mb-0">
+                            <Form.Label>Qty used</Form.Label>
+                            <Form.Control
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={adhocForm.total_no_used ?? ''}
+                                onChange={(e) =>
+                                    setAdhocForm((f) => ({
+                                        ...f,
+                                        total_no_used: e.target.value === '' ? null : e.target.value,
+                                    }))
+                                }
+                            />
+                        </Form.Group>
+                    </Col>
+                </Row>
+                <Form.Group className="mb-0 mt-3">
+                    <Form.Label>Remarks</Form.Label>
+                    <InputTextarea
+                        className="w-100"
+                        rows={2}
+                        value={adhocForm.remarks}
+                        onChange={(e) => setAdhocForm((f) => ({ ...f, remarks: e.target.value }))}
+                        placeholder="Optional note"
+                    />
+                </Form.Group>
+            </Dialog>
         </Row>
     );
 };
 
-export default Additional_equipment
+export default Additional_equipment;

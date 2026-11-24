@@ -328,9 +328,19 @@ router.post('/upload-excel/:page_name', authenticateToken, checkPermission('add'
                     continue;
                 }
 
+                const aircraftIdNum = Number(aircraft_id);
+                if (!Number.isInteger(aircraftIdNum) || aircraftIdNum <= 0) {
+                    const msg = `Row ${i} on "${worksheet.name}": Aircraft ID must be the numeric ID from the list above (e.g. 4 for Airbus A320), not "${aircraft_id}".`;
+                    io.emit('excel-error', {
+                        user_id: inserted_by_user_id,
+                        message: msg,
+                    });
+                    return res.status(400).json({ message: msg });
+                }
+
                 const existing = await ExcelData.findOne({
                     where: {
-                        aircraft_id: Number(aircraft_id),
+                        aircraft_id: aircraftIdNum,
                         arrival_flight_no,
                         departure_flight_no,
                         type_of_aircraft,
@@ -351,7 +361,7 @@ router.post('/upload-excel/:page_name', authenticateToken, checkPermission('add'
 
                 if (!existing) {
                     rowsToInsert.push({
-                        aircraft_id: Number(aircraft_id),
+                        aircraft_id: aircraftIdNum,
                         arrival_flight_no,
                         departure_flight_no,
                         type_of_aircraft,

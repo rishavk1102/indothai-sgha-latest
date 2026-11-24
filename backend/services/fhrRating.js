@@ -323,6 +323,36 @@ async function rateFhrFromTariff(fhrId, options = {}) {
       // Create-from-tariff lists every Additional option; only bill what was actually used.
       if (!isEquipmentUsed(eq)) continue;
 
+      // Urgent ad-hoc extras (not on SGHA) — manual rate, never invents a tariff match.
+      if (eq.is_adhoc) {
+        const rate = Number(eq.unit_rate);
+        if (!Number.isFinite(rate) || rate < 0) {
+          unmatchedExtra.push(
+            `${eq.service_name || 'Ad-hoc service'} (missing unit rate)`
+          );
+          continue;
+        }
+        const qty = parseQty(eq);
+        const money = lineAmount(rate, qty, null);
+        chargeLines.push({
+          fhr_id: fhrIdInt,
+          tariff_id: tariff.tariff_id,
+          tariff_line_id: null,
+          description: eq.service_name || 'Ad-hoc service',
+          line_type: 'Additional',
+          qty,
+          unit: eq.unit || null,
+          unit_rate: toMoney(rate),
+          levy: money.levy,
+          tax: null,
+          amount: money.amount,
+          source: 'Manual',
+          override_reason:
+            eq.remarks || 'Urgent ad-hoc service (not on SGHA / walk-up tariff)',
+        });
+        continue;
+      }
+
       const addLine = pickAdditionalLine(tariffLines, eq);
       if (!addLine) {
         unmatchedExtra.push(eq.service_name || `charges_id=${eq.charges_id}`);

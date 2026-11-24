@@ -33,6 +33,7 @@ const Submitted = () => {
     const [visible, setVisible] = useState(false);
     const [visible1, setVisible1] = useState(false);
     const [selectedFhrId, setSelectedFhrId] = useState(null);
+    const [pdfExportFhrId, setPdfExportFhrId] = useState(null);
     const [fhrListings, setFhrListings] = useState([]);
     // const [searchTerm, setSearchTerm] = useState('');
     // const [limit, setLimit] = useState(50); // Or make it dynamic
@@ -405,6 +406,9 @@ const Submitted = () => {
                                                                     tooltipOptions={{ position: "top" }}
                                                                     style={{ width: '20px', fontSize: '14px' }}
                                                                     text
+                                                                    loading={pdfExportFhrId === item.fhr_id}
+                                                                    disabled={pdfExportFhrId != null}
+                                                                    onClick={() => setPdfExportFhrId(item.fhr_id)}
                                                                 />
                                                                 <Button
                                                                     tooltip="Delete"
@@ -455,7 +459,28 @@ const Submitted = () => {
                 />
             </Sidebar>
 
-
+            {pdfExportFhrId ? (
+                <div
+                    aria-hidden
+                    style={{
+                        position: "fixed",
+                        left: -10000,
+                        top: 0,
+                        width: 920,
+                        background: "#fff",
+                        zIndex: -1,
+                        pointerEvents: "none",
+                    }}
+                >
+                    <Fhr_view
+                        fhr_id={pdfExportFhrId}
+                        page_name={PAGE_NAME}
+                        autoDownloadPdf
+                        hideToolbar
+                        onPdfDownloadDone={() => setPdfExportFhrId(null)}
+                    />
+                </div>
+            ) : null}
 
         </>
     );

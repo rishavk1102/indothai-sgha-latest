@@ -30,6 +30,17 @@ const AdditionalEquipment = sequelize.define('Additional_Equipment', {
     type: DataTypes.INTEGER,
     allowNull: true,
   },
+  /** Urgent extras not on the Active SGHA / walk-up tariff. */
+  is_adhoc: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+  },
+  /** Manual unit rate for ad-hoc rows (required to rate). */
+  unit_rate: {
+    type: DataTypes.DECIMAL(12, 2),
+    allowNull: true,
+  },
   service_name: {
     type: DataTypes.STRING,
     allowNull: false

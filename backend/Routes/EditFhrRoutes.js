@@ -21,6 +21,7 @@ const AdditionalEquipment = require('../Models/Additional_Equipment');
 const { authenticateToken } = require('../middleware/authMiddleware');
 const { checkPermission } = require('../middleware/checkPermission');
 const { getIO } = require('../sockets/socketHandler');
+const { validateFhrRequiredFields } = require('../services/fhrRequiredFields');
 
 
 router.put('/update-fhr-status/:page_name/:fhr_id', authenticateToken, checkPermission('edit'), async (req, res) => {
@@ -82,6 +83,19 @@ router.put('/update-fhr-status/:page_name/:fhr_id', authenticateToken, checkPerm
         }
 
         else if (newStatus === 'Submitted') {
+            const equipmentRows = await AdditionalEquipment.findAll({
+                where: { fhr_id },
+                transaction,
+            });
+            const missing = validateFhrRequiredFields(fhr, equipmentRows);
+            if (missing.length) {
+                await transaction.rollback();
+                return res.status(400).json({
+                    message: `Please fill in all required fields before submitting: ${missing.join(', ')}.`,
+                    missing,
+                });
+            }
+
             // Saving the FHR submits every section with it — no need to flip each
             // section dropdown to Submitted first.
             const fhrUpdateFields = {
@@ -112,6 +126,18 @@ router.put('/update-fhr-status/:page_name/:fhr_id', authenticateToken, checkPerm
                 await transaction.rollback();
                 return res.status(400).json({
                     message: 'FHR must be Submitted before it can be Completed',
+                });
+            }
+            const equipmentRows = await AdditionalEquipment.findAll({
+                where: { fhr_id },
+                transaction,
+            });
+            const missing = validateFhrRequiredFields(fhr, equipmentRows);
+            if (missing.length) {
+                await transaction.rollback();
+                return res.status(400).json({
+                    message: `Please fill in all required fields before completing: ${missing.join(', ')}.`,
+                    missing,
                 });
             }
             await fhr.update({ status: 'Completed' }, { transaction });

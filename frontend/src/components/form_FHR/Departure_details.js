@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Layout from '../../components/Layout';
 import { Row, Col, Form } from 'react-bootstrap';
@@ -16,7 +16,9 @@ import { ProgressSpinner } from 'primereact/progressspinner';
 import { Avatar } from 'primereact/avatar';
 import { AvatarGroup } from 'primereact/avatargroup';
 import nouser from '../../assets/images/no_user.png';
-const Departure_details = ({ userId, fhr_id, page_name, parentStatus, notify }) => {
+import { RequiredMark, collectRequiredErrors, departureRequiredChecks, shouldEnforceRequired } from '../../utils/fhrValidation';
+
+const Departure_details = forwardRef(({ userId, fhr_id, page_name, parentStatus, notify }, ref) => {
     const socket = getSocket();
     const navigate = useNavigate();
     const { roleId } = useAuth();
@@ -42,6 +44,7 @@ const Departure_details = ({ userId, fhr_id, page_name, parentStatus, notify }) 
     const [loadingOver, setLoadingOver] = useState(getLS("loading_over") ? new Date(getLS("loading_over")) : null);
     const [status, setStatus] = useState(getLS("status") || "");
     const [editMode, setEditMode] = useState(false);
+    const [fieldErrors, setFieldErrors] = useState({});
     const [lastEditedBy, setLastEditedBy] = useState(null);
     const [activeEditors, setActiveEditors] = useState([]);
     const [stdAtdDiff, setStdAtdDiff] = useState(null);
@@ -228,43 +231,76 @@ const Departure_details = ({ userId, fhr_id, page_name, parentStatus, notify }) 
         return () => clearInterval(interval);
     }, [editMode, flightNo, flightWeight, flightRegion, flightType, operator, bayNo, gateNo, airport, std, atd, stdAtdDiff, crewCount, paxMembers, loadingStart, loadingOver, status, page_name, fhr_id]);
 
-    const handleInstantSave = async () => {
-        if (!editMode) return;
-
-        try {
-            setLoading(true);
-            await api.put(`/edit_fhr/update-departure-details/${page_name}/${fhr_id}`, {
+    const validateDeparture = (action = 'saving') =>
+        collectRequiredErrors(
+            departureRequiredChecks({
                 flight_no: flightNo,
-                flight_weight: flightWeight,
-                flight_region: flightRegion,
-                flight_type: flightType,
                 operator,
                 bay_no: bayNo,
                 gate_no: gateNo,
-                airport,
-                std,
                 atd,
                 std_atd_diff: stdAtdDiff,
-                crew_count: crewCount,
-                pax_members: paxMembers,
-                loading_start: loadingStart,
-                loading_over: loadingOver,
-                status
-            });
+            }),
+            action
+        );
 
-            // Γ£à Clear on successful auto-save
-            clearLocalStorageForDeparture();
-
-            try {
-                await api.post(`/edit_fhr/start-edit-session/${page_name}/${fhr_id}`, {
-                    section: 'Departure_Details',
-                    action: 'end'
-                });
-            } catch (endErr) {
-                console.warn("End edit session failed:", endErr.message);
+    const persistDeparture = async ({ notifyResult = false, action = 'saving' } = {}) => {
+        if (shouldEnforceRequired(action)) {
+            const result = validateDeparture(action);
+            if (!result.ok) {
+                setFieldErrors(result.fieldErrors);
+                if (notifyResult) notify?.('error', result.message);
+                return { ...result, section: 'Departure' };
             }
-            setEditMode(false);
-            notify?.('success', 'Departure details saved');
+        }
+        setFieldErrors({});
+        if (isLocked) return { ok: true, missing: [], section: 'Departure' };
+        await api.put(`/edit_fhr/update-departure-details/${page_name}/${fhr_id}`, {
+            flight_no: flightNo,
+            flight_weight: flightWeight,
+            flight_region: flightRegion,
+            flight_type: flightType,
+            operator,
+            bay_no: bayNo,
+            gate_no: gateNo,
+            airport,
+            std,
+            atd,
+            std_atd_diff: stdAtdDiff,
+            crew_count: crewCount,
+            pax_members: paxMembers,
+            loading_start: loadingStart,
+            loading_over: loadingOver,
+            status
+        });
+        clearLocalStorageForDeparture();
+        try {
+            await api.post(`/edit_fhr/start-edit-session/${page_name}/${fhr_id}`, {
+                section: 'Departure_Details',
+                action: 'end'
+            });
+        } catch (endErr) {
+            console.warn("End edit session failed:", endErr.message);
+        }
+        setEditMode(false);
+        return { ok: true, missing: [], section: 'Departure' };
+    };
+
+    useImperativeHandle(ref, () => ({
+        validate: (action) => {
+            const result = validateDeparture(action);
+            if (!result.ok) setFieldErrors(result.fieldErrors);
+            return { ...result, section: 'Departure' };
+        },
+        saveIfValid: (action) => persistDeparture({ action }),
+    }));
+
+    const handleInstantSave = async () => {
+        if (!editMode) return;
+        try {
+            setLoading(true);
+            const result = await persistDeparture({ notifyResult: true });
+            if (result.ok) notify?.('success', 'Departure details saved');
         } catch (err) {
             console.error("Instant save failed:", err.message);
             notify?.('error', err.response?.data?.message || 'Failed to save Departure details');
@@ -370,7 +406,7 @@ const Departure_details = ({ userId, fhr_id, page_name, parentStatus, notify }) 
                         <Col lg={3} md={4} className="px-2">
                             <Form.Group className="mb-2">
                                 <Form.Label>
-                                    Flight No. <sup className="text-danger" style={{ fontSize: '14px' }}>*</sup>
+                                    Flight No. <RequiredMark />
                                     <Button
                                         icon="pi pi-question-circle"
                                         text
@@ -381,7 +417,16 @@ const Departure_details = ({ userId, fhr_id, page_name, parentStatus, notify }) 
                                         style={{ width: '30px' }}
                                     />
                                 </Form.Label>
-                                <Form.Control placeholder="Enter Flight No." className="w-100" value={flightNo} onChange={(e) => setFlightNo(e.target.value)} disabled={isDisabled} />
+                                <Form.Control
+                                    placeholder="Enter Flight No."
+                                    className={`w-100${fieldErrors.flight_no ? ' is-invalid' : ''}`}
+                                    value={flightNo}
+                                    onChange={(e) => {
+                                        setFlightNo(e.target.value);
+                                        setFieldErrors((prev) => ({ ...prev, flight_no: false }));
+                                    }}
+                                    disabled={isDisabled}
+                                />
                             </Form.Group>
                         </Col>
                         <Col lg={3} md={4} className="px-2">
@@ -405,20 +450,47 @@ const Departure_details = ({ userId, fhr_id, page_name, parentStatus, notify }) 
 
                         <Col lg={3} md={4} className="px-2">
                             <Form.Group className="mb-2">
-                                <Form.Label>Operator</Form.Label>
-                                <Form.Control placeholder="Enter Operator" className="w-100" value={operator} onChange={(e) => setOperator(e.target.value)} disabled={isDisabled} />
+                                <Form.Label>Operator <RequiredMark /></Form.Label>
+                                <Form.Control
+                                    placeholder="Enter Operator"
+                                    className={`w-100${fieldErrors.operator ? ' is-invalid' : ''}`}
+                                    value={operator}
+                                    onChange={(e) => {
+                                        setOperator(e.target.value);
+                                        setFieldErrors((prev) => ({ ...prev, operator: false }));
+                                    }}
+                                    disabled={isDisabled}
+                                />
                             </Form.Group>
                         </Col>
                         <Col lg={3} md={4} className="px-2">
                             <Form.Group className="mb-2">
-                                <Form.Label>Bay No.</Form.Label>
-                                <Form.Control placeholder="Enter Bay No." className="w-100" value={bayNo} onChange={(e) => setBayNo(e.target.value)} disabled={isDisabled} />
+                                <Form.Label>Bay No. <RequiredMark /></Form.Label>
+                                <Form.Control
+                                    placeholder="Enter Bay No."
+                                    className={`w-100${fieldErrors.bay_no ? ' is-invalid' : ''}`}
+                                    value={bayNo}
+                                    onChange={(e) => {
+                                        setBayNo(e.target.value);
+                                        setFieldErrors((prev) => ({ ...prev, bay_no: false }));
+                                    }}
+                                    disabled={isDisabled}
+                                />
                             </Form.Group>
                         </Col>
                         <Col lg={3} md={4} className="px-2">
                             <Form.Group className="mb-2">
-                                <Form.Label>Gate No.</Form.Label>
-                                <Form.Control placeholder="Enter Gate No." className="w-100" value={gateNo} onChange={(e) => setGateNo(e.target.value)} disabled={isDisabled} />
+                                <Form.Label>Gate No. <RequiredMark /></Form.Label>
+                                <Form.Control
+                                    placeholder="Enter Gate No."
+                                    className={`w-100${fieldErrors.gate_no ? ' is-invalid' : ''}`}
+                                    value={gateNo}
+                                    onChange={(e) => {
+                                        setGateNo(e.target.value);
+                                        setFieldErrors((prev) => ({ ...prev, gate_no: false }));
+                                    }}
+                                    disabled={isDisabled}
+                                />
                             </Form.Group>
                         </Col>
                         <Col lg={3} md={4} className="px-2">
@@ -445,23 +517,26 @@ const Departure_details = ({ userId, fhr_id, page_name, parentStatus, notify }) 
                         </Col>
                         <Col lg={3} md={4} className="px-2">
                             <Form.Group className="mb-2">
-                                <Form.Label>ATD (24-hour Format)</Form.Label>
+                                <Form.Label>ATD (24-hour Format) <RequiredMark /></Form.Label>
                                 <Calendar
                                     value={atd}
-                                    onChange={(e) => setAtd(e.value)}
+                                    onChange={(e) => {
+                                        setAtd(e.value);
+                                        setFieldErrors((prev) => ({ ...prev, atd: false, std_atd_diff: false }));
+                                    }}
                                     disabled={isDisabled}
                                     showTime
                                     hourFormat="24"
                                     dateFormat="dd/mm/yy"
-                                    className="w-100"
+                                    className={`w-100${fieldErrors.atd ? ' p-invalid' : ''}`}
                                 />
                             </Form.Group>
                         </Col>
                         <Col lg={3} md={4} className="px-2">
                             <Form.Group className="mb-2">
-                                <Form.Label>STD ATD Diff (in mins)</Form.Label>
+                                <Form.Label>STD ATD Diff (in mins) <RequiredMark /></Form.Label>
                                 <Form.Control
-                                    className="w-100"
+                                    className={`w-100${fieldErrors.std_atd_diff ? ' is-invalid' : ''}`}
                                     disabled
                                     value={stdAtdDiff !== null ? stdAtdDiff : ""}
                                     readOnly
@@ -526,6 +601,6 @@ const Departure_details = ({ userId, fhr_id, page_name, parentStatus, notify }) 
             </Col>
         </Row>
     );
-};
+});
 
 export default Departure_details;

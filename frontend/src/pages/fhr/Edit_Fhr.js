@@ -49,6 +49,12 @@ const Edit_Fhr = () => {
     const [rating, setRating] = useState(null);
     const [linkedInvoice, setLinkedInvoice] = useState(null);
     const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
+    const [requiredOpen, setRequiredOpen] = useState(false);
+    const [requiredGroups, setRequiredGroups] = useState([]);
+    const [requiredAction, setRequiredAction] = useState('submit');
+    const arrivalRef = useRef(null);
+    const departureRef = useRef(null);
+    const equipmentRef = useRef(null);
 
 
     const showMessage = (severity, detail) => {
@@ -187,9 +193,39 @@ const Edit_Fhr = () => {
         }
     };
 
+    const collectRequiredFromSections = async (action) => {
+        const type = fhrData?.type || 'Both';
+        const jobs = [];
+        if (type !== 'Departure') jobs.push(arrivalRef.current?.saveIfValid?.(action));
+        if (type !== 'Arrival') jobs.push(departureRef.current?.saveIfValid?.(action));
+        jobs.push(equipmentRef.current?.saveIfValid?.(action));
+        const results = await Promise.all(jobs.map((job) => Promise.resolve(job)));
+        return results.filter((row) => row && row.ok === false);
+    };
+
+    const showRequiredDialog = (action, failed) => {
+        setRequiredAction(action);
+        setRequiredGroups(
+            failed.map((row) => ({
+                section: row.section || 'FHR',
+                missing: row.missing || [],
+            }))
+        );
+        setRequiredOpen(true);
+        showMessage(
+            'error',
+            `Fill the required fields before ${action === 'complete' ? 'completing' : 'submitting'}.`
+        );
+    };
+
     const handleCompleteFHR = async () => {
         setLoading(true);
         try {
+            const failed = await collectRequiredFromSections('completing');
+            if (failed.length) {
+                showRequiredDialog('complete', failed);
+                return;
+            }
             const res = await api.put(`/edit_fhr/update-fhr-status/${PAGE_NAME}/${fhr_id}`, {
                 newStatus: 'Completed',
             });
@@ -213,8 +249,12 @@ const Edit_Fhr = () => {
             await loadRating();
         } catch (err) {
             console.error('FHR complete error:', err);
-            const message = err.response?.data?.message || 'Failed to complete FHR.';
-            showMessage('error', message);
+            const missing = err.response?.data?.missing;
+            if (Array.isArray(missing) && missing.length) {
+                showRequiredDialog('complete', [{ section: 'FHR', missing }]);
+            } else {
+                showMessage('error', err.response?.data?.message || 'Failed to complete FHR.');
+            }
             if (err.response?.status === 403) {
                 setUnauthorized(true);
             }
@@ -257,9 +297,34 @@ const Edit_Fhr = () => {
     };
 
 
+    const openSubmitConfirm = async () => {
+        setLoading(true);
+        try {
+            const failed = await collectRequiredFromSections('submitting');
+            if (failed.length) {
+                showRequiredDialog('submit', failed);
+                return;
+            }
+            setSubmitConfirmOpen(true);
+        } catch (err) {
+            showMessage(
+                'error',
+                err.response?.data?.message || err.message || 'Could not validate this FHR'
+            );
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleSubmitFHR = async () => {
         setLoading(true);
         try {
+            const failed = await collectRequiredFromSections('submitting');
+            if (failed.length) {
+                setSubmitConfirmOpen(false);
+                showRequiredDialog('submit', failed);
+                return;
+            }
             await api.put(`/edit_fhr/update-fhr-status/${PAGE_NAME}/${fhr_id}`, {
                 newStatus: 'Submitted',
                 issue_date: date,
@@ -274,8 +339,13 @@ const Edit_Fhr = () => {
             navigate(-1);
         } catch (err) {
             console.error('FHR status update error:', err);
-            const message = err.response?.data?.message || 'Failed to submit FHR.';
-            showMessage('error', message);
+            const missing = err.response?.data?.missing;
+            if (Array.isArray(missing) && missing.length) {
+                setSubmitConfirmOpen(false);
+                showRequiredDialog('submit', [{ section: 'FHR', missing }]);
+            } else {
+                showMessage('error', err.response?.data?.message || 'Failed to submit FHR.');
+            }
             if (err.response?.status === 403) {
                 setUnauthorized(true);
             }
@@ -474,11 +544,12 @@ const Edit_Fhr = () => {
             </Col>
 
             <Basic_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} parentStatus={fhrStatus} notify={showMessage} />
-            <Arrival_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} parentStatus={fhrStatus} notify={showMessage} />
-            <Departure_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} parentStatus={fhrStatus} notify={showMessage} />
+            <Arrival_details ref={arrivalRef} userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} parentStatus={fhrStatus} notify={showMessage} />
+            <Departure_details ref={departureRef} userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} parentStatus={fhrStatus} notify={showMessage} />
             <Manpower_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} parentStatus={fhrStatus} notify={showMessage} />
             <Cargo_details userId={userId} fhr_id={fhr_id} page_name={PAGE_NAME} parentStatus={fhrStatus} notify={showMessage} />
             <Additional_equipment
+                ref={equipmentRef}
                 userId={userId}
                 fhr_id={fhr_id}
                 page_name={PAGE_NAME}
@@ -531,11 +602,40 @@ const Edit_Fhr = () => {
                     severity="warning text-white"
                     className="py-2"
                     style={{ fontSize: "14px" }}
-                    onClick={() => setSubmitConfirmOpen(true)}
+                    onClick={openSubmitConfirm}
                     disabled={['Submitted', 'Completed', 'Cancelled'].includes(fhrStatus) || loading}
                 />
 
             </Col>
+
+            <Dialog
+                header="Required fields missing"
+                visible={requiredOpen}
+                style={{ width: '32rem' }}
+                modal
+                onHide={() => setRequiredOpen(false)}
+                footer={
+                    <Button
+                        label="OK"
+                        onClick={() => setRequiredOpen(false)}
+                    />
+                }
+            >
+                <p className="mb-2">
+                    This FHR cannot be {requiredAction === 'complete' ? 'completed' : 'submitted'} until
+                    the fields below are filled. Unsaved edits are checked too — fill them, then try again.
+                </p>
+                {requiredGroups.map((group) => (
+                    <div key={group.section} className="mb-2">
+                        <strong>{group.section}</strong>
+                        <ul className="mb-0 ps-3">
+                            {(group.missing || []).map((item) => (
+                                <li key={`${group.section}-${item}`}>{item}</li>
+                            ))}
+                        </ul>
+                    </div>
+                ))}
+            </Dialog>
 
             <Dialog
                 header="Submit FHR?"

@@ -7,11 +7,28 @@ const Business = require('../Models/Business');
 const ArrivalDetails = require('../Models/Arrival_Details');
 const DepartureDetails = require('../Models/Departure_Details');
 const Aircraft = require('../Models/Aircraft');
+const Airline = require('../Models/Airlines');
+const BasicDetails = require('../Models/Basic_Details');
 const FhrRating = require('../NewModels/FhrRating');
 const FhrChargeLine = require('../NewModels/FhrChargeLine');
 const Invoice = require('../NewModels/Invoice');
 const InvoiceLine = require('../NewModels/InvoiceLine');
 const InvoiceFhr = require('../NewModels/InvoiceFhr');
+
+/** Header fields shown under the logo on Tax Invoice / FHR PDFs. */
+function headerMetaFromFhr(fhr) {
+  if (!fhr) return {};
+  const basic = fhr.basic_details || {};
+  return {
+    category: fhr.Fhr_type || null,
+    airline: fhr.airline?.airline_name || null,
+    aircraft_type: fhr.aircraft?.type_name || null,
+    ice_no: basic.ice_no || null,
+    epcg_no: basic.epcg_no || null,
+    country_of_origin_of_service: basic.country_of_origin_of_service || null,
+    place_of_delivery_of_service: basic.place_of_delivery_of_service || null,
+  };
+}
 
 function toMoney(value) {
   const n = Number(value);
@@ -39,6 +56,14 @@ function snapshotParty(row, extra = {}) {
     state: row.state || null,
     pincode: row.pincode || null,
     country: row.country || null,
+    email: row.email || null,
+    phone: row.phone || null,
+    bank: row.bank || null,
+    branch: row.branch || null,
+    account_no: row.account_no || null,
+    ifsc: row.ifsc || null,
+    swift_code: row.swift_code || null,
+    cin: row.cin || null,
     ...extra,
   };
 }
@@ -58,7 +83,20 @@ const invoiceInclude = [
   {
     model: Client,
     as: 'client',
-    attributes: ['client_id', 'name'],
+    attributes: [
+      'client_id',
+      'name',
+      'gstin',
+      'pan',
+      'address1',
+      'address2',
+      'city',
+      'state',
+      'pincode',
+      'country',
+      'email',
+      'phone',
+    ],
     required: false,
   },
   {
@@ -70,7 +108,26 @@ const invoiceInclude = [
   {
     model: Business,
     as: 'business',
-    attributes: ['business_id', 'name'],
+    attributes: [
+      'business_id',
+      'name',
+      'gstin',
+      'pan',
+      'address1',
+      'address2',
+      'city',
+      'state',
+      'pincode',
+      'country',
+      'email',
+      'phone',
+      'bank',
+      'branch',
+      'account_no',
+      'ifsc',
+      'swift_code',
+      'cin',
+    ],
     required: false,
   },
 ];
@@ -189,6 +246,9 @@ async function createDraftInvoice(fhrIds, options = {}) {
         { model: Client, as: 'client' },
         { model: Airport, as: 'airport' },
         { model: Business, as: 'business' },
+        { model: Airline, as: 'airline', attributes: ['airline_id', 'airline_name'] },
+        { model: Aircraft, as: 'aircraft', attributes: ['aircraft_id', 'type_name'] },
+        { model: BasicDetails, as: 'basic_details' },
       ],
       transaction,
     });
@@ -229,6 +289,7 @@ async function createDraftInvoice(fhrIds, options = {}) {
       .filter(Boolean)
       .sort();
     const invoiceNo = await nextInvoiceNo(businessId, transaction);
+    const headerMeta = headerMetaFromFhr(fhrs[0]);
 
     const invoice = await Invoice.create(
       {
@@ -247,6 +308,7 @@ async function createDraftInvoice(fhrIds, options = {}) {
         bill_from: snapshotParty(fhrs[0].business, {
           iata: fhrs[0].airport?.iata || null,
           airport: fhrs[0].airport?.name || null,
+          ...headerMeta,
         }),
       },
       { transaction }
@@ -655,7 +717,62 @@ async function getInvoice(invoiceId) {
   const invoice = await Invoice.findByPk(Number(invoiceId), {
     include: invoiceInclude,
   });
-  return invoice;
+  if (!invoice) return null;
+
+  const plain = invoice.toJSON();
+  const from = plain.bill_from || {};
+  const hasHeader =
+    from.category ||
+    from.airline ||
+    from.aircraft_type ||
+    from.ice_no ||
+    from.epcg_no ||
+    from.country_of_origin_of_service ||
+    from.place_of_delivery_of_service;
+
+  if (!hasHeader && plain.fhrs?.length) {
+    const fhrId = plain.fhrs[0].fhr_id;
+    const fhr = await FHR.findByPk(fhrId, {
+      attributes: { exclude: ['category_id'] },
+      include: [
+        { model: Airline, as: 'airline', attributes: ['airline_id', 'airline_name'] },
+        { model: Aircraft, as: 'aircraft', attributes: ['aircraft_id', 'type_name'] },
+        { model: BasicDetails, as: 'basic_details' },
+      ],
+    });
+    plain.header = headerMetaFromFhr(fhr);
+  } else {
+    plain.header = {
+      category: from.category || null,
+      airline: from.airline || null,
+      aircraft_type: from.aircraft_type || null,
+      ice_no: from.ice_no || null,
+      epcg_no: from.epcg_no || null,
+      country_of_origin_of_service: from.country_of_origin_of_service || null,
+      place_of_delivery_of_service: from.place_of_delivery_of_service || null,
+    };
+  }
+
+  // Fill sparse bill_to from live client so PDF "Service Provided To" is not blank.
+  const billTo = plain.bill_to || {};
+  if (!billTo.name && plain.client) {
+    plain.bill_to = {
+      ...billTo,
+      name: plain.client.name || billTo.name || null,
+      gstin: billTo.gstin || plain.client.gstin || null,
+      pan: billTo.pan || plain.client.pan || null,
+      address1: billTo.address1 || plain.client.address1 || null,
+      address2: billTo.address2 || plain.client.address2 || null,
+      city: billTo.city || plain.client.city || null,
+      state: billTo.state || plain.client.state || null,
+      pincode: billTo.pincode || plain.client.pincode || null,
+      country: billTo.country || plain.client.country || null,
+      email: billTo.email || plain.client.email || null,
+      phone: billTo.phone || plain.client.phone || null,
+    };
+  }
+
+  return plain;
 }
 
 async function listInvoices({ status } = {}) {

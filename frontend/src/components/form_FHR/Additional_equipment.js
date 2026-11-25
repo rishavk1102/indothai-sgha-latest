@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, forwardRef, useImperativeHandle } from "react";
 import { Row, Col, Card, Form, Badge } from 'react-bootstrap';
 import { InputTextarea } from "primereact/inputtextarea";
 import { InputText } from "primereact/inputtext";
@@ -13,6 +13,7 @@ import { Avatar } from 'primereact/avatar';
 import { AvatarGroup } from 'primereact/avatargroup';
 import nouser from '../../assets/images/no_user.png';
 import { useNavigate } from "react-router-dom";
+import { RequiredMark, collectRequiredErrors, equipmentRequiredChecks, shouldEnforceRequired } from '../../utils/fhrValidation';
 
 const emptyAdhocForm = () => ({
     service_name: '',
@@ -48,7 +49,7 @@ const normalizeEquipmentItem = (item) => ({
     time_slots: normalizeTimeSlots(item?.time_slots),
 });
 
-const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatus, notify }) => {
+const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_id, fhrStatus, notify }, ref) => {
     const socket = getSocket();
     const navigate = useNavigate();
     const { roleId } = useAuth();
@@ -72,6 +73,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
     const [adhocOpen, setAdhocOpen] = useState(false);
     const [adhocForm, setAdhocForm] = useState(() => emptyAdhocForm());
     const [adhocSaving, setAdhocSaving] = useState(false);
+    const [fieldErrors, setFieldErrors] = useState({});
     const isLocked = ['Submitted', 'Completed', 'Cancelled'].includes(fhrStatus);
 
     const setLS = (key, value) => {
@@ -252,7 +254,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
             if (err.response?.status === 403) {
                 setUnauthorized(true);
             } else {
-                window.alert(err.response?.data?.message || 'Failed to create additional equipment.');
+                notify?.('error', err.response?.data?.message || 'Failed to create additional equipment.');
             }
         } finally {
             setLoading(false);
@@ -262,11 +264,11 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
     const submitAdhocEquipment = async () => {
         const name = String(adhocForm.service_name || '').trim();
         if (!name) {
-            window.alert('Service name is required.');
+            notify?.('error', 'Service name is required.');
             return;
         }
         if (adhocForm.unit_rate == null || Number(adhocForm.unit_rate) < 0) {
-            window.alert('Enter a unit rate (0 or more).');
+            notify?.('error', 'Enter a unit rate (0 or more).');
             return;
         }
         try {
@@ -288,7 +290,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
         } catch (err) {
             console.error('Failed to add ad-hoc equipment:', err.message);
             if (err.response?.status === 403) setUnauthorized(true);
-            else window.alert(err.response?.data?.message || 'Failed to add ad-hoc service.');
+            else notify?.('error', err.response?.data?.message || 'Failed to add ad-hoc service.');
         } finally {
             setAdhocSaving(false);
         }
@@ -305,7 +307,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
             notify?.('success', 'Ad-hoc service removed.');
         } catch (err) {
             console.error('Failed to delete ad-hoc equipment:', err.message);
-            window.alert(err.response?.data?.message || 'Failed to remove ad-hoc service.');
+            notify?.('error', err.response?.data?.message || 'Failed to remove ad-hoc service.');
         } finally {
             setLoading(false);
         }
@@ -321,7 +323,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
             notify?.('success', res.data?.message || 'Tariff equipment reset.');
         } catch (err) {
             console.error('Failed to reset additional equipment:', err.message);
-            window.alert(err.response?.data?.message || 'Failed to reset additional equipment.');
+            notify?.('error', err.response?.data?.message || 'Failed to reset additional equipment.');
         } finally {
             setLoading(false);
         }
@@ -332,6 +334,13 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
         updated[eqIndex][field] = value;
         setEquipmentList(updated);
         setLS('equipment_data', updated);
+        setFieldErrors((prev) => ({
+            ...prev,
+            [`${eqIndex}_${field}`]: false,
+            [`${eqIndex}_total_no_used`]: field === 'total_no_used' ? false : prev[`${eqIndex}_total_no_used`],
+            [`${eqIndex}_unit_rate`]: field === 'unit_rate' ? false : prev[`${eqIndex}_unit_rate`],
+            [`${eqIndex}_service_name`]: field === 'service_name' ? false : prev[`${eqIndex}_service_name`],
+        }));
     };
 
     const updateSlot = (eqIndex, slotIndex, field, value) => {
@@ -341,6 +350,12 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
         updated[eqIndex].total_time = String(calculateTotalTime(updated[eqIndex].time_slots));
         setEquipmentList(updated);
         setLS('equipment_data', updated);
+        if (slotIndex === 0) {
+            setFieldErrors((prev) => ({
+                ...prev,
+                [`${eqIndex}_${field}`]: false,
+            }));
+        }
     };
 
     const handleAddSlot = (eqIndex) => {
@@ -413,41 +428,64 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
         return () => clearInterval(interval);
     }, [editMode, equipmentList, page_name, fhr_id]);
 
+    const validateEquipment = (action = 'saving') =>
+        collectRequiredErrors(equipmentRequiredChecks(equipmentList), action);
+
+    const persistEquipment = async ({ notifyResult = false, action = 'saving' } = {}) => {
+        if (shouldEnforceRequired(action)) {
+            const result = validateEquipment(action);
+            if (!result.ok) {
+                setFieldErrors(result.fieldErrors);
+                if (notifyResult) notify?.('error', result.message);
+                return { ...result, section: 'Additional equipment' };
+            }
+        }
+        setFieldErrors({});
+        if (isLocked) return { ok: true, missing: [], section: 'Additional equipment' };
+        const payload = {
+            equipment_list: equipmentList.map((item) => ({
+                additional_equipment_id: item.additional_equipment_id,
+                ...(item.is_adhoc
+                    ? {
+                          service_name: item.service_name,
+                          unit: item.unit,
+                          unit_rate: item.unit_rate,
+                      }
+                    : {}),
+                total_no_used: item.total_no_used,
+                time_slots: item.time_slots,
+                total_time: item.total_time,
+                remarks: item.remarks || '',
+            })),
+        };
+        await api.put(`/edit_fhr/update-additional-equipment/${page_name}/${fhr_id}`, payload);
+        try {
+            await api.post(`/edit_fhr/start-edit-session/${page_name}/${fhr_id}`, {
+                section: 'Additional_Equipment',
+                action: 'end'
+            });
+        } catch (endErr) {
+            console.warn("End edit session failed:", endErr.message);
+        }
+        setEditMode(false);
+        return { ok: true, missing: [], section: 'Additional equipment' };
+    };
+
+    useImperativeHandle(ref, () => ({
+        validate: (action) => {
+            const result = validateEquipment(action);
+            if (!result.ok) setFieldErrors(result.fieldErrors);
+            return { ...result, section: 'Additional equipment' };
+        },
+        saveIfValid: (action) => persistEquipment({ action }),
+    }));
+
     const handleInstantSave = async () => {
         if (!editMode || isLocked) return;
-
         try {
             setLoading(true);
-
-            const payload = {
-                equipment_list: equipmentList.map((item) => ({
-                    additional_equipment_id: item.additional_equipment_id,
-                    ...(item.is_adhoc
-                        ? {
-                              service_name: item.service_name,
-                              unit: item.unit,
-                              unit_rate: item.unit_rate,
-                          }
-                        : {}),
-                    total_no_used: item.total_no_used,
-                    time_slots: item.time_slots,
-                    total_time: item.total_time,
-                    remarks: item.remarks || '',
-                })),
-            };
-
-            await api.put(`/edit_fhr/update-additional-equipment/${page_name}/${fhr_id}`, payload);
-
-            try {
-                await api.post(`/edit_fhr/start-edit-session/${page_name}/${fhr_id}`, {
-                    section: 'Additional_Equipment',
-                    action: 'end'
-                });
-            } catch (endErr) {
-                console.warn("End edit session failed:", endErr.message);
-            }
-            setEditMode(false);
-            notify?.('success', 'Additional equipment saved');
+            const result = await persistEquipment({ notifyResult: true });
+            if (result.ok) notify?.('success', 'Additional equipment saved');
         } catch (err) {
             console.error("Instant save failed:", err.message);
             notify?.('error', err.response?.data?.message || 'Failed to save additional equipment');
@@ -659,12 +697,12 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
                                                         </Col>
                                                         <Col xs={6} md={3} lg={2}>
                                                             <Form.Group className="mb-0">
-                                                                <Form.Label>Unit rate *</Form.Label>
+                                                                <Form.Label>Unit rate <RequiredMark /></Form.Label>
                                                                 <Form.Control
                                                                     type="number"
                                                                     min="0"
                                                                     step="0.01"
-                                                                    className="w-100"
+                                                                    className={`w-100${fieldErrors[`${index}_unit_rate`] ? ' is-invalid' : ''}`}
                                                                     value={item.unit_rate ?? ''}
                                                                     disabled={!editMode || isLocked}
                                                                     onChange={(e) => handleEquipmentChange(index, 'unit_rate', e.target.value)}
@@ -675,9 +713,9 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
                                                 )}
                                                 <Col xs={6} md={3} lg={2}>
                                                     <Form.Group className="mb-0">
-                                                        <Form.Label>Total Used</Form.Label>
+                                                        <Form.Label>Total Used <RequiredMark /></Form.Label>
                                                         <Form.Control
-                                                            className="w-100"
+                                                            className={`w-100${fieldErrors[`${index}_total_no_used`] ? ' is-invalid' : ''}`}
                                                             value={item.total_no_used || ''}
                                                             disabled={!editMode || isLocked}
                                                             onChange={(e) => handleEquipmentChange(index, 'total_no_used', e.target.value)}
@@ -701,7 +739,9 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
                                                     {normalizeTimeSlots(item.time_slots).map((slot, slotIndex) => (
                                                         <div key={slotIndex} className="d-flex gap-2 timeslt p-2 position-relative">
                                                             <Form.Group className="mb-0">
-                                                                <Form.Label>Start Time</Form.Label>
+                                                                <Form.Label>
+                                                                    Start Time{slotIndex === 0 ? <> <RequiredMark /></> : null}
+                                                                </Form.Label>
                                                                 <Calendar
                                                                     value={slot.start ? new Date(slot.start) : null}
                                                                     onChange={(e) => updateSlot(index, slotIndex, 'start', e.value)}
@@ -709,10 +749,13 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
                                                                     disabled={!editMode || isLocked}
                                                                     hourFormat="24"
                                                                     dateFormat="dd/mm/yy"
+                                                                    className={slotIndex === 0 && fieldErrors[`${index}_start`] ? 'p-invalid' : undefined}
                                                                 />
                                                             </Form.Group>
                                                             <Form.Group className="mb-0">
-                                                                <Form.Label>End Time</Form.Label>
+                                                                <Form.Label>
+                                                                    End Time{slotIndex === 0 ? <> <RequiredMark /></> : null}
+                                                                </Form.Label>
                                                                 <Calendar
                                                                     value={slot.end ? new Date(slot.end) : null}
                                                                     onChange={(e) => updateSlot(index, slotIndex, 'end', e.value)}
@@ -720,6 +763,7 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
                                                                     disabled={!editMode || isLocked}
                                                                     hourFormat="24"
                                                                     dateFormat="dd/mm/yy"
+                                                                    className={slotIndex === 0 && fieldErrors[`${index}_end`] ? 'p-invalid' : undefined}
                                                                 />
                                                             </Form.Group>
 
@@ -869,6 +913,6 @@ const Additional_equipment = ({ userId, fhr_id, page_name, aircraft_id, fhrStatu
             </Dialog>
         </Row>
     );
-};
+});
 
 export default Additional_equipment;

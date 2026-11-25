@@ -111,10 +111,50 @@ function sliceCanvas(source, sy, ey) {
   return slice;
 }
 
+/** Render the purple bank footer on its own so it can be pinned to each page bottom. */
+async function captureFooter(element, scale) {
+  const footerRow = element.querySelector("[data-pdf-footer]");
+  if (!footerRow) return null;
+
+  const cell = footerRow.querySelector("td") || footerRow;
+  const width = Math.round(element.getBoundingClientRect().width);
+
+  const host = document.createElement("div");
+  host.style.cssText = [
+    "position:fixed",
+    "left:-10000px",
+    "top:0",
+    `width:${width}px`,
+    "background:#9e52a3",
+    "color:#fff",
+    "text-align:center",
+    "font-weight:bold",
+    "font-size:18px",
+    "padding:15px 10px",
+    "box-sizing:border-box",
+  ].join(";");
+  host.innerHTML = cell.innerHTML;
+  document.body.appendChild(host);
+
+  try {
+    return await html2canvas(host, {
+      scale,
+      logging: false,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: "#9e52a3",
+    });
+  } finally {
+    host.remove();
+  }
+}
+
 /**
  * Full-bleed pages (no inset margin border).
  * Small top spacing only on continued pages so content isn't flush to the cut.
  * Header on page 1 stays edge-to-edge.
+ * Purple bank footer is pinned to the bottom of every page; the on-screen
+ * Tariff rating card is not part of the PDF.
  */
 export async function downloadFhrViewPdf(element, filename) {
   if (!element) {
@@ -124,6 +164,13 @@ export async function downloadFhrViewPdf(element, filename) {
   const scale = 2;
   const blocks = collectKeepTogetherBlocks(element, scale);
 
+  // Only the report body: stop above the footer row (also drops the rating card below it).
+  const rootRect = element.getBoundingClientRect();
+  const footerRow = element.querySelector("[data-pdf-footer]");
+  const contentHeightCss = footerRow
+    ? Math.max(1, Math.floor(footerRow.getBoundingClientRect().top - rootRect.top))
+    : undefined;
+
   const canvas = await html2canvas(element, {
     scale,
     logging: false,
@@ -131,19 +178,28 @@ export async function downloadFhrViewPdf(element, filename) {
     allowTaint: true,
     backgroundColor: "#ffffff",
     windowWidth: Math.max(element.scrollWidth, 900),
+    ...(contentHeightCss ? { height: contentHeightCss } : {}),
   });
+
+  const footerCanvas = await captureFooter(element, scale);
 
   const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
 
-  // No left/right/bottom inset — avoids a "margin border" frame.
+  const footerHeightMm = footerCanvas
+    ? (footerCanvas.height * pageWidth) / footerCanvas.width
+    : 0;
+  const footerGapMm = footerCanvas ? 2 : 0;
+  const footerImg = footerCanvas ? footerCanvas.toDataURL("image/png") : null;
+
+  // No left/right inset — avoids a "margin border" frame.
   // Only a little breathing room at the top of page 2+.
   const continueTopSpacingMm = 6;
 
   const pageHeightPxFor = (pageIndex) => {
     const top = pageIndex === 0 ? 0 : continueTopSpacingMm;
-    const usableMm = pageHeight - top;
+    const usableMm = pageHeight - top - footerHeightMm - footerGapMm;
     return (usableMm * canvas.width) / pageWidth;
   };
 
@@ -161,6 +217,17 @@ export async function downloadFhrViewPdf(element, filename) {
 
     if (i > 0) pdf.addPage();
     pdf.addImage(imgData, "PNG", 0, top, pageWidth, sliceHeightMm);
+
+    if (footerImg) {
+      pdf.addImage(
+        footerImg,
+        "PNG",
+        0,
+        pageHeight - footerHeightMm,
+        pageWidth,
+        footerHeightMm
+      );
+    }
   }
 
   pdf.save(filename || "FHR.pdf");

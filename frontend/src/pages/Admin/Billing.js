@@ -367,7 +367,16 @@ const Billing = () => {
                 label="Download PDF"
                 icon="pi pi-file-pdf"
                 className="p-button-outlined"
-                onClick={() => downloadInvoicePdf(detail)}
+                onClick={async () => {
+                  try {
+                    const res = await api.get(
+                      `/billing/invoices/${encodedPage}/${detail.invoice_id}`
+                    );
+                    downloadInvoicePdf(res.data?.invoice || detail);
+                  } catch {
+                    downloadInvoicePdf(detail);
+                  }
+                }}
               />
             </>
           }

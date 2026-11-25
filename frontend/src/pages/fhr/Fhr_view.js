@@ -490,7 +490,7 @@ const Fhr_view = ({
                                 </tr>
                             </tbody>
                             <tfoot>
-                                <tr data-pdf-block="closing">
+                                <tr data-pdf-footer="true">
                                     <td colSpan={5} bgcolor="#9e52a3" style={{
                                         textAlign: 'center',
                                         fontWeight: 'bold',
@@ -519,7 +519,7 @@ const Fhr_view = ({
             </Row>
 
             {rating ? (
-                <Row className="mt-3" data-pdf-block="rating">
+                <Row className="mt-3" data-pdf-exclude="true">
                     <Col md={12}>
                         <Card className="p-3">
                             <div className="d-flex align-items-center justify-content-between mb-2 gap-2 flex-wrap">

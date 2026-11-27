@@ -325,13 +325,8 @@ async function rateFhrFromTariff(fhrId, options = {}) {
 
       // Urgent ad-hoc extras (not on SGHA) — manual rate, never invents a tariff match.
       if (eq.is_adhoc) {
-        const rate = Number(eq.unit_rate);
-        if (!Number.isFinite(rate) || rate < 0) {
-          unmatchedExtra.push(
-            `${eq.service_name || 'Ad-hoc service'} (missing unit rate)`
-          );
-          continue;
-        }
+        const parsedRate = Number(eq.unit_rate);
+        const rate = Number.isFinite(parsedRate) && parsedRate >= 0 ? parsedRate : 0;
         const qty = parseQty(eq);
         const money = lineAmount(rate, qty, null);
         chargeLines.push({
@@ -348,7 +343,8 @@ async function rateFhrFromTariff(fhrId, options = {}) {
           amount: money.amount,
           source: 'Manual',
           override_reason:
-            eq.remarks || 'Urgent ad-hoc service (not on SGHA / walk-up tariff)',
+            eq.remarks ||
+            'Ad-hoc service — price is set by billing at invoice time',
         });
         continue;
       }

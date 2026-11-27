@@ -73,9 +73,6 @@ function equipmentMissing(list = []) {
     if (!hasValidDate(primary.end)) missing.push(`${name} — End Time`);
     if (item.is_adhoc) {
       if (isBlank(item.service_name)) missing.push(`${name} — Service name`);
-      if (item.unit_rate == null || item.unit_rate === '' || Number(item.unit_rate) < 0) {
-        missing.push(`${name} — Unit rate`);
-      }
     }
   });
   return missing;

@@ -20,9 +20,11 @@ const AdditionalEquipment = require('../Models/Additional_Equipment'); // make s
 const AdditionalEquipmentCreation = require('../Models/Additional_equipment_creation');
 const ChargeType = require('../Models/ChargeType');
 const Category = require('../Models/Category');
+const AdditionalCharges = require('../Models/Additional_charges');
 const { authenticateToken } = require('../middleware/authMiddleware');
 const { checkPermission } = require('../middleware/checkPermission');
 const { getIO } = require('../sockets/socketHandler');
+const { promoteDraftToPending, emitFhrStatusLists } = require('../services/promoteDraftToPending');
 
 function buildDateTime(date, timeStr) {
     if (!timeStr || !/^\d{2}:\d{2}(:\d{2})?$/.test(timeStr)) return null;
@@ -611,7 +613,7 @@ router.post('/create-additional-equipment/:page_name', authenticateToken, checkP
 
 /**
  * Urgent ad-hoc service not listed on the Active SGHA / walk-up tariff.
- * Body: { fhr_id, service_name, unit?, unit_rate, total_no_used?, remarks? }
+ * Body: { fhr_id, service_name, unit?, total_no_used?, remarks? }
  */
 router.post('/add-adhoc-equipment/:page_name', authenticateToken, checkPermission('add'), async (req, res) => {
     const {
@@ -632,10 +634,16 @@ router.post('/add-adhoc-equipment/:page_name', authenticateToken, checkPermissio
         if (!name) {
             return res.status(400).json({ message: 'service_name is required.' });
         }
-        const rate = Number(unit_rate);
-        if (!Number.isFinite(rate) || rate < 0) {
-            return res.status(400).json({ message: 'unit_rate must be a non-negative number.' });
-        }
+        const parsedRate = Number(unit_rate);
+        const rate =
+            unit_rate != null && unit_rate !== '' && Number.isFinite(parsedRate) && parsedRate >= 0
+                ? parsedRate
+                : null;
+        const qty =
+            total_no_used != null && total_no_used !== ''
+                ? Number(total_no_used)
+                : 1;
+        const slotCount = Number.isFinite(qty) && qty > 0 ? Math.floor(qty) : 1;
 
         const fhr = await FHR.findByPk(fhr_id, { attributes: ['fhr_id', 'status'] });
         if (!fhr) {
@@ -658,11 +666,11 @@ router.post('/add-adhoc-equipment/:page_name', authenticateToken, checkPermissio
                 service_name: name,
                 service_type: 'Ad-hoc',
                 unit: unit ? String(unit).trim() : null,
-                total_no_used:
-                    total_no_used != null && total_no_used !== ''
-                        ? Number(total_no_used)
-                        : null,
-                time_slots: [{ start: null, end: null }],
+                total_no_used: Number.isFinite(qty) ? qty : null,
+                time_slots: Array.from({ length: slotCount }, () => ({
+                    start: null,
+                    end: null,
+                })),
                 total_time: null,
                 remarks: remarks ? String(remarks).trim() : null,
             },
@@ -674,10 +682,11 @@ router.post('/add-adhoc-equipment/:page_name', authenticateToken, checkPermissio
             { transaction }
         );
 
+        const { airport_id } = await promoteDraftToPending(fhr_id, transaction);
+
         await transaction.commit();
 
-        const io = getIO();
-        io.emit('fhrUpdated', { fhr_id });
+        emitFhrStatusLists(fhr_id, airport_id);
 
         return res.status(201).json({
             message: 'Ad-hoc service added.',
@@ -807,5 +816,82 @@ router.post('/reset-additional-equipment/:page_name', authenticateToken, checkPe
 
 
 
+
+router.get(
+    '/adhoc-catalog/:page_name/:fhr_id',
+    authenticateToken,
+    checkPermission('view'),
+    async (req, res) => {
+        try {
+            const { fhr_id } = req.params;
+            const fhr = await FHR.findByPk(fhr_id, {
+                attributes: ['fhr_id', 'business_id', 'airport_id'],
+            });
+            if (!fhr) {
+                return res.status(404).json({ message: 'FHR not found.' });
+            }
+
+            const shortUnit = (unit) => {
+                const raw = String(unit || '').trim();
+                if (!raw) return 'Each';
+                if (raw.length <= 24) return raw;
+                const lower = raw.toLowerCase();
+                if (lower.includes('hour') || lower.includes('hrs')) return 'Hour';
+                if (lower.includes('trip')) return 'Trip';
+                if (lower.includes('min')) return 'Mins';
+                if (lower.includes('each') || lower.includes('unit')) return 'Each';
+                return 'Each';
+            };
+            const seen = new Set();
+            const options = [];
+            const push = (name, unit) => {
+                const n = String(name || '').trim();
+                if (!n) return;
+                const key = n.toLowerCase();
+                if (seen.has(key)) return;
+                seen.add(key);
+                options.push({ service_name: n, unit: shortUnit(unit) });
+            };
+
+            try {
+                const rows = await AdditionalCharges.findAll({
+                    where: {
+                        Business_id: fhr.business_id,
+                        Airport_id: fhr.airport_id,
+                    },
+                    attributes: ['Desc_of_service', 'unit_or_measure'],
+                    order: [['Desc_of_service', 'ASC']],
+                });
+                rows.forEach((row) =>
+                    push(row.Desc_of_service, row.unit_or_measure)
+                );
+            } catch (catalogErr) {
+                console.warn('Ad-hoc catalog additional charges skipped:', catalogErr.message);
+            }
+
+            const types = await ChargeType.findAll({
+                attributes: ['name'],
+                order: [['name', 'ASC']],
+            });
+            types.forEach((type) => push(type.name, 'Each'));
+
+            [
+                'GPU',
+                'Air starter unit',
+                'Pushback',
+                'Cabin cleaning',
+                'De-icing',
+                'Other',
+            ].forEach((name) => push(name, 'Each'));
+
+            return res.json({ options });
+        } catch (error) {
+            console.error('Ad-hoc catalog error:', error);
+            return res.status(500).json({
+                message: error.message || 'Failed to load ad-hoc services.',
+            });
+        }
+    }
+);
 
 module.exports = router;

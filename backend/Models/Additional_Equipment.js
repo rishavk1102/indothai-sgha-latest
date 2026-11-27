@@ -36,7 +36,7 @@ const AdditionalEquipment = sequelize.define('Additional_Equipment', {
     allowNull: false,
     defaultValue: false,
   },
-  /** Manual unit rate for ad-hoc rows (required to rate). */
+  /** Optional. Ad-hoc rows are unpriced on the FHR; billing sets the rate. */
   unit_rate: {
     type: DataTypes.DECIMAL(12, 2),
     allowNull: true,

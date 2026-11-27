@@ -44,6 +44,11 @@ table .badge.bg-warning {
     border-color: rgba(255, 193, 7, .4);
     color: #8a6d00 !important;
 }
+table .badge.bg-danger {
+    background-color: #dc3545 !important;
+    border-color: #dc3545;
+    color: #fff !important;
+}
 table .badge.bg-light {
     background-color: rgba(233, 236, 239, .9) !important;
     border-color: rgba(173, 181, 189, .5);
@@ -522,6 +527,86 @@ table td p{
 }
 .AdsEnq-times{
     border-top: 1px dashed #e8d7ec;
+}
+.AdsEnq-times-head{
+    font-size: 12px;
+    font-weight: 600;
+    color: #6b6b6b;
+    margin-bottom: 8px;
+}
+.AdsEnq-slot-wrap{
+    max-height: 360px;
+    overflow: auto;
+    padding-right: 2px;
+}
+.AdsEnq-slot-table{
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0 8px;
+    margin: 0;
+}
+.AdsEnq-slot-table col.AdsEnq-slot-col-no{
+    width: 44px;
+}
+.AdsEnq-slot-table thead th{
+    font-size: 12px;
+    font-weight: 600;
+    color: #6b6b6b;
+    padding: 0 8px 2px;
+    border: 0;
+    background: transparent;
+}
+.AdsEnq-slot-table tbody td{
+    vertical-align: middle;
+    padding: 6px 8px;
+    background: #fff;
+    border-top: 1px solid #efe4f2;
+    border-bottom: 1px solid #efe4f2;
+}
+.AdsEnq-slot-table tbody td:first-child{
+    border-left: 1px solid #efe4f2;
+    border-radius: 8px 0 0 8px;
+    text-align: center;
+    padding-left: 6px;
+    padding-right: 6px;
+}
+.AdsEnq-slot-table tbody td:last-child{
+    border-right: 1px solid #efe4f2;
+    border-radius: 0 8px 8px 0;
+}
+.AdsEnq-slot-no{
+    width: 28px;
+    height: 28px;
+    margin: 0 auto;
+    border-radius: 50%;
+    background: #f3ebf4;
+    color: #9e52a3;
+    font-size: 12px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.AdsEnq-slot-table .p-calendar,
+.AdsEnq-slot-table .p-inputtext{
+    width: 100% !important;
+    display: flex;
+    min-width: 0;
+}
+.AdsEnq-fields .form-control{
+    min-width: 0;
+}
+.AdsEnq-unit{
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.AdsEnq-adhoc-dialog .p-dropdown,
+.AdsEnq-adhoc-dialog .p-inputtext,
+.AdsEnq-adhoc-dialog .p-inputtextarea,
+.AdsEnq-adhoc-dialog .form-control{
+    width: 100%;
 }
 .AdsEnq-remarks.p-inputtextarea{
     min-height: 56px;

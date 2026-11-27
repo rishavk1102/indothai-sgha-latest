@@ -22,6 +22,7 @@ const { authenticateToken } = require('../middleware/authMiddleware');
 const { checkPermission } = require('../middleware/checkPermission');
 const { getIO } = require('../sockets/socketHandler');
 const { validateFhrRequiredFields } = require('../services/fhrRequiredFields');
+const { promoteDraftToPending, emitFhrStatusLists } = require('../services/promoteDraftToPending');
 
 
 router.put('/update-fhr-status/:page_name/:fhr_id', authenticateToken, checkPermission('edit'), async (req, res) => {
@@ -371,12 +372,17 @@ router.post('/start-edit-session/:page_name/:fhr_id', authenticateToken, checkPe
                 is_active: true
             }, { transaction });
 
+            const { promoted, airport_id } = await promoteDraftToPending(fhr_id, transaction);
+
             await transaction.commit();
 
-            const io = getIO();
-            io.emit('fhrUpdated', { fhr_id });
+            emitFhrStatusLists(fhr_id, airport_id);
 
-            return res.json({ message: 'Edit session started', session: newSession });
+            return res.json({
+                message: 'Edit session started',
+                session: newSession,
+                status: promoted ? 'Pending' : undefined,
+            });
         }
 
         else if (action === 'end') {
@@ -977,7 +983,7 @@ router.put('/update-additional-equipment/:page_name/:fhr_id', authenticateToken,
             if (!existingItem) continue;
 
             const fieldsToUpdate = existingItem.is_adhoc
-                ? ['service_name', 'unit', 'unit_rate', 'total_no_used', 'time_slots', 'total_time', 'remarks']
+                ? ['service_name', 'unit', 'total_no_used', 'time_slots', 'total_time', 'remarks']
                 : ['total_no_used', 'time_slots', 'total_time', 'remarks'];
             const updates = {};
 

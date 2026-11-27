@@ -149,6 +149,31 @@ function measureFooterHeight(doc, biz, pageWidth) {
   return padY * 2 + Math.max(textLines, 1) * lineH + 2;
 }
 
+function drawDiagonalWatermark(doc, label, pageWidth, pageHeight) {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(92);
+  let usedGState = false;
+  try {
+    if (typeof doc.GState === "function" && typeof doc.saveGraphicsState === "function") {
+      doc.saveGraphicsState();
+      doc.setGState(new doc.GState({ opacity: 0.45 }));
+      usedGState = true;
+    }
+  } catch {
+    usedGState = false;
+  }
+  // Strong red so VOID reads on print even if GState opacity is ignored.
+  doc.setTextColor(usedGState ? 198 : 196, usedGState ? 28 : 32, usedGState ? 28 : 32);
+  doc.text(String(label), pageWidth / 2, pageHeight / 2, {
+    align: "center",
+    angle: 32,
+  });
+  if (usedGState && typeof doc.restoreGraphicsState === "function") {
+    doc.restoreGraphicsState();
+  }
+  doc.setTextColor(0, 0, 0);
+}
+
 /** Draw FHR-style purple footer flush to the bottom of the current page. */
 function drawPurpleFooterAtBottom(doc, biz, pageWidth, pageHeight) {
   const contentW = pageWidth - 20;
@@ -191,8 +216,13 @@ export function downloadInvoicePdf(invoice) {
   const header = pickHeader(invoice);
   const footerH = measureFooterHeight(doc, biz, pageWidth);
   const contentBottom = pageHeight - footerH - 8;
+  const isCredit =
+    invoice.status === "Credit note" ||
+    String(invoice.invoice_no || "").startsWith("CN-");
+  const isVoided = invoice.status === "Voided";
+  const docTitle = isCredit ? "CREDIT NOTE" : "TAX INVOICE";
 
-  let y = drawPurpleHeader(doc, "TAX INVOICE", pageWidth, marginLeft, marginRight);
+  let y = drawPurpleHeader(doc, docTitle, pageWidth, marginLeft, marginRight);
 
   // Two-column intro matching FHR: left parties | right logo + flight meta
   const colGap = 4;
@@ -211,9 +241,10 @@ export function downloadInvoicePdf(invoice) {
   let leftY = y;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
+  const invKind = isCredit ? "Credit Note No." : "Tax Invoice No.";
   const invLabel = biz.iata
-    ? `Tax Invoice No. : ${biz.iata}/${invoice.invoice_no || "—"}`
-    : `Tax Invoice No. : ${invoice.invoice_no || "—"}`;
+    ? `${invKind} : ${biz.iata}/${invoice.invoice_no || "—"}`
+    : `${invKind} : ${invoice.invoice_no || "—"}`;
   doc.text(invLabel, marginLeft, leftY);
   leftY += 3;
   drawRule(marginLeft, rightColX - colGap, leftY);
@@ -387,7 +418,7 @@ export function downloadInvoicePdf(invoice) {
     const rowH = Math.max(desc.length, 1) * 4.2;
     if (y + rowH > contentBottom) {
       doc.addPage();
-      y = drawPurpleHeader(doc, "TAX INVOICE", pageWidth, marginLeft, marginRight);
+      y = drawPurpleHeader(doc, docTitle, pageWidth, marginLeft, marginRight);
       drawTableHeader();
     }
     if (index % 2 === 1) {
@@ -415,7 +446,7 @@ export function downloadInvoicePdf(invoice) {
 
   if (y + 20 > contentBottom) {
     doc.addPage();
-    y = drawPurpleHeader(doc, "TAX INVOICE", pageWidth, marginLeft, marginRight);
+    y = drawPurpleHeader(doc, docTitle, pageWidth, marginLeft, marginRight);
   }
 
   doc.setFontSize(9);
@@ -437,6 +468,9 @@ export function downloadInvoicePdf(invoice) {
   for (let i = 1; i <= pageCount; i += 1) {
     doc.setPage(i);
     drawPurpleFooterAtBottom(doc, biz, pageWidth, pageHeight);
+    if (isVoided) {
+      drawDiagonalWatermark(doc, "VOID", pageWidth, pageHeight);
+    }
   }
 
   doc.save(`${invoice.invoice_no || "invoice"}.pdf`);

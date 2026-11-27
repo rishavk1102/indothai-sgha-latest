@@ -499,6 +499,29 @@ table td {
   font-size: 14px;
   margin: 15px 0;
 }
+.credit-note-dialog .p-dialog-content .form-check{
+  display: flex;
+  align-items: center;
+  padding-left: 0;
+  min-height: 0;
+}
+.credit-note-dialog .p-dialog-content .form-check-input{
+  float: none;
+  position: static;
+  margin: 0 8px 0 0;
+  flex-shrink: 0;
+}
+.credit-note-dialog .p-dialog-content .form-check-label{
+  margin: 0;
+}
+.credit-note-dialog .credit-note-lines{
+  max-height: 16rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.credit-note-dialog .credit-note-lines .form-check:last-child{
+  margin-bottom: 0;
+}
 .p-dialog-content .form-select{
   background: #fff;
   border: 1px solid #d1d5db;

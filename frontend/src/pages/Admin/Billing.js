@@ -32,6 +32,30 @@ const money = (value, currency = "INR") => {
   }
 };
 
+/** Free typing: "1", "1.", "10.5". Reject extra decimals / junk. */
+const PAID_AMOUNT_RE = /^\d*\.?\d{0,2}$/;
+
+const paidAmountNumber = (raw) => {
+  const v = String(raw ?? "").trim();
+  if (!v || v === ".") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const paidAmountIssue = (raw, max, currency) => {
+  const n = paidAmountNumber(raw);
+  if (n == null) return "Enter the amount that was paid.";
+  if (!(n > 0)) return "Amount must be greater than 0.";
+  if (max > 0 && n > max + 0.009) {
+    return `Cannot exceed ${money(max, currency)}`;
+  }
+  return "";
+};
+
+const lineNeedsPrice = (line) =>
+  String(line?.line_type || "") === "Additional" &&
+  !(Number(line?.unit_rate) > 0);
+
 const statusBadge = (status) => {
   switch (status) {
     case "Issued":
@@ -41,7 +65,7 @@ const statusBadge = (status) => {
     case "Credit note":
       return "warning";
     case "Voided":
-      return "dark";
+      return "danger";
     default:
       return "secondary";
   }
@@ -65,6 +89,9 @@ const Billing = () => {
   const [editRate, setEditRate] = useState(0);
   const [voidOpen, setVoidOpen] = useState(false);
   const [creditOpen, setCreditOpen] = useState(false);
+  const [creditMode, setCreditMode] = useState(null);
+  const [creditAmount, setCreditAmount] = useState("");
+  const [creditLineIds, setCreditLineIds] = useState([]);
 
   const relatedLinks = [
     { label: "SGHA Tariffs", to: EMPLOYEE_ROUTES.sghaTariffs },
@@ -176,6 +203,15 @@ const Billing = () => {
 
   const approve = async () => {
     if (!detail?.invoice_id) return;
+    const unpriced = (detail.lines || []).filter(lineNeedsPrice);
+    if (unpriced.length) {
+      setError(
+        `Set a unit rate on unpriced ad-hoc line(s) before approving: ${unpriced
+          .map((line) => line.description || "Ad-hoc service")
+          .join(", ")}`
+      );
+      return;
+    }
     setLoading(true);
     try {
       const res = await api.post(
@@ -236,11 +272,32 @@ const Billing = () => {
   };
 
   const createCreditNote = async () => {
-    if (!detail?.invoice_id) return;
+    if (!detail?.invoice_id || !creditMode) return;
+    if (creditMode === "partial") {
+      const issue = paidAmountIssue(
+        creditAmount,
+        Number(detail?.grand_total) || 0,
+        detail?.currency
+      );
+      if (issue) {
+        setError(issue);
+        return;
+      }
+    }
+    if (creditMode === "lines" && !creditLineIds.length) {
+      setError("Select at least one line that was paid.");
+      return;
+    }
     setLoading(true);
     try {
       const res = await api.post(
-        `/billing/invoices/${encodedPage}/${detail.invoice_id}/credit-note`
+        `/billing/invoices/${encodedPage}/${detail.invoice_id}/credit-note`,
+        {
+          mode: creditMode,
+          amount:
+            creditMode === "partial" ? paidAmountNumber(creditAmount) : undefined,
+          line_ids: creditMode === "lines" ? creditLineIds : undefined,
+        }
       );
       setCreditOpen(false);
       navigate(`${EMPLOYEE_ROUTES.billing}/${res.data.invoice.invoice_id}`);
@@ -248,6 +305,50 @@ const Billing = () => {
       setError(err.response?.data?.message || err.message);
       setLoading(false);
     }
+  };
+
+  const openCreditDialog = () => {
+    setCreditMode(null);
+    setCreditAmount("");
+    setCreditLineIds([]);
+    setError("");
+    setCreditOpen(true);
+  };
+
+  const creditPreview = () => {
+    if (creditMode === "full") return Number(detail?.grand_total) || 0;
+    if (creditMode === "partial") return paidAmountNumber(creditAmount) || 0;
+    if (creditMode === "lines") {
+      return (detail?.lines || [])
+        .filter((line) => creditLineIds.includes(line.invoice_line_id))
+        .reduce(
+          (sum, line) =>
+            sum + Number(line.amount || 0) + Number(line.tax || 0),
+          0
+        );
+    }
+    return 0;
+  };
+
+  const creditReady =
+    creditMode === "full"
+      ? Boolean(detail?.lines?.length)
+      : creditMode === "partial"
+        ? !paidAmountIssue(
+            creditAmount,
+            Number(detail?.grand_total) || 0,
+            detail?.currency
+          )
+        : creditMode === "lines"
+          ? creditLineIds.length > 0
+          : false;
+
+  const toggleCreditLine = (lineId) => {
+    setCreditLineIds((prev) =>
+      prev.includes(lineId)
+        ? prev.filter((id) => id !== lineId)
+        : [...prev, lineId]
+    );
   };
 
   const removeLine = async (lineId) => {
@@ -321,6 +422,8 @@ const Billing = () => {
       value: line.tariff_line_id,
     }));
 
+    const unpricedAdhoc = (detail.lines || []).filter(lineNeedsPrice);
+
     return (
       <>
         <EmployeePageHeader
@@ -332,12 +435,18 @@ const Billing = () => {
             <>
               <Badge
                 bg={statusBadge(detail.status)}
-                className="align-self-center"
+                className={`align-self-center${
+                  detail.status === "Voided" ? " text-white" : ""
+                }`}
               >
                 {detail.status}
               </Badge>
               {isDraft ? (
-                <Button label="Approve for review" onClick={approve} />
+                <Button
+                  label="Approve for review"
+                  onClick={approve}
+                  disabled={unpricedAdhoc.length > 0}
+                />
               ) : null}
               {isUnderReview ? (
                 <>
@@ -354,11 +463,11 @@ const Billing = () => {
                   <Button
                     label="Credit note"
                     className="p-button-outlined p-button-warning"
-                    onClick={() => setCreditOpen(true)}
+                    onClick={openCreditDialog}
                   />
                   <Button
                     label="Void"
-                    className="p-button-outlined p-button-danger"
+                    severity="danger"
                     onClick={() => setVoidOpen(true)}
                   />
                 </>
@@ -446,6 +555,12 @@ const Billing = () => {
             ) : null}
           </div>
           <div className="pricing-section-card__body">
+            {isDraft && unpricedAdhoc.length ? (
+              <div className="alert alert-warning py-2 px-3 mb-3">
+                Ad-hoc FHR services have no rate yet. Edit each line and set the
+                unit rate before approving.
+              </div>
+            ) : null}
             <div className="table-responsive">
               <Table striped hover className="align-middle mb-0 pricing-data-table">
                 <thead>
@@ -469,10 +584,14 @@ const Billing = () => {
                       <td className="col-code">{line.line_type}</td>
                       <td className="col-money text-end">{line.qty}</td>
                       <td className="col-money text-end">
-                        {money(line.unit_rate, detail.currency)}
+                        {lineNeedsPrice(line)
+                          ? "—"
+                          : money(line.unit_rate, detail.currency)}
                       </td>
                       <td className="col-money text-end">
-                        {money(line.amount, detail.currency)}
+                        {lineNeedsPrice(line)
+                          ? "Set rate"
+                          : money(line.amount, detail.currency)}
                       </td>
                       {isDraft ? (
                         <td className="col-actions text-end">
@@ -515,7 +634,8 @@ const Billing = () => {
         <Dialog
           header="Create credit note"
           visible={creditOpen}
-          style={{ width: "28rem" }}
+          style={{ width: "36rem" }}
+          className="credit-note-dialog"
           modal
           closable={!loading}
           onHide={() => {
@@ -533,18 +653,139 @@ const Billing = () => {
                 label="Create credit note"
                 severity="warning"
                 loading={loading}
+                disabled={!creditReady}
                 onClick={createCreditNote}
               />
             </div>
           }
         >
           <p className="mb-2">
-            Create a credit note that reverses all lines on{" "}
-            <strong>{detail.invoice_no}</strong>?
+            How much of <strong>{detail.invoice_no}</strong> was paid? The
+            Issued invoice stays as-is; this credit note covers only what you
+            choose.
           </p>
+          <Form.Check
+            type="radio"
+            name="credit-mode"
+            id="credit-mode-full"
+            className="mb-2"
+            label={`Full payment · ${money(
+              detail.grand_total,
+              detail.currency
+            )}`}
+            checked={creditMode === "full"}
+            onChange={() => setCreditMode("full")}
+          />
+          <Form.Check
+            type="radio"
+            name="credit-mode"
+            id="credit-mode-partial"
+            className="mb-2"
+            label="Partial payment · enter the amount received"
+            checked={creditMode === "partial"}
+            onChange={() => setCreditMode("partial")}
+          />
+          <Form.Check
+            type="radio"
+            name="credit-mode"
+            id="credit-mode-lines"
+            className="mb-3"
+            label="Specific line items · only the services that were paid"
+            checked={creditMode === "lines"}
+            onChange={() => setCreditMode("lines")}
+          />
+
+          {creditMode === "partial" ? (
+            <Form.Group className="mb-3">
+              <Form.Label>Amount paid</Form.Label>
+              <Form.Control
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder="e.g. 1500 or 1500.50"
+                value={creditAmount}
+                isInvalid={Boolean(
+                  creditAmount &&
+                    paidAmountIssue(
+                      creditAmount,
+                      Number(detail.grand_total) || 0,
+                      detail.currency
+                    )
+                )}
+                onChange={(e) => {
+                  const next = e.target.value.replace(/,/g, "");
+                  if (next === "" || PAID_AMOUNT_RE.test(next)) {
+                    setCreditAmount(next);
+                    setError("");
+                  }
+                }}
+              />
+              <Form.Control.Feedback type="invalid">
+                {paidAmountIssue(
+                  creditAmount,
+                  Number(detail.grand_total) || 0,
+                  detail.currency
+                )}
+              </Form.Control.Feedback>
+            </Form.Group>
+          ) : null}
+
+          {creditMode === "lines" ? (
+            <>
+              <div className="d-flex gap-2 mb-2">
+                <Button
+                  label="Select all"
+                  className="p-button-text p-button-sm"
+                  onClick={() =>
+                    setCreditLineIds(
+                      (detail.lines || []).map((line) => line.invoice_line_id)
+                    )
+                  }
+                />
+                <Button
+                  label="Clear"
+                  className="p-button-text p-button-sm"
+                  onClick={() => setCreditLineIds([])}
+                />
+              </div>
+              <div className="credit-note-lines border rounded p-2 mb-2">
+                {(detail.lines || []).map((line) => (
+                  <Form.Check
+                    key={line.invoice_line_id}
+                    type="checkbox"
+                    className="mb-2"
+                    id={`credit-line-${line.invoice_line_id}`}
+                    checked={creditLineIds.includes(line.invoice_line_id)}
+                    onChange={() => toggleCreditLine(line.invoice_line_id)}
+                    label={`${line.description || "Line"} · ${money(
+                      line.amount,
+                      detail.currency
+                    )}`}
+                  />
+                ))}
+                {!detail.lines?.length ? (
+                  <p className="text-muted small mb-0">
+                    No lines on this invoice.
+                  </p>
+                ) : null}
+              </div>
+              {(detail.lines || []).length > 5 ? (
+                <p className="text-muted small mb-2">
+                  {(detail.lines || []).length} lines — scroll the list to see
+                  all. Select all still includes hidden ones.
+                </p>
+              ) : null}
+            </>
+          ) : null}
+
+          {creditMode ? (
+            <p className="mb-2 fw-semibold">
+              Credit {money(creditPreview(), detail.currency)}
+            </p>
+          ) : null}
           <p className="mb-0 text-muted small">
-            The Issued invoice stays unchanged. Use Void only when you need a
-            full replacement invoice for the same FHRs.
+            Use Void only when you need a full replacement invoice for the same
+            FHRs.
           </p>
         </Dialog>
 
@@ -687,6 +928,12 @@ const Billing = () => {
               mode="decimal"
               useGrouping={false}
             />
+            {lineNeedsPrice(editLine) ? (
+              <div className="text-muted small mt-1">
+                This ad-hoc service was unpriced on the FHR. Enter the rate
+                here.
+              </div>
+            ) : null}
           </div>
         </Dialog>
       </>
@@ -788,7 +1035,14 @@ const Billing = () => {
                     <td className="col-code">{row.invoice_no}</td>
                     <td>{row.client?.name || row.bill_to?.name || "—"}</td>
                     <td className="col-status">
-                      <Badge bg={statusBadge(row.status)}>{row.status}</Badge>
+                      <Badge
+                        bg={statusBadge(row.status)}
+                        className={
+                          row.status === "Voided" ? "text-white" : undefined
+                        }
+                      >
+                        {row.status}
+                      </Badge>
                     </td>
                     <td className="col-money text-end">
                       {money(row.grand_total, row.currency)}

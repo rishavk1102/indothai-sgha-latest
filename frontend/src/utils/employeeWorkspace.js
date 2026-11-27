@@ -487,3 +487,8 @@ export function buildEmployeeMenu(fetchedPages = []) {
 export function isEmployeeRole(role) {
   return Boolean(role) && role !== "Client";
 }
+
+/** Service rates and invoice amounts stay with Admin / SuperAdmin. */
+export function canSeeFhrPrices(role) {
+  return role === "Admin" || role === "SuperAdmin";
+}

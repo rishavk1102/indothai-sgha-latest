@@ -289,6 +289,13 @@ const Import_fhr = () => {
             setShowDownloadDialog(true);
             return;
         }
+        if (!selectedBusiness) {
+            setProgressMessages([
+                "Select the handling company first. Uploads are checked against that station so data from another location cannot be imported here.",
+            ]);
+            setShowDownloadDialog(true);
+            return;
+        }
 
         const file = fileInput.files[0];
         const formData = new FormData();
@@ -296,19 +303,23 @@ const Import_fhr = () => {
         formData.append("remarks", remarks);
         formData.append("inserted_by_user_id", userId);
         formData.append("wet", date);
+        formData.append("business_id", selectedBusiness);
 
         setProgressMessages(["Uploading…"]);
         setShowDownloadDialog(true);
 
         try {
-            await api.post(`/FHR_Import/upload-excel/${PAGE_NAME}`, formData, {
+            const res = await api.post(`/FHR_Import/upload-excel/${PAGE_NAME}`, formData, {
                 headers: { "Content-Type": "multipart/form-data" },
             });
             fileInput.value = "";
             setFileName("");
             setDate("");
             setRemarks("");
-            setProgressMessages((prev) => [...prev, "Upload finished."]);
+            setProgressMessages((prev) => [
+                ...prev,
+                res.data?.message || "Upload finished.",
+            ]);
         } catch (error) {
             console.error("Upload failed:", error);
             setProgressMessages((prev) => [

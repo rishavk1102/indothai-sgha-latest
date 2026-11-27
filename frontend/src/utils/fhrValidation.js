@@ -108,14 +108,6 @@ export function equipmentRequiredChecks(equipmentList = []) {
     });
     if (item.is_adhoc) {
       checks.push({
-        key: `${index}_unit_rate`,
-        label: `${name} — Unit rate`,
-        ok:
-          item.unit_rate != null &&
-          item.unit_rate !== "" &&
-          Number(item.unit_rate) >= 0,
-      });
-      checks.push({
         key: `${index}_service_name`,
         label: `${name} — Service name`,
         ok: !isBlank(item.service_name),

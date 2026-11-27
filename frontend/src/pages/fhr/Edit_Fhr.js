@@ -440,6 +440,16 @@ const Edit_Fhr = () => {
                     </Form.Select>
                 </Form.Group>
             </Col>
+            {fhrStatus === 'Completed' && rating?.status === 'Needs review' ? (
+                <Col md={12} className="mb-3">
+                    <div className="alert alert-warning py-2 px-3 mb-0">
+                        <strong>Pricing needs review.</strong>{' '}
+                        {rating.reason || 'The tariff could not be matched for this FHR.'}{' '}
+                        This FHR will not appear in Billing until it is Rated. Fix the
+                        tariff or equipment, then click <strong>Re-rate</strong>.
+                    </div>
+                </Col>
+            ) : null}
             <Col md={12} lg={12}>
                 <Row className="mx-0 fhr_form bg-light p-3 mb-3" style={{ borderRadius: '6px' }}>
                     <div className="d-flex align-items-center gap-2 justify-content-between w-100">

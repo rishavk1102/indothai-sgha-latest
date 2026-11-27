@@ -4,6 +4,7 @@ import { InputTextarea } from "primereact/inputtextarea";
 import { InputText } from "primereact/inputtext";
 import { Calendar } from 'primereact/calendar';
 import { Button } from 'primereact/button';
+import { Dropdown } from 'primereact/dropdown';
 import { getSocket } from "../../context/socket";
 import { Dialog } from "primereact/dialog";
 import api from "../../api/axios";
@@ -17,11 +18,23 @@ import { RequiredMark, collectRequiredErrors, equipmentRequiredChecks, shouldEnf
 
 const emptyAdhocForm = () => ({
     service_name: '',
-    unit: 'Per Hour',
-    unit_rate: null,
+    unit: 'Each',
     total_no_used: 1,
     remarks: '',
 });
+
+/** Catalog sometimes stores a rate sentence in unit_or_measure — keep a short measure. */
+const shortUnit = (unit) => {
+    const raw = String(unit || '').trim();
+    if (!raw) return 'Each';
+    if (raw.length <= 24) return raw;
+    const lower = raw.toLowerCase();
+    if (lower.includes('hour') || lower.includes('hrs')) return 'Hour';
+    if (lower.includes('trip')) return 'Trip';
+    if (lower.includes('min')) return 'Mins';
+    if (lower.includes('each') || lower.includes('unit')) return 'Each';
+    return 'Each';
+};
 
 /** MySQL JSON often arrives as a string; always normalize to [{start,end}, ...]. */
 const normalizeTimeSlots = (slots) => {
@@ -42,12 +55,31 @@ const normalizeTimeSlots = (slots) => {
     }));
 };
 
-const normalizeEquipmentItem = (item) => ({
-    ...item,
-    is_adhoc: Boolean(item?.is_adhoc),
-    unit_rate: item?.unit_rate != null && item.unit_rate !== '' ? Number(item.unit_rate) : item?.unit_rate ?? null,
-    time_slots: normalizeTimeSlots(item?.time_slots),
-});
+/** Total Used (e.g. 10) drives that many start/end pairs for GPU / air starter. */
+const resizeTimeSlots = (slots, count) => {
+    const current = normalizeTimeSlots(slots);
+    const n = Math.max(0, Math.floor(Number(count) || 0));
+    if (n <= 0) return [{ start: null, end: null }];
+    if (current.length === n) return current;
+    if (current.length > n) return current.slice(0, n);
+    return [
+        ...current,
+        ...Array.from({ length: n - current.length }, () => ({ start: null, end: null })),
+    ];
+};
+
+const normalizeEquipmentItem = (item) => {
+    const qty = Math.floor(Number(item?.total_no_used) || 0);
+    let time_slots = normalizeTimeSlots(item?.time_slots);
+    if (qty > 0) time_slots = resizeTimeSlots(time_slots, qty);
+    return {
+        ...item,
+        is_adhoc: Boolean(item?.is_adhoc),
+        unit: shortUnit(item?.unit),
+        unit_rate: item?.unit_rate != null && item.unit_rate !== '' ? Number(item.unit_rate) : item?.unit_rate ?? null,
+        time_slots,
+    };
+};
 
 const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_id, fhrStatus, notify }, ref) => {
     const socket = getSocket();
@@ -73,8 +105,32 @@ const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_i
     const [adhocOpen, setAdhocOpen] = useState(false);
     const [adhocForm, setAdhocForm] = useState(() => emptyAdhocForm());
     const [adhocSaving, setAdhocSaving] = useState(false);
+    const [adhocOptions, setAdhocOptions] = useState([]);
+    const [adhocCustomName, setAdhocCustomName] = useState('');
     const [fieldErrors, setFieldErrors] = useState({});
     const isLocked = ['Submitted', 'Completed', 'Cancelled'].includes(fhrStatus);
+
+    useEffect(() => {
+        if (!fhr_id || !page_name) return;
+        let cancelled = false;
+        api.get(`/FHR/adhoc-catalog/${page_name}/${fhr_id}`)
+            .then((res) => {
+                if (!cancelled) setAdhocOptions(Array.isArray(res.data?.options) ? res.data.options : []);
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setAdhocOptions([
+                        { service_name: 'GPU', unit: 'Each' },
+                        { service_name: 'Air starter unit', unit: 'Each' },
+                        { service_name: 'Pushback', unit: 'Each' },
+                        { service_name: 'Other', unit: 'Each' },
+                    ]);
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [fhr_id, page_name]);
 
     const setLS = (key, value) => {
         localStorage.setItem(`${page_name}_additional_${key}`, JSON.stringify(value));
@@ -263,27 +319,25 @@ const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_i
 
     const submitAdhocEquipment = async () => {
         const name = String(adhocForm.service_name || '').trim();
-        if (!name) {
-            notify?.('error', 'Service name is required.');
-            return;
-        }
-        if (adhocForm.unit_rate == null || Number(adhocForm.unit_rate) < 0) {
-            notify?.('error', 'Enter a unit rate (0 or more).');
+        const picked =
+            name === 'Other' ? String(adhocCustomName || '').trim() : name;
+        if (!picked) {
+            notify?.('error', 'Select an ad-hoc service from the list.');
             return;
         }
         try {
             setAdhocSaving(true);
             const res = await api.post(`/FHR/add-adhoc-equipment/${page_name}`, {
                 fhr_id,
-                service_name: name,
-                unit: adhocForm.unit || null,
-                unit_rate: adhocForm.unit_rate,
+                service_name: picked,
+                unit: shortUnit(adhocForm.unit),
                 total_no_used: adhocForm.total_no_used,
                 remarks: adhocForm.remarks || null,
             });
             setCreationStatus(true);
             setAdhocOpen(false);
             setAdhocForm(emptyAdhocForm());
+            setAdhocCustomName('');
             refreshCreationStatus();
             refreshEquipmentList();
             notify?.('success', res.data?.message || 'Ad-hoc service added.');
@@ -329,16 +383,23 @@ const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_i
         }
     };
 
-    const handleEquipmentChange = (eqIndex, field, value) => {
+    const handleEquipmentChange = (eqIndex, field, value, extras = {}) => {
         const updated = [...equipmentList];
-        updated[eqIndex][field] = value;
+        updated[eqIndex] = {
+            ...normalizeEquipmentItem(updated[eqIndex]),
+            [field]: value,
+            ...extras,
+        };
+        if (field === 'total_no_used') {
+            updated[eqIndex].time_slots = resizeTimeSlots(updated[eqIndex].time_slots, value);
+            updated[eqIndex].total_time = String(calculateTotalTime(updated[eqIndex].time_slots));
+        }
         setEquipmentList(updated);
         setLS('equipment_data', updated);
         setFieldErrors((prev) => ({
             ...prev,
             [`${eqIndex}_${field}`]: false,
             [`${eqIndex}_total_no_used`]: field === 'total_no_used' ? false : prev[`${eqIndex}_total_no_used`],
-            [`${eqIndex}_unit_rate`]: field === 'unit_rate' ? false : prev[`${eqIndex}_unit_rate`],
             [`${eqIndex}_service_name`]: field === 'service_name' ? false : prev[`${eqIndex}_service_name`],
         }));
     };
@@ -407,7 +468,6 @@ const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_i
                             ? {
                                   service_name: item.service_name,
                                   unit: item.unit,
-                                  unit_rate: item.unit_rate,
                               }
                             : {}),
                         total_no_used: item.total_no_used,
@@ -449,7 +509,6 @@ const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_i
                     ? {
                           service_name: item.service_name,
                           unit: item.unit,
-                          unit_rate: item.unit_rate,
                       }
                     : {}),
                 total_no_used: item.total_no_used,
@@ -598,6 +657,7 @@ const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_i
                                             icon="pi pi-plus"
                                             onClick={() => {
                                                 setAdhocForm(emptyAdhocForm());
+                                                setAdhocCustomName('');
                                                 setAdhocOpen(true);
                                             }}
                                             severity="help"
@@ -650,19 +710,10 @@ const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_i
                                     >
                                         <Card.Header className="bg-transparent d-flex justify-content-between align-items-center py-2 px-3 gap-2 flex-wrap">
                                             <div className="d-flex align-items-center gap-2 flex-wrap min-w-0">
-                                                {item.is_adhoc && editMode && !isLocked ? (
-                                                    <InputText
-                                                        value={item.service_name || ''}
-                                                        onChange={(e) => handleEquipmentChange(index, 'service_name', e.target.value)}
-                                                        className="AdsEnq-name-input"
-                                                        placeholder="Service name"
-                                                    />
-                                                ) : (
-                                                    <span className="AdsEnq-title text-truncate">
-                                                        <span className="text-muted">Equipment Name: </span>
-                                                        {item.service_name}
-                                                    </span>
-                                                )}
+                                                <span className="AdsEnq-title text-truncate">
+                                                    <span className="text-muted">Equipment Name: </span>
+                                                    {item.service_name || 'Ad-hoc service'}
+                                                </span>
                                                 {item.is_adhoc && (
                                                     <Badge bg="warning" text="dark" className="AdsEnq-badge">Ad-hoc</Badge>
                                                 )}
@@ -680,41 +731,64 @@ const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_i
                                             )}
                                         </Card.Header>
                                         <Card.Body className="px-3 py-2">
-                                            <Row className="g-2 align-items-end">
+                                            <Row className="g-2 align-items-end AdsEnq-fields">
+                                                {item.is_adhoc && editMode && !isLocked && (
+                                                    <Col xs={12} md={6} lg={4}>
+                                                        <Form.Group className="mb-0">
+                                                            <Form.Label>Service <RequiredMark /></Form.Label>
+                                                            <Dropdown
+                                                                value={item.service_name || ''}
+                                                                options={
+                                                                    adhocOptions.some((opt) => opt.service_name === item.service_name)
+                                                                        ? adhocOptions
+                                                                        : [
+                                                                              ...(item.service_name
+                                                                                  ? [{ service_name: item.service_name, unit: item.unit }]
+                                                                                  : []),
+                                                                              ...adhocOptions,
+                                                                          ]
+                                                                }
+                                                                optionLabel="service_name"
+                                                                optionValue="service_name"
+                                                                className="w-100"
+                                                                placeholder="Select a service"
+                                                                filter
+                                                                filterPlaceholder="Search services"
+                                                                onChange={(e) => {
+                                                                    const match = adhocOptions.find((opt) => opt.service_name === e.value);
+                                                                    handleEquipmentChange(
+                                                                        index,
+                                                                        'service_name',
+                                                                        e.value,
+                                                                        match?.unit ? { unit: shortUnit(match.unit) } : {}
+                                                                    );
+                                                                }}
+                                                            />
+                                                        </Form.Group>
+                                                    </Col>
+                                                )}
                                                 {item.is_adhoc && (
-                                                    <>
-                                                        <Col xs={6} md={3} lg={2}>
-                                                            <Form.Group className="mb-0">
-                                                                <Form.Label>Unit</Form.Label>
-                                                                <Form.Control
-                                                                    className="w-100"
-                                                                    value={item.unit || ''}
-                                                                    disabled={!editMode || isLocked}
-                                                                    onChange={(e) => handleEquipmentChange(index, 'unit', e.target.value)}
-                                                                    placeholder="e.g. Per Hour"
-                                                                />
-                                                            </Form.Group>
-                                                        </Col>
-                                                        <Col xs={6} md={3} lg={2}>
-                                                            <Form.Group className="mb-0">
-                                                                <Form.Label>Unit rate <RequiredMark /></Form.Label>
-                                                                <Form.Control
-                                                                    type="number"
-                                                                    min="0"
-                                                                    step="0.01"
-                                                                    className={`w-100${fieldErrors[`${index}_unit_rate`] ? ' is-invalid' : ''}`}
-                                                                    value={item.unit_rate ?? ''}
-                                                                    disabled={!editMode || isLocked}
-                                                                    onChange={(e) => handleEquipmentChange(index, 'unit_rate', e.target.value)}
-                                                                />
-                                                            </Form.Group>
-                                                        </Col>
-                                                    </>
+                                                    <Col xs={6} md={3} lg={2}>
+                                                        <Form.Group className="mb-0">
+                                                            <Form.Label>Unit</Form.Label>
+                                                            <Form.Control
+                                                                className="w-100 AdsEnq-unit"
+                                                                value={item.unit || ''}
+                                                                disabled={!editMode || isLocked}
+                                                                onChange={(e) => handleEquipmentChange(index, 'unit', e.target.value)}
+                                                                placeholder="e.g. Each"
+                                                                title={item.unit || ''}
+                                                            />
+                                                        </Form.Group>
+                                                    </Col>
                                                 )}
                                                 <Col xs={6} md={3} lg={2}>
                                                     <Form.Group className="mb-0">
                                                         <Form.Label>Total Used <RequiredMark /></Form.Label>
                                                         <Form.Control
+                                                            type="number"
+                                                            min="0"
+                                                            step="1"
                                                             className={`w-100${fieldErrors[`${index}_total_no_used`] ? ' is-invalid' : ''}`}
                                                             value={item.total_no_used || ''}
                                                             disabled={!editMode || isLocked}
@@ -732,65 +806,72 @@ const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_i
                                                         />
                                                     </Form.Group>
                                                 </Col>
+                                                {item.is_adhoc ? (
+                                                    <Col xs={12}>
+                                                        <div className="text-muted small">
+                                                            Price is set at billing — not required here.
+                                                        </div>
+                                                    </Col>
+                                                ) : null}
                                             </Row>
 
-                                            <div className="AdsEnq-times mt-2 pt-2">
-                                                <div className="d-flex flex-wrap gap-2 align-items-end">
-                                                    {normalizeTimeSlots(item.time_slots).map((slot, slotIndex) => (
-                                                        <div key={slotIndex} className="d-flex gap-2 timeslt p-2 position-relative">
-                                                            <Form.Group className="mb-0">
-                                                                <Form.Label>
-                                                                    Start Time{slotIndex === 0 ? <> <RequiredMark /></> : null}
-                                                                </Form.Label>
-                                                                <Calendar
-                                                                    value={slot.start ? new Date(slot.start) : null}
-                                                                    onChange={(e) => updateSlot(index, slotIndex, 'start', e.value)}
-                                                                    showTime
-                                                                    disabled={!editMode || isLocked}
-                                                                    hourFormat="24"
-                                                                    dateFormat="dd/mm/yy"
-                                                                    className={slotIndex === 0 && fieldErrors[`${index}_start`] ? 'p-invalid' : undefined}
-                                                                />
-                                                            </Form.Group>
-                                                            <Form.Group className="mb-0">
-                                                                <Form.Label>
-                                                                    End Time{slotIndex === 0 ? <> <RequiredMark /></> : null}
-                                                                </Form.Label>
-                                                                <Calendar
-                                                                    value={slot.end ? new Date(slot.end) : null}
-                                                                    onChange={(e) => updateSlot(index, slotIndex, 'end', e.value)}
-                                                                    showTime
-                                                                    disabled={!editMode || isLocked}
-                                                                    hourFormat="24"
-                                                                    dateFormat="dd/mm/yy"
-                                                                    className={slotIndex === 0 && fieldErrors[`${index}_end`] ? 'p-invalid' : undefined}
-                                                                />
-                                                            </Form.Group>
-
-                                                            {normalizeTimeSlots(item.time_slots).length > 1 && editMode && !isLocked && (
-                                                                <Button
-                                                                    icon="pi pi-times"
-                                                                    severity="danger"
-                                                                    className="p-0 border-0"
-                                                                    text
-                                                                    onClick={() => handleDeleteSlot(index, slotIndex)}
-                                                                    style={{ position: 'absolute', top: '-10px', right: '-15px', width: '30px' }}
-                                                                />
-                                                            )}
-                                                        </div>
-                                                    ))}
-
-                                                    {editMode && !isLocked && (
-                                                        <Button
-                                                            label="Add Slot"
-                                                            icon="pi pi-plus"
-                                                            severity="danger"
-                                                            className="p-0 border-0"
-                                                            style={{ height: '30px', fontSize: '14px' }}
-                                                            text
-                                                            onClick={() => handleAddSlot(index)}
-                                                        />
-                                                    )}
+                                            <div className="AdsEnq-times mt-3 pt-2">
+                                                <div className="AdsEnq-times-head">
+                                                    Start / end times
+                                                    {Number(item.total_no_used) > 0
+                                                        ? ` · ${Math.floor(Number(item.total_no_used))} from Total Used`
+                                                        : ''}
+                                                </div>
+                                                <div className="AdsEnq-slot-wrap">
+                                                    <table className="AdsEnq-slot-table">
+                                                        <colgroup>
+                                                            <col className="AdsEnq-slot-col-no" />
+                                                            <col />
+                                                            <col />
+                                                        </colgroup>
+                                                        <thead>
+                                                            <tr>
+                                                                <th aria-label="Slot" />
+                                                                <th>
+                                                                    Start <RequiredMark />
+                                                                </th>
+                                                                <th>
+                                                                    End <RequiredMark />
+                                                                </th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {normalizeTimeSlots(item.time_slots).map((slot, slotIndex) => (
+                                                                <tr key={slotIndex}>
+                                                                    <td>
+                                                                        <span className="AdsEnq-slot-no">{slotIndex + 1}</span>
+                                                                    </td>
+                                                                    <td>
+                                                                        <Calendar
+                                                                            value={slot.start ? new Date(slot.start) : null}
+                                                                            onChange={(e) => updateSlot(index, slotIndex, 'start', e.value)}
+                                                                            showTime
+                                                                            disabled={!editMode || isLocked}
+                                                                            hourFormat="24"
+                                                                            dateFormat="dd/mm/yy"
+                                                                            className={`w-100${slotIndex === 0 && fieldErrors[`${index}_start`] ? ' p-invalid' : ''}`}
+                                                                        />
+                                                                    </td>
+                                                                    <td>
+                                                                        <Calendar
+                                                                            value={slot.end ? new Date(slot.end) : null}
+                                                                            onChange={(e) => updateSlot(index, slotIndex, 'end', e.value)}
+                                                                            showTime
+                                                                            disabled={!editMode || isLocked}
+                                                                            hourFormat="24"
+                                                                            dateFormat="dd/mm/yy"
+                                                                            className={`w-100${slotIndex === 0 && fieldErrors[`${index}_end`] ? ' p-invalid' : ''}`}
+                                                                        />
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
                                                 </div>
                                             </div>
                                         </Card.Body>
@@ -819,7 +900,7 @@ const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_i
             <Dialog
                 header="Add ad-hoc service"
                 visible={adhocOpen}
-                style={{ width: 'min(520px, 95vw)' }}
+                style={{ width: 'min(480px, 95vw)' }}
                 onHide={() => !adhocSaving && setAdhocOpen(false)}
                 closable={!adhocSaving}
                 className="AdsEnq-adhoc-dialog"
@@ -842,47 +923,55 @@ const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_i
                 }
             >
                 <p className="text-muted small mb-3">
-                    For urgent work not listed on the Active SGHA / walk-up tariff. Rate is entered here and billed as a Manual charge on Complete.
+                    Choose a service from the list. Billing sets the price later.
                 </p>
                 <Form.Group className="mb-3">
-                    <Form.Label>Service name *</Form.Label>
-                    <InputText
+                    <Form.Label>Service *</Form.Label>
+                    <Dropdown
                         className="w-100"
                         value={adhocForm.service_name}
-                        onChange={(e) => setAdhocForm((f) => ({ ...f, service_name: e.target.value }))}
-                        placeholder="e.g. Urgent de-icing support"
-                        autoFocus
+                        options={adhocOptions}
+                        optionLabel="service_name"
+                        optionValue="service_name"
+                        placeholder="Select a service"
+                        filter
+                        filterPlaceholder="Search services"
+                        emptyMessage="No services found"
+                        appendTo={typeof document !== 'undefined' ? document.body : null}
+                        onChange={(e) => {
+                            const next = e.value;
+                            const match = adhocOptions.find((opt) => opt.service_name === next);
+                            setAdhocForm((f) => ({
+                                ...f,
+                                service_name: next,
+                                unit: shortUnit(match?.unit || f.unit),
+                            }));
+                        }}
                     />
                 </Form.Group>
+                {adhocForm.service_name === 'Other' ? (
+                    <Form.Group className="mb-3">
+                        <Form.Label>Describe the service *</Form.Label>
+                        <InputText
+                            className="w-100"
+                            value={adhocCustomName}
+                            onChange={(e) => setAdhocCustomName(e.target.value)}
+                            placeholder="Short description"
+                        />
+                    </Form.Group>
+                ) : null}
                 <Row className="g-3">
-                    <Col xs={12} sm={4}>
+                    <Col xs={6}>
                         <Form.Group className="mb-0">
                             <Form.Label>Unit</Form.Label>
                             <Form.Control
                                 value={adhocForm.unit}
                                 onChange={(e) => setAdhocForm((f) => ({ ...f, unit: e.target.value }))}
-                                placeholder="Per Hour"
+                                placeholder="Each"
                             />
                         </Form.Group>
                     </Col>
-                    <Col xs={6} sm={4}>
-                        <Form.Group className="mb-0">
-                            <Form.Label>Unit rate *</Form.Label>
-                            <Form.Control
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={adhocForm.unit_rate ?? ''}
-                                onChange={(e) =>
-                                    setAdhocForm((f) => ({
-                                        ...f,
-                                        unit_rate: e.target.value === '' ? null : e.target.value,
-                                    }))
-                                }
-                            />
-                        </Form.Group>
-                    </Col>
-                    <Col xs={6} sm={4}>
+                    <Col xs={6}>
                         <Form.Group className="mb-0">
                             <Form.Label>Qty used</Form.Label>
                             <Form.Control
@@ -897,6 +986,7 @@ const Additional_equipment = forwardRef(({ userId, fhr_id, page_name, aircraft_i
                                     }))
                                 }
                             />
+                            <Form.Text className="text-muted">One start/end row per qty</Form.Text>
                         </Form.Group>
                     </Col>
                 </Row>

@@ -237,6 +237,9 @@ router.post(
     try {
       const invoice = await createCreditNote(req.params.invoice_id, {
         issued_by: req.user?.user_id || req.user?.id || null,
+        mode: req.body?.mode,
+        amount: req.body?.amount,
+        line_ids: req.body?.line_ids,
       });
       return res.status(201).json({ invoice });
     } catch (error) {

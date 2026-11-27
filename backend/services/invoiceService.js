@@ -14,6 +14,10 @@ const FhrChargeLine = require('../NewModels/FhrChargeLine');
 const Invoice = require('../NewModels/Invoice');
 const InvoiceLine = require('../NewModels/InvoiceLine');
 const InvoiceFhr = require('../NewModels/InvoiceFhr');
+const {
+  resolveCreditNotePlan,
+  creditAbsTotal,
+} = require('./creditNotePlan');
 
 /** Header fields shown under the logo on Tax Invoice / FHR PDFs. */
 function headerMetaFromFhr(fhr) {
@@ -34,6 +38,14 @@ function toMoney(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 100) / 100;
+}
+
+/** Ad-hoc FHR extras land as Additional at 0 — billing must set a rate. */
+function unpricedAdhocLines(lines = []) {
+  return (lines || []).filter((line) => {
+    if (String(line.line_type || '') !== 'Additional') return false;
+    return !(toMoney(line.unit_rate) > 0);
+  });
 }
 
 function fyLabel(date) {
@@ -376,6 +388,15 @@ async function approveInvoice(invoiceId, options = {}) {
     if (!invoice.lines?.length) {
       throw new Error('Invoice has no lines');
     }
+    const unpriced = unpricedAdhocLines(invoice.lines);
+    if (unpriced.length) {
+      const names = unpriced
+        .map((line) => line.description || 'Ad-hoc service')
+        .join(', ');
+      throw new Error(
+        `Set a unit rate on unpriced ad-hoc line(s) before approving: ${names}`
+      );
+    }
 
     await invoice.update(
       {
@@ -492,6 +513,36 @@ async function createCreditNote(invoiceId, options = {}) {
       throw new Error('Source invoice has no lines');
     }
 
+    const plan = resolveCreditNotePlan(source.lines, options);
+    const thisCredit = creditAbsTotal(plan);
+
+    const prior = await Invoice.findAll({
+      where: { credits_invoice_id: source.invoice_id, status: 'Credit note' },
+      attributes: ['grand_total'],
+      transaction,
+    });
+    const alreadyCredited = toMoney(
+      prior.reduce((sum, inv) => sum + Math.abs(Number(inv.grand_total || 0)), 0)
+    );
+    const remaining = toMoney(Number(source.grand_total || 0) - alreadyCredited);
+    if (!(remaining > 0)) {
+      throw new Error('This invoice is already fully credited');
+    }
+    if (thisCredit > remaining + 0.009) {
+      throw new Error(
+        `Credit cannot exceed the remaining ${remaining.toFixed(2)}`
+      );
+    }
+
+    const creditSubtotal =
+      plan.type === 'amount'
+        ? plan.amount
+        : plan.lines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+    const creditTax =
+      plan.type === 'amount'
+        ? 0
+        : plan.lines.reduce((sum, line) => sum + Number(line.tax || 0), 0);
+
     const creditNo = await nextInvoiceNo(source.business_id, transaction);
     const credit = await Invoice.create(
       {
@@ -502,9 +553,9 @@ async function createCreditNote(invoiceId, options = {}) {
         period_from: source.period_from,
         period_to: source.period_to,
         currency: source.currency,
-        subtotal: toMoney(-Number(source.subtotal || 0)),
-        tax_total: toMoney(-Number(source.tax_total || 0)),
-        grand_total: toMoney(-Number(source.grand_total || 0)),
+        subtotal: toMoney(-creditSubtotal),
+        tax_total: toMoney(-creditTax),
+        grand_total: toMoney(-(creditSubtotal + creditTax)),
         status: 'Credit note',
         bill_to: source.bill_to,
         bill_from: source.bill_from,
@@ -517,19 +568,36 @@ async function createCreditNote(invoiceId, options = {}) {
       { transaction }
     );
 
-    const creditLines = (source.lines || []).map((line) => ({
-      invoice_id: credit.invoice_id,
-      fhr_id: line.fhr_id,
-      charge_line_id: line.charge_line_id,
-      description: `Credit: ${line.description}`,
-      line_type: line.line_type,
-      qty: toMoney(line.qty),
-      unit: line.unit,
-      unit_rate: toMoney(-Number(line.unit_rate || 0)),
-      levy: line.levy != null ? toMoney(-Number(line.levy)) : null,
-      tax: line.tax != null ? toMoney(-Number(line.tax)) : null,
-      amount: toMoney(-Number(line.amount || 0)),
-    }));
+    const creditLines =
+      plan.type === 'amount'
+        ? [
+            {
+              invoice_id: credit.invoice_id,
+              fhr_id: source.lines[0]?.fhr_id || null,
+              charge_line_id: null,
+              description: `Partial payment on ${source.invoice_no}`,
+              line_type: 'credit',
+              qty: 1,
+              unit: 'Each',
+              unit_rate: toMoney(-plan.amount),
+              levy: null,
+              tax: 0,
+              amount: toMoney(-plan.amount),
+            },
+          ]
+        : plan.lines.map((line) => ({
+            invoice_id: credit.invoice_id,
+            fhr_id: line.fhr_id,
+            charge_line_id: line.charge_line_id,
+            description: `Credit: ${line.description}`,
+            line_type: line.line_type,
+            qty: toMoney(line.qty),
+            unit: line.unit,
+            unit_rate: toMoney(-Number(line.unit_rate || 0)),
+            levy: line.levy != null ? toMoney(-Number(line.levy)) : null,
+            tax: line.tax != null ? toMoney(-Number(line.tax)) : null,
+            amount: toMoney(-Number(line.amount || 0)),
+          }));
     if (creditLines.length) {
       await InvoiceLine.bulkCreate(creditLines, { transaction });
     }

@@ -7,7 +7,7 @@ import GifLoder from '../../interfaces/GifLoder';
 import { Dialog } from 'primereact/dialog';
 import { Button } from 'primereact/button';
 import api from "../../api/axios.js";
-import { EMPLOYEE_ROUTES } from "../../components/EmployeePageChrome";
+import { EMPLOYEE_ROUTES, canSeeFhrPrices } from "../../components/EmployeePageChrome";
 import { downloadFhrViewPdf, fhrPdfFilename } from "../../utils/fhrPdf";
 
 const waitForPaint = () =>
@@ -23,7 +23,8 @@ const Fhr_view = ({
     onPdfDownloadDone,
     hideToolbar = false,
 }) => {
-    const { roleId } = useAuth();
+    const { role, roleId } = useAuth();
+    const showPrices = canSeeFhrPrices(role);
     const [loading, setLoading] = useState(true);
     const [unauthorized, setUnauthorized] = useState(false);
     const socket = getSocket();
@@ -555,8 +556,12 @@ const Fhr_view = ({
                                         <th>Description</th>
                                         <th>Type</th>
                                         <th className="text-end">Qty</th>
-                                        <th className="text-end">Rate</th>
-                                        <th className="text-end">Amount</th>
+                                        {showPrices ? (
+                                            <>
+                                                <th className="text-end">Rate</th>
+                                                <th className="text-end">Amount</th>
+                                            </>
+                                        ) : null}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -565,13 +570,27 @@ const Fhr_view = ({
                                             <td>{line.description}</td>
                                             <td>{line.line_type}</td>
                                             <td className="text-end">{line.qty}</td>
-                                            <td className="text-end">{line.unit_rate}</td>
-                                            <td className="text-end">{line.amount}</td>
+                                            {showPrices ? (
+                                                <>
+                                                    <td className="text-end">
+                                                        {line.source === 'Manual' &&
+                                                        !(Number(line.unit_rate) > 0)
+                                                            ? 'Set at billing'
+                                                            : line.unit_rate}
+                                                    </td>
+                                                    <td className="text-end">
+                                                        {line.source === 'Manual' &&
+                                                        !(Number(line.unit_rate) > 0)
+                                                            ? '—'
+                                                            : line.amount}
+                                                    </td>
+                                                </>
+                                            ) : null}
                                         </tr>
                                     ))}
                                     {!rating.lines?.length ? (
                                         <tr>
-                                            <td colSpan={5} className="text-center text-muted py-3">
+                                            <td colSpan={showPrices ? 5 : 3} className="text-center text-muted py-3">
                                                 No charge lines yet.
                                             </td>
                                         </tr>

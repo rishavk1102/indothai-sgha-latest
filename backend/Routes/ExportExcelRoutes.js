@@ -17,6 +17,12 @@ const ExcelData = require('../Models/Excel_data');
 const ExcelFile = require('../Models/ExcelFile');
 const s3Client = require('../config/spacesConfig');
 const { PutObjectCommand } = require('@aws-sdk/client-s3');
+const {
+    DATA_HEADERS,
+    cellText,
+    findAircraftHeaderRow,
+    collectExcelImportIssues,
+} = require('../services/excelImportValidator');
 
 const upload = multer({ storage: multer.memoryStorage() }); // memoryStorage for buffer access
 
@@ -138,18 +144,6 @@ router.get('/download-excel/:page_name/:businessId/:user_id', authenticateToken,
 });
 
 
-function cellText(cell) {
-    if (!cell || cell.value == null || cell.value === '') return '';
-    const v = cell.value;
-    if (typeof v === 'object') {
-        if (v instanceof Date) return v.toISOString();
-        if (v.text != null) return String(v.text);
-        if (v.result != null) return String(v.result);
-        if (v.richText) return v.richText.map((p) => p.text || '').join('');
-    }
-    return String(v).trim();
-}
-
 function parseExcelTime(cell) {
     if (!cell || cell.value == null || cell.value === '') return null;
 
@@ -197,16 +191,6 @@ function parseExcelDate(value) {
     const parsed = new Date(text);
     if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
     return null;
-}
-
-function findAircraftHeaderRow(worksheet) {
-    let found = null;
-    worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-        if (found != null) return;
-        const first = cellText(row.getCell(1)).toUpperCase();
-        if (first === 'AIRCRAFT ID') found = rowNumber;
-    });
-    return found;
 }
 
 router.post('/upload-excel/:page_name', authenticateToken, checkPermission('add'), upload.single('file'), async (req, res) => {
@@ -258,18 +242,65 @@ router.post('/upload-excel/:page_name', authenticateToken, checkPermission('add'
         await workbook.xlsx.load(req.file.buffer);
 
         const rowsToInsert = [];
-        const expectedHeaders = [
-            'AIRCRAFT ID',
-            'ARRIVAL FLT NO',
-            'OUTGOING FLT NO',
-            'TYPE OF A/C',
-            'FROM',
-            'TO',
-            'DAYS',
-            'STA',
-            'STD',
-            'WEF',
-        ];
+
+        const expectedBusinessId = Number(req.body.business_id);
+        if (!Number.isInteger(expectedBusinessId) || expectedBusinessId <= 0) {
+            const msg =
+                'Select the handling company before uploading. The file is checked against that station so flights from another location cannot be imported under the wrong company.';
+            io.emit('excel-error', { user_id: inserted_by_user_id, message: msg });
+            return res.status(400).json({ message: msg });
+        }
+
+        const selectedBusiness = await Business.findByPk(expectedBusinessId, {
+            attributes: ['business_id', 'name'],
+        });
+        if (!selectedBusiness) {
+            const msg = 'Unknown handling company. Review the company selected on the import screen.';
+            io.emit('excel-error', { user_id: inserted_by_user_id, message: msg });
+            return res.status(400).json({ message: msg });
+        }
+
+        const aircraftRows = await Aircraft.findAll({
+            attributes: ['aircraft_id', 'type_name', 'airline_id'],
+            include: [
+                {
+                    model: Airline,
+                    as: 'airline',
+                    attributes: ['airline_id', 'business_id'],
+                    include: [
+                        {
+                            model: Business,
+                            as: 'business',
+                            attributes: ['business_id', 'name'],
+                        },
+                    ],
+                },
+            ],
+        });
+        const aircraftById = new Map(
+            aircraftRows.map((row) => [
+                row.aircraft_id,
+                {
+                    aircraft_id: row.aircraft_id,
+                    type_name: row.type_name,
+                    business_id: row.airline?.business_id,
+                    business_name: row.airline?.business?.name,
+                },
+            ])
+        );
+
+        const mismatches = collectExcelImportIssues(workbook, {
+            expectedBusinessId,
+            selectedBusinessName: selectedBusiness.name,
+            aircraftById,
+        });
+        if (mismatches.length) {
+            const preview = mismatches.slice(0, 8).join('; ');
+            const extra = mismatches.length > 8 ? ` (+${mismatches.length - 8} more)` : '';
+            const msg = `Upload blocked: this file does not match ${selectedBusiness.name}. Review and correct these rows: ${preview}${extra}.`;
+            io.emit('excel-error', { user_id: inserted_by_user_id, message: msg });
+            return res.status(400).json({ message: msg, mismatches });
+        }
 
         for (const worksheet of workbook.worksheets) {
             io.emit('excel-progress', {
@@ -287,7 +318,7 @@ router.post('/upload-excel/:page_name', authenticateToken, checkPermission('add'
             }
 
             const headerRow = worksheet.getRow(headerRowIndex);
-            const isHeaderValid = expectedHeaders.every(
+            const isHeaderValid = DATA_HEADERS.every(
                 (header, i) =>
                     cellText(headerRow.getCell(i + 1)).toUpperCase() === header
             );
@@ -436,10 +467,16 @@ router.post('/upload-excel/:page_name', authenticateToken, checkPermission('add'
         });
         io.emit('FHR-import-complete');
 
+        const importedIds = [
+            ...new Set([
+                ...rowsToInsert.map((row) => row.aircraft_id),
+            ]),
+        ];
         return res.json({
-            message: 'Excel data uploaded successfully.',
+            message: `Excel data uploaded successfully. Aircraft IDs imported: ${importedIds.join(', ') || 'none'}.`,
             insertedCount: rowsToInsert.length,
             updatedCount: updateCount,
+            aircraft_ids: importedIds,
         });
     } catch (error) {
         if (transaction) await transaction.rollback();
